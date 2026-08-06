@@ -1,0 +1,37 @@
+# secrets
+.env
+*.env
+!.env.example
+
+# agent / editor
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# runtime data
+data/
+postgres-data/
+caddy-data/
+n8n-data/
+chatwoot-data/
+redis-data/
+
+# media files pulled from Drive / local sync
+media/*
+!media/.gitkeep
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# backups
+backups/
+*.dump
+*.sql.gz
+
+# logs / os
+*.log
+.DS_Store

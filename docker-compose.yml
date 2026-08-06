@@ -1,0 +1,127 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_APP_DB: ${POSTGRES_APP_DB}
+      POSTGRES_CHATWOOT_DB: ${POSTGRES_CHATWOOT_DB}
+      POSTGRES_N8N_DB: ${POSTGRES_N8N_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/000_init_databases.sh:/docker-entrypoint-initdb.d/000_init_databases.sh:ro
+      - ./db/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./db/002_seed_campaigns.sql:/docker-entrypoint-initdb.d/002_seed_campaigns.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+
+  chatwoot:
+    image: chatwoot/chatwoot:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
+      FRONTEND_URL: ${FRONTEND_URL}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USERNAME: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DATABASE: ${POSTGRES_CHATWOOT_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      RAILS_LOG_TO_STDOUT: "true"
+    entrypoint: ["docker/entrypoints/rails.sh"]
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    volumes:
+      - chatwoot-data:/app/storage
+
+  chatwoot-worker:
+    image: chatwoot/chatwoot:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USERNAME: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DATABASE: ${POSTGRES_CHATWOOT_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    volumes:
+      - chatwoot-data:/app/storage
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_N8N_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+    volumes:
+      - n8n-data:/home/node/.n8n
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - chatwoot
+      - n8n
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file: .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  redis-data:
+  chatwoot-data:
+  n8n-data:
+  caddy-data:
+  caddy-config:
