@@ -100,8 +100,13 @@ services:
       N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      # Workflows read tokens and hostnames from the environment via $env.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     volumes:
       - n8n-data:/home/node/.n8n
+      - ./n8n/prompts:/prompts:ro
+      - ./scripts:/scripts:ro
+      - ./media:/media:ro
 
   caddy:
     image: caddy:2

@@ -1,0 +1,105 @@
+{
+  "name": "02 - Drip Cron",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "description": "Hourly. Sends the day 3 / 5 / 8 follow-up templates to leads whose window is due, advances or completes their drip state, and logs every send. Frequency-cap errors (131049) leave the lead active to retry."
+  },
+  "pinData": {},
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 1 }] }
+      },
+      "id": "node-schedule",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1000, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.id, l.wa_id, l.drip_stage, l.first_seen_at\nFROM leads l\nWHERE l.drip_status = 'active'\n  AND l.opted_out = false\n  AND l.next_touch_at IS NOT NULL\n  AND l.next_touch_at <= now()\n  AND l.drip_stage < 3\n  AND (l.last_inbound_at IS NULL OR l.last_inbound_at < now() - interval '20 hours')\nORDER BY l.next_touch_at\nLIMIT 100;",
+        "options": {}
+      },
+      "id": "node-selectdue",
+      "name": "Select Due Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-780, 300],
+      "credentials": {
+        "postgres": { "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID", "name": "Postgres App" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const nextStage = ($json.drip_stage || 0) + 1; // 1, 2 or 3\nconst tplName = $env['DRIP_TEMPLATE_' + nextStage];\nconst lang = $env.DRIP_TEMPLATE_LANG || 'en';\nconst body = {\n  messaging_product: 'whatsapp',\n  to: $json.wa_id,\n  type: 'template',\n  template: { name: tplName, language: { code: lang } }\n};\nreturn { json: { templateBody: body, leadId: $json.id, nextStage, templateName: tplName } };"
+      },
+      "id": "node-buildtpl",
+      "name": "Build Template Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.templateBody }}",
+        "options": { "response": { "response": { "neverError": true, "fullResponse": true } } }
+      },
+      "id": "node-sendtpl",
+      "name": "Send Template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-340, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const res = $json.body || $json;\nconst nextStage = $('Build Template Body').item.json.nextStage;\nconst leadId = $('Build Template Body').item.json.leadId;\nlet status = 'sent';\nlet errCode = '';\nlet msgId = '';\nif (res && res.error) {\n  errCode = String(res.error.code || '');\n  // 131049 is Meta's per-user marketing frequency cap. Not a fault. Retry next cycle.\n  status = errCode === '131049' ? 'freqcap' : 'error';\n} else if (res && res.messages && res.messages[0]) {\n  msgId = res.messages[0].id;\n}\nreturn { json: { leadId, nextStage, status, errCode, msgId } };"
+      },
+      "id": "node-interpret",
+      "name": "Interpret Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n  UPDATE leads SET\n    drip_stage = CASE WHEN '{{ $json.status }}' = 'sent' THEN {{ $json.nextStage }} ELSE drip_stage END,\n    next_touch_at = CASE\n      WHEN '{{ $json.status }}' = 'sent' AND {{ $json.nextStage }} = 1 THEN first_seen_at + interval '5 days'\n      WHEN '{{ $json.status }}' = 'sent' AND {{ $json.nextStage }} = 2 THEN first_seen_at + interval '8 days'\n      WHEN '{{ $json.status }}' = 'sent' AND {{ $json.nextStage }} = 3 THEN NULL\n      ELSE next_touch_at END,\n    drip_status = CASE WHEN '{{ $json.status }}' = 'sent' AND {{ $json.nextStage }} = 3 THEN 'completed' ELSE drip_status END\n  WHERE id = {{ $json.leadId }}\n  RETURNING id\n)\nINSERT INTO message_log (lead_id, direction, channel, template_name, meta_message_id, error_code, body, created_at)\nVALUES (\n  {{ $json.leadId }}, 'outbound', 'template',\n  $tpl${{ $env['DRIP_TEMPLATE_' + $json.nextStage] }}$tpl$,\n  NULLIF('{{ $json.msgId }}', ''),\n  NULLIF('{{ $json.errCode }}', ''),\n  $b$drip stage {{ $json.nextStage }} status {{ $json.status }}$b$,\n  now()\n);",
+        "options": {}
+      },
+      "id": "node-advance",
+      "name": "Advance Or Handle",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [100, 300],
+      "credentials": {
+        "postgres": { "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID", "name": "Postgres App" }
+      }
+    }
+  ],
+  "connections": {
+    "Every Hour": { "main": [[{ "node": "Select Due Leads", "type": "main", "index": 0 }]] },
+    "Select Due Leads": { "main": [[{ "node": "Build Template Body", "type": "main", "index": 0 }]] },
+    "Build Template Body": { "main": [[{ "node": "Send Template", "type": "main", "index": 0 }]] },
+    "Send Template": { "main": [[{ "node": "Interpret Result", "type": "main", "index": 0 }]] },
+    "Interpret Result": { "main": [[{ "node": "Advance Or Handle", "type": "main", "index": 0 }]] }
+  }
+}

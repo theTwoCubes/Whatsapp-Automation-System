@@ -1,0 +1,305 @@
+{
+  "name": "01 - Inbound Message",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "description": "Chatwoot webhook. Gates on human takeover, detects campaign, creates or updates the lead, answers from the knowledge base with gpt-4o-mini, posts the reply through Chatwoot, and optionally sends sample artwork."
+  },
+  "pinData": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-inbound",
+        "responseMode": "onReceived",
+        "responseCode": 200,
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Chatwoot Inbound",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1200, 300],
+      "webhookId": "chatwoot-inbound"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Chatwoot posts the event either at the top level or under body.\nconst root = $input.first().json;\nconst body = root.body || root;\n\n// Only act on a newly created, incoming customer message.\nif (body.event !== 'message_created') return [];\nif (body.message_type !== 'incoming') return [];\n\nconst conv = body.conversation || {};\nconst meta = conv.meta || {};\n\n// Human takeover gate. If a human agent is assigned, do nothing.\n// This is the auto/manual toggle and must run before any OpenAI spend.\nif (meta.assignee && meta.assignee.id) return [];\n\nconst sender = body.sender || meta.sender || {};\nconst phone = String(sender.phone_number || sender.identifier || '').replace(/[^0-9]/g, '');\nif (!phone) return [];\n\nconst content = body.content || '';\nconst normalized = content.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').replace(/\\s+/g, ' ').trim();\n\n// Referral data (ctwa_clid, source_id) only arrives on the first message.\n// Chatwoot may expose it under a few different keys, so check them all.\nconst add = conv.additional_attributes || {};\nconst catt = body.content_attributes || {};\nconst ref = add.referral || catt.referral || {};\nconst ctwa = String(add.ctwa_clid || ref.ctwa_clid || catt.ctwa_clid || '').replace(/[^A-Za-z0-9_-]/g, '');\nconst sourceId = String(add.source_id || ref.source_id || '').replace(/[^A-Za-z0-9_-]/g, '');\n\nconst convId = conv.id || null;\nconst contactId = sender.id || (meta.sender && meta.sender.id) || null;\n\n// Opt-out detection. Only ever flips opted_out to true, never back.\nconst optOut = /\\b(stop|unsubscribe|opt out|opt-out|remove me|do not message|dont message)\\b/.test(normalized);\n\nreturn [{ json: {\n  conversation_id: convId,\n  contact_sql: contactId === null ? 'NULL' : contactId,\n  wa_id: phone,\n  content,\n  normalized,\n  ctwa_clid: ctwa,\n  ad_source_id: sourceId,\n  opt_out: optOut ? 'true' : 'false'\n} }];"
+      },
+      "id": "node-gate",
+      "name": "Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-980, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH matched AS (\n  SELECT id, service_key FROM campaigns\n  WHERE active AND '{{ $json.normalized }}' ILIKE '%' || lower(match_text) || '%'\n  ORDER BY length(match_text) DESC\n  LIMIT 1\n)\nINSERT INTO leads (wa_id, chatwoot_contact_id, chatwoot_conv_id, campaign_id, ctwa_clid, ad_source_id, last_inbound_at, next_touch_at, drip_status, opted_out)\nVALUES (\n  '{{ $json.wa_id }}',\n  {{ $json.contact_sql }},\n  {{ $json.conversation_id }},\n  (SELECT id FROM matched),\n  NULLIF('{{ $json.ctwa_clid }}', ''),\n  NULLIF('{{ $json.ad_source_id }}', ''),\n  now(),\n  now() + interval '3 days',\n  CASE WHEN {{ $json.opt_out }} THEN 'opted_out' ELSE 'active' END,\n  {{ $json.opt_out }}\n)\nON CONFLICT (wa_id) DO UPDATE SET\n  last_inbound_at = now(),\n  chatwoot_conv_id = EXCLUDED.chatwoot_conv_id,\n  chatwoot_contact_id = COALESCE(EXCLUDED.chatwoot_contact_id, leads.chatwoot_contact_id),\n  opted_out = leads.opted_out OR {{ $json.opt_out }},\n  drip_status = CASE\n    WHEN leads.opted_out OR {{ $json.opt_out }} THEN 'opted_out'\n    WHEN leads.drip_stage > 0 AND leads.drip_status = 'active' THEN 'replied'\n    ELSE leads.drip_status END\nRETURNING id, campaign_id, (SELECT service_key FROM campaigns c WHERE c.id = leads.campaign_id) AS service_key;",
+        "options": {}
+      },
+      "id": "node-upsert",
+      "name": "Upsert Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-760, 300],
+      "credentials": {
+        "postgres": { "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID", "name": "Postgres App" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Gate').item.json.conversation_id }}/labels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { labels: [ $json.service_key || 'uncategorised' ] } }}",
+        "options": {}
+      },
+      "id": "node-label",
+      "name": "Apply Label",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-540, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.KNOWLEDGE_BASE_CSV_URL }}",
+        "options": { "response": { "response": { "responseFormat": "text" } } }
+      },
+      "id": "node-getkb",
+      "name": "Get Knowledge Base",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-320, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const csv = $json.data || $json.body || '';\nconst serviceKey = $('Upsert Lead').first().json.service_key || '';\n\nfunction parseCsv(text) {\n  const rows = []; let cur = []; let val = ''; let q = false;\n  for (let i = 0; i < text.length; i++) {\n    const c = text[i];\n    if (q) {\n      if (c === '\"') { if (text[i + 1] === '\"') { val += '\"'; i++; } else q = false; }\n      else val += c;\n    } else {\n      if (c === '\"') q = true;\n      else if (c === ',') { cur.push(val); val = ''; }\n      else if (c === '\\n') { cur.push(val); rows.push(cur); cur = []; val = ''; }\n      else if (c === '\\r') { /* skip */ }\n      else val += c;\n    }\n  }\n  if (val.length || cur.length) { cur.push(val); rows.push(cur); }\n  return rows;\n}\n\nconst rows = parseCsv(csv).filter(r => r.length > 1);\nif (rows.length < 2) return [{ json: { kb: '' } }];\n\nconst header = rows[0].map(h => h.trim().toLowerCase());\nconst idx = (n) => header.indexOf(n);\nconst out = [];\nfor (let i = 1; i < rows.length; i++) {\n  const r = rows[i];\n  const get = (n) => { const k = idx(n); return k >= 0 ? String(r[k] || '').trim() : ''; };\n  const sk = get('service_key');\n  if (sk && serviceKey && sk !== serviceKey && sk !== 'general') continue;\n  const parts = [];\n  if (get('service_name')) parts.push('Service: ' + get('service_name'));\n  if (get('price_text')) parts.push('Price: ' + get('price_text'));\n  if (get('turnaround')) parts.push('Turnaround: ' + get('turnaround'));\n  if (get('description')) parts.push('Details: ' + get('description'));\n  if (get('faq_question')) parts.push('Q: ' + get('faq_question') + ' A: ' + get('faq_answer'));\n  if (parts.length) out.push(parts.join('. '));\n}\nreturn [{ json: { kb: out.join('\\n') } }];"
+      },
+      "id": "node-parsekb",
+      "name": "Parse Knowledge Base",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/prompts/system-prompt.txt",
+        "options": {}
+      },
+      "id": "node-readprompt",
+      "name": "Read Prompt",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "node-extractprompt",
+      "name": "Extract Prompt",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [340, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const tpl = $('Extract Prompt').first().json.data || '';\nconst kb = $('Parse Knowledge Base').first().json.kb || '';\nconst userText = $('Gate').first().json.content || '';\n\nconst system = tpl\n  .replace(/{{\\s*BUSINESS_NAME\\s*}}/g, $env.BUSINESS_NAME || 'our studio')\n  .replace(/{{\\s*SERVICES\\s*}}/g, $env.SERVICES || 'design services')\n  .replace(/{{\\s*LANGUAGES\\s*}}/g, $env.LANGUAGES || 'English')\n  .replace(/{{\\s*KNOWLEDGE_BASE\\s*}}/g, kb || 'No specific information supplied.');\n\nreturn [{ json: {\n  openaiBody: {\n    model: $env.OPENAI_MODEL || 'gpt-4o-mini',\n    temperature: 0.3,\n    messages: [\n      { role: 'system', content: system },\n      { role: 'user', content: userText }\n    ]\n  }\n} }];"
+      },
+      "id": "node-buildreq",
+      "name": "Build Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OPENAI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.openaiBody }}",
+        "options": {}
+      },
+      "id": "node-openai",
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const c = $json.choices && $json.choices[0] && $json.choices[0].message ? $json.choices[0].message.content : '';\nconst reply = (c || 'Thanks for your message, a team member will follow up shortly.').trim();\nreturn [{ json: { reply } }];"
+      },
+      "id": "node-formatreply",
+      "name": "Format Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Gate').item.json.conversation_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { content: $json.reply, message_type: 'outgoing' } }}",
+        "options": {}
+      },
+      "id": "node-postreply",
+      "name": "Post Reply to Chatwoot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO message_log (lead_id, direction, channel, body, created_at) VALUES\n({{ $('Upsert Lead').item.json.id }}, 'inbound', 'ai', $body${{ $('Gate').item.json.content }}$body$, now()),\n({{ $('Upsert Lead').item.json.id }}, 'outbound', 'ai', $body${{ $('Format Reply').item.json.reply }}$body$, now());",
+        "options": {}
+      },
+      "id": "node-log",
+      "name": "Log Messages",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1440, 300],
+      "credentials": {
+        "postgres": { "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID", "name": "Postgres App" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const userText = ($('Gate').first().json.content || '').toLowerCase();\nconst reply = ($('Format Reply').first().json.reply || '').toLowerCase();\nconst kw = ['sample', 'samples', 'example', 'examples', 'portfolio', 'work', 'see your', 'show me', 'designs', 'reference'];\nconst relevant = kw.some(k => userText.includes(k) || reply.includes(k));\nconst serviceKey = $('Upsert Lead').first().json.service_key || 'general';\nreturn [{ json: { relevant, serviceKey, waId: $('Gate').first().json.wa_id } }];"
+      },
+      "id": "node-decide",
+      "name": "Decide Samples",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-relevant",
+              "leftValue": "={{ $json.relevant }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if",
+      "name": "Samples Relevant",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1880, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT meta_media_id, media_type FROM media_assets\nWHERE active AND meta_media_id IS NOT NULL\n  AND (service_key = '{{ $json.serviceKey }}' OR service_key = 'general')\nORDER BY (service_key = '{{ $json.serviceKey }}') DESC, id\nLIMIT 3;",
+        "options": {}
+      },
+      "id": "node-fetchmedia",
+      "name": "Fetch Media",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2100, 200],
+      "credentials": {
+        "postgres": { "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID", "name": "Postgres App" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const type = $json.media_type === 'document' ? 'document' : 'image';\nconst body = { messaging_product: 'whatsapp', to: $('Decide Samples').first().json.waId, type };\nbody[type] = { id: $json.meta_media_id };\nreturn { json: { mediaBody: body } };"
+      },
+      "id": "node-buildmedia",
+      "name": "Build Media Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2320, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.GRAPH_API_VERSION }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.mediaBody }}",
+        "options": {}
+      },
+      "id": "node-sendmedia",
+      "name": "Send Sample via Cloud API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2540, 200]
+    }
+  ],
+  "connections": {
+    "Chatwoot Inbound": { "main": [[{ "node": "Gate", "type": "main", "index": 0 }]] },
+    "Gate": { "main": [[{ "node": "Upsert Lead", "type": "main", "index": 0 }]] },
+    "Upsert Lead": { "main": [[{ "node": "Apply Label", "type": "main", "index": 0 }]] },
+    "Apply Label": { "main": [[{ "node": "Get Knowledge Base", "type": "main", "index": 0 }]] },
+    "Get Knowledge Base": { "main": [[{ "node": "Parse Knowledge Base", "type": "main", "index": 0 }]] },
+    "Parse Knowledge Base": { "main": [[{ "node": "Read Prompt", "type": "main", "index": 0 }]] },
+    "Read Prompt": { "main": [[{ "node": "Extract Prompt", "type": "main", "index": 0 }]] },
+    "Extract Prompt": { "main": [[{ "node": "Build Request", "type": "main", "index": 0 }]] },
+    "Build Request": { "main": [[{ "node": "OpenAI", "type": "main", "index": 0 }]] },
+    "OpenAI": { "main": [[{ "node": "Format Reply", "type": "main", "index": 0 }]] },
+    "Format Reply": { "main": [[{ "node": "Post Reply to Chatwoot", "type": "main", "index": 0 }]] },
+    "Post Reply to Chatwoot": { "main": [[{ "node": "Log Messages", "type": "main", "index": 0 }]] },
+    "Log Messages": { "main": [[{ "node": "Decide Samples", "type": "main", "index": 0 }]] },
+    "Decide Samples": { "main": [[{ "node": "Samples Relevant", "type": "main", "index": 0 }]] },
+    "Samples Relevant": { "main": [[{ "node": "Fetch Media", "type": "main", "index": 0 }], []] },
+    "Fetch Media": { "main": [[{ "node": "Build Media Body", "type": "main", "index": 0 }]] },
+    "Build Media Body": { "main": [[{ "node": "Send Sample via Cloud API", "type": "main", "index": 0 }]] }
+  }
+}
