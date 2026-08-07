@@ -6,7 +6,7 @@
     "saveManualExecutions": true
   },
   "meta": {
-    "description": "Runs scripts/upload_media.py on a schedule so new artwork in the media source gets a Meta media ID and lands in media_assets. Idempotent: files already uploaded are skipped. Requires python3 in the n8n container, or run the same script from a host cron instead."
+    "description": "Optional. Runs scripts/upload_media.py on a schedule so new artwork gets a Meta media ID in media_assets. Only works if the n8n container has python3. The reliable path is the uploader service: docker compose run --rm uploader, scheduled from host cron. See README."
   },
   "pinData": {},
   "nodes": [

@@ -147,12 +147,19 @@ Drop sample files into the `media/` folder (or a Google Drive folder if you set
 service key, for example `logo_design__sample1.jpg`. Run the uploader:
 
 ```bash
-docker compose exec n8n python3 /scripts/upload_media.py
+docker compose run --rm uploader
 ```
 
-Or let workflow `03 - Media Sync` run it on a schedule. If the n8n container has
-no python, run the script from the host instead, using the `APP_DATABASE_URL`
-that reaches your Postgres.
+That runs the upload script in its own small python container, so nothing needs
+python installed elsewhere. To do it on a schedule, add the same command to cron:
+
+```bash
+0 */6 * * * cd /opt/whatsapp-agent && docker compose run --rm uploader >> backups/uploader.log 2>&1
+```
+
+Workflow `03 - Media Sync` is an alternative that runs the script from inside
+n8n, but only works if the n8n container has python. The uploader service above
+is the reliable path.
 
 ### 10. Turn on the drip
 
