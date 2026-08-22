@@ -98,3 +98,11 @@ export async function getActiveKnowledge(pool) {
   const res = await pool.query('select title, content from knowledge_base where active = true order by id');
   return res.rows;
 }
+
+export async function setConversationState(pool, conversationId, state, assignee = null) {
+  await pool.query('update conversations set state = $2, assignee = $3, updated_at = now() where id = $1', [
+    conversationId,
+    state,
+    assignee,
+  ]);
+}

@@ -1,5 +1,6 @@
 import { recordInbound, recordOutbound, updateStatus } from '../db/repo.js';
-import { buildReply } from '../ai/reply.js';
+import { buildReply, wantsHuman } from '../ai/reply.js';
+import { handToHuman } from '../handoff.js';
 
 // Handles a verified webhook payload. Runs after the route has already returned
 // 200, so it must not throw back to the request. Messages and status callbacks
@@ -28,7 +29,7 @@ export async function processWebhook(body, deps) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { ai, pool, config, log } = deps;
+  const { meta, ai, pool, config, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   let result;
@@ -64,8 +65,24 @@ async function handleMessage(value, message, deps) {
     result.campaignId ? 'inbound message received from ad campaign' : 'inbound message received',
   );
 
+  // A human owns this conversation, so the bot stays out of it.
+  if (result.state !== 'bot') {
+    log.info({ conversationId: result.conversationId }, 'conversation is with a human, bot staying quiet');
+    return;
+  }
+
   if (message.type !== 'text' || !message.text?.body) {
     log.info({ wamid: message.id, type: message.type }, 'non text message, no reply');
+    return;
+  }
+
+  const text = message.text.body;
+
+  // The lead asked for a person. Hand off and let the team take it from here.
+  if (wantsHuman(text)) {
+    await handToHuman(pool, result.conversationId);
+    log.info({ conversationId: result.conversationId }, 'handed conversation to a human on request');
+    await sendAndRecord(deps, message.from, result.conversationId, config.handoffMessage);
     return;
   }
 

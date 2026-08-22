@@ -66,6 +66,25 @@ test('duplicate webhook retry does not create a second message or a second reply
   assert.equal(d.meta.sends.length, 1, 'reply sent once');
 });
 
+test('asking for a human hands off and stops the bot', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'human');
+  assert.equal(d.ai.calls, 0, 'ai not called on handoff');
+  assert.equal(d.meta.sends[0].body, testConfig.handoffMessage);
+});
+
+test('once a human owns the conversation the bot stays quiet', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.H2', body: 'talk to a person' }), d);
+  const sendsAfterHandoff = d.meta.sends.length;
+
+  await processWebhook(inboundText({ id: 'wamid.H3', body: 'are you there' }), d);
+  assert.equal(d.meta.sends.length, sendsAfterHandoff, 'no new bot reply while human owns it');
+});
+
 test('ai failure falls back to a canned reply instead of going silent', async () => {
   const d = deps({ ai: new FakeAi('unused', true) });
   await processWebhook(inboundText({ id: 'wamid.F1', body: 'hello' }), d);

@@ -52,5 +52,8 @@ export function loadConfig() {
     fallbackMessage:
       process.env.FALLBACK_MESSAGE?.trim() ||
       'Thanks for your message. Someone from our team will get back to you shortly.',
+    handoffMessage:
+      process.env.HANDOFF_MESSAGE?.trim() ||
+      "Sure, I'm connecting you with someone from our team. They'll reply here shortly.",
   };
 }

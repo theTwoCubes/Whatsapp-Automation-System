@@ -1,5 +1,19 @@
 import { getConversationHistory, getActiveKnowledge } from '../db/repo.js';
 
+const handoffPatterns = [
+  /talk to (a )?(human|person|agent|someone|representative)/i,
+  /speak (to|with) (a )?(human|person|agent|someone|representative)/i,
+  /real (human|person)/i,
+  /customer (care|support|service)/i,
+  /human agent/i,
+];
+
+// True when the lead is asking to reach a person rather than the bot.
+export function wantsHuman(text) {
+  if (!text) return false;
+  return handoffPatterns.some((re) => re.test(text));
+}
+
 // Builds the reply for a conversation from the business identity, the knowledge
 // base and the recent history, then asks the AI client for an answer. The most
 // recent inbound message is already part of the history.
