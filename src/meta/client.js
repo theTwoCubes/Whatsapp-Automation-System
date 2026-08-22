@@ -17,16 +17,25 @@ export class MetaClient {
     this.timeoutMs = 10000;
   }
 
-  // Sends a plain text message and returns the message id Meta assigns.
+  // Sends a plain text message. Only works inside the 24 hour service window.
   async sendText(to, body) {
-    const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
-    const payload = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to,
+    return this.send(to, {
       type: 'text',
       text: { preview_url: false, body },
-    };
+    });
+  }
+
+  // Sends an approved template. This is how we reach a lead outside the 24 hour
+  // window, for the drip follow ups.
+  async sendTemplate(to, name, language = 'en', components) {
+    const template = { name, language: { code: language } };
+    if (components) template.components = components;
+    return this.send(to, { type: 'template', template });
+  }
+
+  async send(to, content) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
+    const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...content };
 
     let res;
     try {
@@ -40,7 +49,7 @@ export class MetaClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
-      this.log.error({ to, err }, 'sendText request failed before a response');
+      this.log.error({ to, err }, 'send request failed before a response');
       throw new MetaApiError(err.message);
     }
 
@@ -48,12 +57,12 @@ export class MetaClient {
 
     if (!res.ok || data.error) {
       const err = data.error;
-      this.log.error({ to, status: res.status, error: err }, 'Cloud API rejected sendText');
+      this.log.error({ to, status: res.status, error: err }, 'Cloud API rejected send');
       throw new MetaApiError(err?.message ?? `Cloud API returned HTTP ${res.status}`, err?.code);
     }
 
     const wamid = data.messages?.[0]?.id ?? '';
-    this.log.info({ to, wamid }, 'sendText delivered to Cloud API');
+    this.log.info({ to, wamid, type: content.type }, 'message delivered to Cloud API');
     return wamid;
   }
 }

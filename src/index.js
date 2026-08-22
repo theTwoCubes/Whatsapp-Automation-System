@@ -2,6 +2,8 @@ import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
 import { buildServer } from './server.js';
+import { MetaClient } from './meta/client.js';
+import { startScheduler } from './scheduler.js';
 
 async function main() {
   let config;
@@ -23,8 +25,12 @@ async function main() {
 
   const app = buildServer(config, pool);
 
+  const meta = new MetaClient(config, app.log);
+  const stopScheduler = startScheduler({ pool, meta, config, log: app.log });
+
   const shutdown = async (signal) => {
     app.log.info({ signal }, 'shutting down');
+    stopScheduler();
     await app.close();
     await pool.end();
     process.exit(0);

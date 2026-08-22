@@ -1,4 +1,4 @@
-import { recordInbound, recordOutbound, updateStatus } from '../db/repo.js';
+import { recordInbound, recordOutbound, updateStatus, scheduleDrips, cancelDrips } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { handToHuman } from '../handoff.js';
 
@@ -29,7 +29,7 @@ export async function processWebhook(body, deps) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { meta, ai, pool, config, log } = deps;
+  const { ai, pool, config, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   let result;
@@ -78,9 +78,11 @@ async function handleMessage(value, message, deps) {
 
   const text = message.text.body;
 
-  // The lead asked for a person. Hand off and let the team take it from here.
+  // The lead asked for a person. Hand off, stop the drip follow ups, and let the
+  // team take it from here.
   if (wantsHuman(text)) {
     await handToHuman(pool, result.conversationId);
+    await cancelDrips(pool, result.conversationId);
     log.info({ conversationId: result.conversationId }, 'handed conversation to a human on request');
     await sendAndRecord(deps, message.from, result.conversationId, config.handoffMessage);
     return;
@@ -97,6 +99,9 @@ async function handleMessage(value, message, deps) {
   if (!reply) reply = config.fallbackMessage;
 
   await sendAndRecord(deps, message.from, result.conversationId, reply);
+
+  // The lead is active, so reset the follow up schedule from now.
+  await scheduleDrips(pool, result.conversationId, config.dripSteps);
 }
 
 async function sendAndRecord(deps, to, conversationId, body) {

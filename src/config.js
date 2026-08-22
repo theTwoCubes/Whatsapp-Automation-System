@@ -55,5 +55,20 @@ export function loadConfig() {
     handoffMessage:
       process.env.HANDOFF_MESSAGE?.trim() ||
       "Sure, I'm connecting you with someone from our team. They'll reply here shortly.",
+
+    // Drip follow ups. Each entry is templateName:days. The template names must
+    // match approved templates in WhatsApp Manager.
+    dripSteps: parseDripSteps(process.env.DRIP_STEPS || 'drip_day3:3,drip_day5:5,drip_day8:8'),
+    dripLanguage: process.env.DRIP_TEMPLATE_LANG?.trim() || 'en',
   };
+}
+
+function parseDripSteps(raw) {
+  return raw
+    .split(',')
+    .map((part, index) => {
+      const [template, days] = part.split(':');
+      return { step: index + 1, template: template.trim(), days: Number(days) };
+    })
+    .filter((s) => s.template && Number.isFinite(s.days));
 }

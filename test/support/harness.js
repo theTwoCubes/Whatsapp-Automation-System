@@ -34,17 +34,25 @@ async function ensureDatabase(url) {
 }
 
 export async function resetTables(pool) {
-  await pool.query('truncate messages, conversations, contacts, campaigns, knowledge_base restart identity cascade');
+  await pool.query(
+    'truncate messages, conversations, contacts, campaigns, knowledge_base, drip_jobs, templates restart identity cascade',
+  );
 }
 
 // Records outbound sends instead of calling Meta.
 export class FakeMeta {
   constructor() {
     this.sends = [];
+    this.templates = [];
   }
   async sendText(to, body) {
     const wamid = `wamid.OUT${this.sends.length + 1}`;
     this.sends.push({ to, body, wamid });
+    return wamid;
+  }
+  async sendTemplate(to, name, language) {
+    const wamid = `wamid.TPL${this.templates.length + 1}`;
+    this.templates.push({ to, name, language, wamid });
     return wamid;
   }
 }
@@ -80,4 +88,10 @@ export const testConfig = {
   businessTone: 'friendly',
   fallbackMessage: 'Thanks, the team will get back to you.',
   handoffMessage: 'Connecting you with a person now.',
+  dripSteps: [
+    { step: 1, template: 'drip_day3', days: 3 },
+    { step: 2, template: 'drip_day5', days: 5 },
+    { step: 3, template: 'drip_day8', days: 8 },
+  ],
+  dripLanguage: 'en',
 };

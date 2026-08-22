@@ -99,6 +99,58 @@ export async function getActiveKnowledge(pool) {
   return res.rows;
 }
 
+// Cancels any pending follow ups for a conversation and schedules a fresh set
+// from now. Called whenever a lead is active, so the clock resets on each reply.
+export async function scheduleDrips(pool, conversationId, steps) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query(
+      "update drip_jobs set status = 'cancelled' where conversation_id = $1 and status = 'pending'",
+      [conversationId],
+    );
+    for (const s of steps) {
+      await client.query(
+        `insert into drip_jobs (conversation_id, step, template_name, run_at)
+         values ($1, $2, $3, now() + make_interval(days => $4))`,
+        [conversationId, s.step, s.template, s.days],
+      );
+    }
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function cancelDrips(pool, conversationId) {
+  await pool.query(
+    "update drip_jobs set status = 'cancelled' where conversation_id = $1 and status = 'pending'",
+    [conversationId],
+  );
+}
+
+// Follow ups that are due and whose conversation is still owned by the bot.
+export async function dueDrips(pool, limit = 20) {
+  const res = await pool.query(
+    `select d.id, d.conversation_id, d.step, d.template_name, ct.wa_id
+     from drip_jobs d
+     join conversations c on c.id = d.conversation_id
+     join contacts ct on ct.id = c.contact_id
+     where d.status = 'pending' and d.run_at <= now() and c.state = 'bot'
+     order by d.run_at
+     limit $1`,
+    [limit],
+  );
+  return res.rows;
+}
+
+export async function markDrip(pool, id, status) {
+  await pool.query('update drip_jobs set status = $2 where id = $1', [id, status]);
+}
+
 export async function setConversationState(pool, conversationId, state, assignee = null) {
   await pool.query('update conversations set state = $2, assignee = $3, updated_at = now() where id = $1', [
     conversationId,

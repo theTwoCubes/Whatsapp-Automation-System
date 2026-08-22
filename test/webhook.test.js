@@ -12,7 +12,7 @@ before(async () => {
 });
 
 after(async () => {
-  await pool.end();
+  await pool?.end();
 });
 
 beforeEach(async () => {
