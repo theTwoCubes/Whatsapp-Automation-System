@@ -1,4 +1,6 @@
 import { loadConfig } from './config.js';
+import { createPool } from './db/pool.js';
+import { runMigrations } from './db/migrate.js';
 import { buildServer } from './server.js';
 
 async function main() {
@@ -10,11 +12,21 @@ async function main() {
     process.exit(1);
   }
 
-  const app = buildServer(config);
+  const pool = createPool(config);
+  try {
+    await runMigrations(pool);
+  } catch (err) {
+    console.error(`database not ready: ${err.message}`);
+    await pool.end();
+    process.exit(1);
+  }
+
+  const app = buildServer(config, pool);
 
   const shutdown = async (signal) => {
     app.log.info({ signal }, 'shutting down');
     await app.close();
+    await pool.end();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));

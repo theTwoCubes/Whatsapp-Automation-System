@@ -6,6 +6,7 @@ const required = [
   'META_ACCESS_TOKEN',
   'META_APP_SECRET',
   'WEBHOOK_VERIFY_TOKEN',
+  'DATABASE_URL',
 ];
 
 // Reads the environment and fails loudly if anything required is missing,
@@ -34,6 +35,7 @@ export function loadConfig() {
     accessToken: process.env.META_ACCESS_TOKEN,
     appSecret: process.env.META_APP_SECRET,
     verifyToken: process.env.WEBHOOK_VERIFY_TOKEN,
+    databaseUrl: process.env.DATABASE_URL,
     port,
     graphApiVersion: process.env.GRAPH_API_VERSION?.trim() || 'v21.0',
   };

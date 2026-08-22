@@ -1,10 +1,9 @@
 import Fastify from 'fastify';
 import { MetaClient } from './meta/client.js';
-import { SeenStore } from './dedup.js';
 import { verifySignature } from './security.js';
 import { processWebhook } from './handlers/message.js';
 
-export function buildServer(config) {
+export function buildServer(config, pool) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
@@ -19,7 +18,6 @@ export function buildServer(config) {
   });
 
   const meta = new MetaClient(config, app.log);
-  const seen = new SeenStore();
 
   // Keep the raw JSON bytes so signature verification can hash the body as it
   // was received, then parse alongside it.
@@ -70,7 +68,7 @@ export function buildServer(config) {
     req.log.info({ payload: body }, 'webhook payload received');
 
     setImmediate(() => {
-      processWebhook(body, { meta, seen, log: req.log }).catch((err) => {
+      processWebhook(body, { meta, pool, log: req.log }).catch((err) => {
         req.log.error({ err }, 'unhandled error processing webhook');
       });
     });
