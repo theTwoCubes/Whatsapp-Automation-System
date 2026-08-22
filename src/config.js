@@ -38,5 +38,19 @@ export function loadConfig() {
     databaseUrl: process.env.DATABASE_URL,
     port,
     graphApiVersion: process.env.GRAPH_API_VERSION?.trim() || 'v21.0',
+
+    // AI. Optional: with no key the bot falls back to a canned reply instead of
+    // failing, so testing without a key still works.
+    openaiApiKey: process.env.OPENAI_API_KEY?.trim() || '',
+    openaiModel: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+
+    // Business identity injected into the system prompt.
+    businessName: process.env.BUSINESS_NAME?.trim() || 'our studio',
+    businessAbout: process.env.BUSINESS_ABOUT?.trim() || '',
+    businessTone: process.env.BUSINESS_TONE?.trim() || 'friendly and professional',
+
+    fallbackMessage:
+      process.env.FALLBACK_MESSAGE?.trim() ||
+      'Thanks for your message. Someone from our team will get back to you shortly.',
   };
 }

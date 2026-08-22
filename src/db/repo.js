@@ -81,3 +81,20 @@ export async function recordOutbound(pool, o) {
 export async function updateStatus(pool, s) {
   await pool.query('update messages set status = $2 where wa_message_id = $1', [s.waMessageId, s.status]);
 }
+
+// Recent messages for a conversation in chronological order, for the AI context.
+export async function getConversationHistory(pool, conversationId, limit = 12) {
+  const res = await pool.query(
+    `select direction, body from messages
+     where conversation_id = $1 and body is not null
+     order by created_at desc, id desc
+     limit $2`,
+    [conversationId, limit],
+  );
+  return res.rows.reverse();
+}
+
+export async function getActiveKnowledge(pool) {
+  const res = await pool.query('select title, content from knowledge_base where active = true order by id');
+  return res.rows;
+}

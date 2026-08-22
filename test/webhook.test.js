@@ -1,0 +1,93 @@
+import test, { before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { processWebhook } from '../src/handlers/message.js';
+import { inboundText, inboundImage, statusUpdate, adReferral } from './support/fixtures.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
+
+let pool;
+
+before(async () => {
+  pool = await setupPool();
+});
+
+after(async () => {
+  await pool.end();
+});
+
+beforeEach(async () => {
+  await resetTables(pool);
+});
+
+function deps(overrides = {}) {
+  return {
+    meta: overrides.meta ?? new FakeMeta(),
+    ai: overrides.ai ?? new FakeAi(),
+    pool,
+    config: testConfig,
+    log: silentLog,
+  };
+}
+
+const count = async (table) => Number((await pool.query(`select count(*) as n from ${table}`)).rows[0].n);
+
+test('inbound from a click to whatsapp ad captures the campaign and the bot replies', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.A1', body: 'saw your ad', referral: adReferral }), d);
+
+  assert.equal(await count('campaigns'), 1);
+  assert.equal(await count('contacts'), 1);
+  assert.equal(await count('conversations'), 1);
+  assert.equal(d.ai.calls, 1, 'ai was asked for a reply');
+  assert.equal(d.meta.sends.length, 1, 'one reply sent');
+  assert.equal(d.meta.sends[0].body, 'Here is a helpful answer.');
+
+  const conv = await pool.query('select campaign_id, state from conversations limit 1');
+  assert.ok(conv.rows[0].campaign_id, 'conversation linked to the campaign');
+  assert.equal(conv.rows[0].state, 'bot');
+});
+
+test('a plain message with no ad still works and attaches no campaign', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.P1', body: 'hi there' }), d);
+
+  assert.equal(await count('campaigns'), 0);
+  assert.equal(await count('contacts'), 1);
+  assert.equal(d.meta.sends.length, 1);
+});
+
+test('duplicate webhook retry does not create a second message or a second reply', async () => {
+  const d = deps();
+  const payload = inboundText({ id: 'wamid.D1', body: 'hello' });
+  await processWebhook(payload, d);
+  await processWebhook(payload, d);
+
+  assert.equal(await count('messages'), 2, 'one inbound plus one outbound only');
+  assert.equal(d.meta.sends.length, 1, 'reply sent once');
+});
+
+test('ai failure falls back to a canned reply instead of going silent', async () => {
+  const d = deps({ ai: new FakeAi('unused', true) });
+  await processWebhook(inboundText({ id: 'wamid.F1', body: 'hello' }), d);
+
+  assert.equal(d.meta.sends.length, 1);
+  assert.equal(d.meta.sends[0].body, testConfig.fallbackMessage);
+});
+
+test('status callbacks update the stored message status', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.S1', body: 'hi' }), d);
+  const wamid = d.meta.sends[0].wamid;
+
+  await processWebhook(statusUpdate({ id: wamid, status: 'read' }), d);
+  const row = await pool.query('select status from messages where wa_message_id = $1', [wamid]);
+  assert.equal(row.rows[0].status, 'read');
+});
+
+test('non text messages are stored but do not get a reply', async () => {
+  const d = deps();
+  await processWebhook(inboundImage({ id: 'wamid.I1' }), d);
+
+  assert.equal(await count('messages'), 1, 'image stored');
+  assert.equal(d.meta.sends.length, 0, 'no reply to an image');
+});

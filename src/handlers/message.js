@@ -1,10 +1,11 @@
 import { recordInbound, recordOutbound, updateStatus } from '../db/repo.js';
+import { buildReply } from '../ai/reply.js';
 
 // Handles a verified webhook payload. Runs after the route has already returned
 // 200, so it must not throw back to the request. Messages and status callbacks
 // arrive on the same endpoint with different shapes and are handled separately.
 export async function processWebhook(body, deps) {
-  const { meta, pool, log } = deps;
+  const { meta, ai, pool, config, log } = deps;
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -13,7 +14,7 @@ export async function processWebhook(body, deps) {
 
       if (value.messages?.length) {
         for (const msg of value.messages) {
-          await handleMessage(value, msg, { meta, pool, log });
+          await handleMessage(value, msg, { meta, ai, pool, config, log });
         }
       }
 
@@ -27,7 +28,7 @@ export async function processWebhook(body, deps) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { meta, pool, log } = deps;
+  const { ai, pool, config, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   let result;
@@ -63,26 +64,33 @@ async function handleMessage(value, message, deps) {
     result.campaignId ? 'inbound message received from ad campaign' : 'inbound message received',
   );
 
-  // Auto reply only while the bot owns the conversation. A human takeover flips
-  // the state and the bot stays quiet. The echo is a placeholder until the AI
-  // reply engine lands in the next phase.
-  if (result.state !== 'bot') return;
   if (message.type !== 'text' || !message.text?.body) {
-    log.info({ wamid: message.id, type: message.type }, 'non text message, not echoing');
+    log.info({ wamid: message.id, type: message.type }, 'non text message, no reply');
     return;
   }
 
+  // AI reply. Any failure, including no api key, falls back to a canned message
+  // so the lead always gets an answer.
+  let reply;
   try {
-    const wamid = await meta.sendText(message.from, `Received: ${message.text.body}`);
+    reply = await buildReply(pool, ai, config, result.conversationId);
+  } catch (err) {
+    log.warn({ conversationId: result.conversationId, err }, 'ai reply unavailable, using fallback');
+  }
+  if (!reply) reply = config.fallbackMessage;
+
+  await sendAndRecord(deps, message.from, result.conversationId, reply);
+}
+
+async function sendAndRecord(deps, to, conversationId, body) {
+  const { meta, pool, log } = deps;
+  try {
+    const wamid = await meta.sendText(to, body);
     if (wamid) {
-      await recordOutbound(pool, {
-        conversationId: result.conversationId,
-        waMessageId: wamid,
-        body: `Received: ${message.text.body}`,
-      });
+      await recordOutbound(pool, { conversationId, waMessageId: wamid, body });
     }
   } catch (err) {
-    log.error({ wamid: message.id, from: message.from, err }, 'failed to send echo reply');
+    log.error({ conversationId, to, err }, 'failed to send reply');
   }
 }
 

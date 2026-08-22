@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { MetaClient } from './meta/client.js';
+import { AiClient } from './ai/client.js';
 import { verifySignature } from './security.js';
 import { processWebhook } from './handlers/message.js';
 
@@ -18,6 +19,7 @@ export function buildServer(config, pool) {
   });
 
   const meta = new MetaClient(config, app.log);
+  const ai = new AiClient(config, app.log);
 
   // Keep the raw JSON bytes so signature verification can hash the body as it
   // was received, then parse alongside it.
@@ -68,7 +70,7 @@ export function buildServer(config, pool) {
     req.log.info({ payload: body }, 'webhook payload received');
 
     setImmediate(() => {
-      processWebhook(body, { meta, pool, log: req.log }).catch((err) => {
+      processWebhook(body, { meta, ai, pool, config, log: req.log }).catch((err) => {
         req.log.error({ err }, 'unhandled error processing webhook');
       });
     });
