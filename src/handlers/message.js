@@ -6,7 +6,7 @@ import { handToHuman } from '../handoff.js';
 // 200, so it must not throw back to the request. Messages and status callbacks
 // arrive on the same endpoint with different shapes and are handled separately.
 export async function processWebhook(body, deps) {
-  const { meta, ai, pool, config, log } = deps;
+  const { meta, ai, pool, config, realtime, log } = deps;
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -15,13 +15,13 @@ export async function processWebhook(body, deps) {
 
       if (value.messages?.length) {
         for (const msg of value.messages) {
-          await handleMessage(value, msg, { meta, ai, pool, config, log });
+          await handleMessage(value, msg, { meta, ai, pool, config, realtime, log });
         }
       }
 
       if (value.statuses?.length) {
         for (const status of value.statuses) {
-          await handleStatus(status, { pool, log });
+          await handleStatus(status, { pool, realtime, log });
         }
       }
     }
@@ -29,7 +29,7 @@ export async function processWebhook(body, deps) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { ai, pool, config, log } = deps;
+  const { ai, pool, config, realtime, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   let result;
@@ -64,6 +64,8 @@ async function handleMessage(value, message, deps) {
     },
     result.campaignId ? 'inbound message received from ad campaign' : 'inbound message received',
   );
+
+  realtime?.emit({ type: 'refresh', conversationId: result.conversationId });
 
   // A human owns this conversation, so the bot stays out of it.
   if (result.state !== 'bot') {
@@ -105,11 +107,12 @@ async function handleMessage(value, message, deps) {
 }
 
 async function sendAndRecord(deps, to, conversationId, body) {
-  const { meta, pool, log } = deps;
+  const { meta, pool, realtime, log } = deps;
   try {
     const wamid = await meta.sendText(to, body);
     if (wamid) {
       await recordOutbound(pool, { conversationId, waMessageId: wamid, body });
+      realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
     log.error({ conversationId, to, err }, 'failed to send reply');
@@ -117,9 +120,10 @@ async function sendAndRecord(deps, to, conversationId, body) {
 }
 
 async function handleStatus(status, deps) {
-  const { pool, log } = deps;
+  const { pool, realtime, log } = deps;
   try {
     await updateStatus(pool, { waMessageId: status.id, status: status.status });
+    realtime?.emit({ type: 'status', wamid: status.id, status: status.status });
   } catch (err) {
     log.error({ wamid: status.id, err }, 'failed to update message status');
   }

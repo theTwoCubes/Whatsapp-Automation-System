@@ -151,6 +151,63 @@ export async function markDrip(pool, id, status) {
   await pool.query('update drip_jobs set status = $2 where id = $1', [id, status]);
 }
 
+// Console side reads and writes.
+
+export async function getAgentByEmail(pool, email) {
+  const res = await pool.query('select id, email, name, password_hash from agents where email = $1', [email]);
+  return res.rows[0] ?? null;
+}
+
+export async function createAgent(pool, a) {
+  await pool.query(
+    'insert into agents (email, name, password_hash) values ($1, $2, $3) on conflict (email) do nothing',
+    [a.email, a.name ?? null, a.passwordHash],
+  );
+}
+
+export async function listConversations(pool) {
+  const res = await pool.query(
+    `select c.id, c.state, c.assignee, c.window_expires_at,
+            ct.wa_id, ct.name, ca.headline as campaign,
+            m.body as last_message, m.created_at as last_at
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     left join lateral (
+       select body, created_at from messages
+       where conversation_id = c.id order by created_at desc, id desc limit 1
+     ) m on true
+     order by m.created_at desc nulls last
+     limit 200`,
+  );
+  return res.rows;
+}
+
+export async function getConversationById(pool, id) {
+  const res = await pool.query(
+    `select c.id, c.state, c.assignee, c.window_expires_at, ct.wa_id, ct.name
+     from conversations c join contacts ct on ct.id = c.contact_id
+     where c.id = $1`,
+    [id],
+  );
+  return res.rows[0] ?? null;
+}
+
+export async function getConversationMessages(pool, id, limit = 200) {
+  const res = await pool.query(
+    `select id, direction, type, body, status, created_at
+     from messages where conversation_id = $1
+     order by created_at, id limit $2`,
+    [id, limit],
+  );
+  return res.rows;
+}
+
+export async function listTemplates(pool) {
+  const res = await pool.query('select name, language, category, body from templates where active = true order by name');
+  return res.rows;
+}
+
 export async function setConversationState(pool, conversationId, state, assignee = null) {
   await pool.query('update conversations set state = $2, assignee = $3, updated_at = now() where id = $1', [
     conversationId,

@@ -1,8 +1,19 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
+import fastifyJwt from '@fastify/jwt';
+import fastifyWebsocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
 import { MetaClient } from './meta/client.js';
 import { AiClient } from './ai/client.js';
 import { verifySignature } from './security.js';
 import { processWebhook } from './handlers/message.js';
+import { registerApi } from './routes/api.js';
+import { createRealtime } from './realtime.js';
+import { seedAdmin } from './auth.js';
+
+const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
 export function buildServer(config, pool) {
   const app = Fastify({
@@ -20,6 +31,10 @@ export function buildServer(config, pool) {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
+  const realtime = createRealtime();
+
+  app.register(fastifyJwt, { secret: config.jwtSecret });
+  app.register(fastifyWebsocket);
 
   // Keep the raw JSON bytes so signature verification can hash the body as it
   // was received, then parse alongside it.
@@ -70,10 +85,27 @@ export function buildServer(config, pool) {
     req.log.info({ payload: body }, 'webhook payload received');
 
     setImmediate(() => {
-      processWebhook(body, { meta, ai, pool, config, log: req.log }).catch((err) => {
+      processWebhook(body, { meta, ai, pool, config, realtime, log: req.log }).catch((err) => {
         req.log.error({ err }, 'unhandled error processing webhook');
       });
     });
+  });
+
+  registerApi(app, { pool, meta, config, realtime });
+
+  // Serve the built console if it is there. Missing in dev and test, which is fine.
+  if (existsSync(webDist)) {
+    app.register(fastifyStatic, { root: webDist });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.method === 'GET' && !req.raw.url.startsWith('/api')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'not found' });
+    });
+  }
+
+  app.addHook('onReady', async () => {
+    await seedAdmin(pool, config, app.log);
   });
 
   return app;

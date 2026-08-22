@@ -60,6 +60,12 @@ export function loadConfig() {
     // match approved templates in WhatsApp Manager.
     dripSteps: parseDripSteps(process.env.DRIP_STEPS || 'drip_day3:3,drip_day5:5,drip_day8:8'),
     dripLanguage: process.env.DRIP_TEMPLATE_LANG?.trim() || 'en',
+
+    // Console. The jwt secret signs agent logins. The admin pair seeds the first
+    // login on boot if no agent exists.
+    jwtSecret: process.env.JWT_SECRET?.trim() || 'dev-only-change-me',
+    adminEmail: process.env.ADMIN_EMAIL?.trim() || '',
+    adminPassword: process.env.ADMIN_PASSWORD?.trim() || '',
   };
 }
 
