@@ -1,5 +1,0 @@
-psycopg2-binary>=2.9
-requests>=2.31
-# Only needed when MEDIA_SOURCE=drive
-google-api-python-client>=2.100
-google-auth>=2.23

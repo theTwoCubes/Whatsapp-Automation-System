@@ -3,6 +3,10 @@
 *.env
 !.env.example
 
+# node
+node_modules/
+dist/
+
 # agent / editor
 .claude/
 .vscode/
@@ -17,7 +21,7 @@ n8n-data/
 chatwoot-data/
 redis-data/
 
-# media files pulled from Drive / local sync
+# media files
 media/*
 !media/.gitkeep
 
@@ -32,6 +36,6 @@ backups/
 *.dump
 *.sql.gz
 
-# logs / os
+# logs
 *.log
 .DS_Store

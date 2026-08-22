@@ -1,0 +1,18 @@
+{
+  "name": "whatsapp-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp Cloud API messaging service for the lead nurturing agent",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "pino-pretty": "^11.2.2"
+  }
+}
