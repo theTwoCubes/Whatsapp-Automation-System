@@ -86,13 +86,13 @@ export function registerApi(app, deps) {
   app.post('/api/conversations/:id/takeover', { preHandler: auth }, async (req) => {
     await handToHuman(pool, req.params.id, req.user.email);
     await cancelDrips(pool, req.params.id);
-    realtime.emit({ type: 'refresh', conversationId: Number(req.params.id) });
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
 
   app.post('/api/conversations/:id/handback', { preHandler: auth }, async (req) => {
     await handToBot(pool, req.params.id);
-    realtime.emit({ type: 'refresh', conversationId: Number(req.params.id) });
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
 

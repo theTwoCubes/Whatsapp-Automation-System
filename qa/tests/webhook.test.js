@@ -1,7 +1,7 @@
 import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { processWebhook } from '../src/handlers/message.js';
+import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText, inboundImage, statusUpdate, adReferral } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 

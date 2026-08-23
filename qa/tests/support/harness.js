@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { runMigrations } from '../../src/db/migrate.js';
+import { runMigrations } from '../../../src/db/migrate.js';
 
 // A test database, kept separate from the dev one. Override with TEST_DATABASE_URL.
 const testDatabaseUrl =

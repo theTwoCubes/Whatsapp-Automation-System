@@ -1,8 +1,8 @@
 import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { processWebhook } from '../src/handlers/message.js';
-import { runDueDrips } from '../src/scheduler.js';
+import { processWebhook } from '../../src/handlers/message.js';
+import { runDueDrips } from '../../src/scheduler.js';
 import { inboundText } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 

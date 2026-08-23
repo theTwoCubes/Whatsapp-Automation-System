@@ -4,10 +4,10 @@ import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 
-import { registerApi } from '../src/routes/api.js';
-import { createAgent, getConversationById } from '../src/db/repo.js';
-import { hashPassword } from '../src/auth.js';
-import { processWebhook } from '../src/handlers/message.js';
+import { registerApi } from '../../src/routes/api.js';
+import { createAgent, getConversationById } from '../../src/db/repo.js';
+import { hashPassword } from '../../src/auth.js';
+import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 

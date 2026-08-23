@@ -39,3 +39,7 @@ backups/
 # logs
 *.log
 .DS_Store
+
+# qa reports
+qa/results/*
+!qa/results/.gitkeep

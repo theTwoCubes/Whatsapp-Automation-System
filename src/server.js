@@ -91,7 +91,12 @@ export function buildServer(config, pool) {
     });
   });
 
-  registerApi(app, { pool, meta, config, realtime });
+  // Register the api inside a plugin so its routes load after the websocket
+  // plugin. Adding a websocket route synchronously before the plugin finishes
+  // loading means its onRoute hook never sees the route and the upgrade fails.
+  app.register(async (instance) => {
+    registerApi(instance, { pool, meta, config, realtime });
+  });
 
   // Serve the built console if it is there. Missing in dev and test, which is fine.
   if (existsSync(webDist)) {
