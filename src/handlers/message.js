@@ -90,16 +90,26 @@ async function handleMessage(value, message, deps) {
     return;
   }
 
-  // AI reply. Any failure, including no api key, falls back to a canned message
-  // so the lead always gets an answer.
-  let reply;
+  // AI reply. The model returns a reply plus its own judgement on whether a
+  // human should take over. Any failure, including no api key, falls back to a
+  // canned message so the lead always gets an answer.
+  let decision;
   try {
-    reply = await buildReply(pool, ai, config, result.conversationId);
+    decision = await buildReply(pool, ai, config, result.conversationId);
   } catch (err) {
     log.warn({ conversationId: result.conversationId, err }, 'ai reply unavailable, using fallback');
   }
-  if (!reply) reply = config.fallbackMessage;
 
+  // The AI decided this needs a person.
+  if (decision?.handoff) {
+    await handToHuman(pool, result.conversationId);
+    await cancelDrips(pool, result.conversationId);
+    log.info({ conversationId: result.conversationId, reason: decision.reason }, 'ai handed conversation to a human');
+    await sendAndRecord(deps, message.from, result.conversationId, decision.reply || config.handoffMessage);
+    return;
+  }
+
+  const reply = decision?.reply || config.fallbackMessage;
   await sendAndRecord(deps, message.from, result.conversationId, reply);
 
   // The lead is active, so reset the follow up schedule from now.

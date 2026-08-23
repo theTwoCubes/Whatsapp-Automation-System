@@ -17,15 +17,16 @@ export class AiClient {
     if (!this.enabled) {
       throw new Error('AI disabled: OPENAI_API_KEY is not set');
     }
-    const res = await this.client.chat.completions.create(
-      {
-        model: options.model ?? this.model,
-        messages,
-        temperature: 0.5,
-        max_tokens: 400,
-      },
-      { timeout: this.timeoutMs },
-    );
+    const body = {
+      model: options.model ?? this.model,
+      messages,
+      temperature: 0.6,
+      max_tokens: 400,
+    };
+    if (options.json) {
+      body.response_format = { type: 'json_object' };
+    }
+    const res = await this.client.chat.completions.create(body, { timeout: this.timeoutMs });
     return res.choices[0]?.message?.content?.trim() ?? '';
   }
 }

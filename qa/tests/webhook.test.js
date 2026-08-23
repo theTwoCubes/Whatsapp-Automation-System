@@ -93,6 +93,26 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
   assert.equal(d.meta.sends[0].body, testConfig.fallbackMessage);
 });
 
+test('the ai can decide on its own to hand a chat to a human', async () => {
+  const ai = new FakeAi(
+    JSON.stringify({ reply: 'Let me get a colleague to help with that.', handoff: true, reason: 'price negotiation' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.AI1', body: 'can you do 2000 instead of 5000?' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'human', 'ai handoff flips the state');
+  assert.equal(d.meta.sends[0].body, 'Let me get a colleague to help with that.');
+});
+
+test('the reply is cleaned of ai style formatting before sending', async () => {
+  const ai = new FakeAi(JSON.stringify({ reply: 'Our logos are **great** and start at 5000 — really', handoff: false }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.AI2', body: 'tell me about logos' }), d);
+
+  assert.equal(d.meta.sends[0].body, 'Our logos are great and start at 5000 - really');
+});
+
 test('status callbacks update the stored message status', async () => {
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.S1', body: 'hi' }), d);
