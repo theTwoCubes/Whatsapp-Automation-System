@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken } from './api.js';
-import { initials, avatarColor, shortTime, groupByDay } from './lib.js';
+import { initials, avatarColor, shortTime, groupByDay, templateParamCount } from './lib.js';
 
 export default function Console({ onLogout }) {
   const [conversations, setConversations] = useState([]);
@@ -28,6 +28,11 @@ export default function Console({ onLogout }) {
     }
   }, []);
 
+  const syncTemplates = useCallback(async () => {
+    const d = await api.syncTemplates();
+    setTemplates(d.templates || []);
+  }, []);
+
   useEffect(() => {
     loadList();
     api.templates().then((d) => setTemplates(d.templates)).catch(() => {});
@@ -38,7 +43,6 @@ export default function Console({ onLogout }) {
     loadThread(selected);
   }, [selected, loadThread]);
 
-  // Live updates: any event refreshes the list and the open thread.
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
@@ -102,7 +106,12 @@ export default function Console({ onLogout }) {
 
       <main className="chat">
         {thread ? (
-          <Chat thread={thread} templates={templates} onChanged={() => loadThread(selected)} />
+          <Chat
+            thread={thread}
+            templates={templates}
+            onSync={syncTemplates}
+            onChanged={() => loadThread(selected)}
+          />
         ) : (
           <div className="empty-chat">
             <div className="big">💬</div>
@@ -121,10 +130,9 @@ function Ticks({ status }) {
   return <span className={`ticks ${read ? 'read' : ''}`}>{single ? '✓' : '✓✓'}</span>;
 }
 
-function Chat({ thread, templates, onChanged }) {
+function Chat({ thread, templates, onSync, onChanged }) {
   const { conversation, messages } = thread;
   const [text, setText] = useState('');
-  const [templateName, setTemplateName] = useState('');
   const [error, setError] = useState('');
   const endRef = useRef(null);
 
@@ -145,6 +153,7 @@ function Chat({ thread, templates, onChanged }) {
 
   const groups = groupByDay(messages);
   const isHuman = conversation.state === 'human';
+  const windowOpen = conversation.window_open;
 
   return (
     <>
@@ -159,6 +168,9 @@ function Chat({ thread, templates, onChanged }) {
             {isHuman && conversation.assignee ? ` · with ${conversation.assignee}` : ` · handled by bot`}
           </div>
         </div>
+        <span className={`window ${windowOpen ? 'open' : 'closed'}`}>
+          {windowOpen ? '24h window open' : 'window closed'}
+        </span>
         {isHuman ? (
           <button className="btn ghost" onClick={() => act(() => api.handback(conversation.id))}>
             Give back to bot
@@ -191,47 +203,128 @@ function Chat({ thread, templates, onChanged }) {
       {error && <p className="error" style={{ padding: '4px 16px' }}>{error}</p>}
 
       <div className="composer">
-        <div className="row">
-          <input
-            className="msg"
-            placeholder="Type a message"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && text.trim() && act(() => api.send(conversation.id, text.trim()))}
-          />
-          <button
-            className="send"
-            disabled={!text.trim()}
-            onClick={() => act(() => api.send(conversation.id, text.trim()))}
-            title="Send"
-          >
-            ➤
-          </button>
-        </div>
-        {templates.length > 0 && (
-          <div className="template-bar">
-            <select value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
-              <option value="">Send an approved template...</option>
-              {templates.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+        {windowOpen ? (
+          <div className="row">
+            <input
+              className="msg"
+              placeholder="Type a message"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && text.trim() && act(() => api.send(conversation.id, text.trim()))}
+            />
             <button
-              className="btn ghost"
-              disabled={!templateName}
-              onClick={() => act(() => api.sendTemplate(conversation.id, templateName))}
+              className="send"
+              disabled={!text.trim()}
+              onClick={() => act(() => api.send(conversation.id, text.trim()))}
+              title="Send"
             >
-              Send template
+              ➤
             </button>
           </div>
+        ) : (
+          <p className="locked">
+            This chat is outside the 24 hour window, so free messages are not allowed. You can send an approved
+            template below.
+          </p>
         )}
+        <TemplatePanel
+          conversationId={conversation.id}
+          templates={templates}
+          onSync={onSync}
+          onSent={onChanged}
+        />
       </div>
 
       <div className="watermark">
         Made by theTwoCubes · <a href="mailto:build@thetwocubes.com">build@thetwocubes.com</a>
       </div>
     </>
+  );
+}
+
+function TemplatePanel({ conversationId, templates, onSync, onSent }) {
+  const [name, setName] = useState('');
+  const [params, setParams] = useState([]);
+  const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  const selected = templates.find((t) => t.name === name);
+  const count = templateParamCount(selected?.body);
+
+  useEffect(() => {
+    setParams(Array(count).fill(''));
+  }, [name, count]);
+
+  const send = async () => {
+    setError('');
+    try {
+      await api.sendTemplate(conversationId, name, params);
+      setName('');
+      await onSent();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const sync = async () => {
+    setSyncing(true);
+    setError('');
+    try {
+      await onSync();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const preview = selected?.body
+    ? selected.body.replace(/\{\{\s*(\d+)\s*\}\}/g, (_, n) => params[Number(n) - 1] || `{{${n}}}`)
+    : '';
+
+  return (
+    <div className="template-panel">
+      <div className="template-bar">
+        <select value={name} onChange={(e) => setName(e.target.value)}>
+          <option value="">Send an approved template...</option>
+          {templates.map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        <button className="btn ghost" onClick={sync} disabled={syncing}>
+          {syncing ? 'Syncing...' : 'Sync'}
+        </button>
+      </div>
+
+      {count > 0 &&
+        Array.from({ length: count }).map((_, i) => (
+          <input
+            key={i}
+            className="param"
+            placeholder={`Value for {{${i + 1}}}`}
+            value={params[i] || ''}
+            onChange={(e) => {
+              const next = [...params];
+              next[i] = e.target.value;
+              setParams(next);
+            }}
+          />
+        ))}
+
+      {preview && <div className="template-preview">{preview}</div>}
+
+      {name && (
+        <button className="btn" onClick={send}>
+          Send template
+        </button>
+      )}
+
+      {templates.length === 0 && (
+        <p className="locked">No approved templates yet. Click Sync to pull them from Meta.</p>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }

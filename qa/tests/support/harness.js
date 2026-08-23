@@ -50,10 +50,16 @@ export class FakeMeta {
     this.sends.push({ to, body, wamid });
     return wamid;
   }
-  async sendTemplate(to, name, language) {
+  async sendTemplate(to, name, language, components) {
     const wamid = `wamid.TPL${this.templates.length + 1}`;
-    this.templates.push({ to, name, language, wamid });
+    this.templates.push({ to, name, language, components, wamid });
     return wamid;
+  }
+  async fetchTemplates() {
+    return [
+      { name: 'drip_day3', language: 'en', category: 'MARKETING', status: 'APPROVED', body: 'Hi {{1}}, still thinking it over?' },
+      { name: 'pending_one', language: 'en', category: 'UTILITY', status: 'PENDING', body: 'Your order {{1}}' },
+    ];
   }
 }
 

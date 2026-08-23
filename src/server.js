@@ -15,7 +15,7 @@ import { seedAdmin } from './auth.js';
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
-export function buildServer(config, pool) {
+export function buildServer(config, pool, realtime = createRealtime()) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
@@ -31,7 +31,6 @@ export function buildServer(config, pool) {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
-  const realtime = createRealtime();
 
   app.register(fastifyJwt, { secret: config.jwtSecret });
   app.register(fastifyWebsocket);

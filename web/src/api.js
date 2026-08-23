@@ -37,5 +37,7 @@ export const api = {
   takeover: (id) => req(`/conversations/${id}/takeover`, { method: 'POST' }),
   handback: (id) => req(`/conversations/${id}/handback`, { method: 'POST' }),
   templates: () => req('/templates'),
-  sendTemplate: (id, name) => req(`/conversations/${id}/template`, { method: 'POST', body: JSON.stringify({ name }) }),
+  syncTemplates: () => req('/templates/sync', { method: 'POST' }),
+  sendTemplate: (id, name, params) =>
+    req(`/conversations/${id}/template`, { method: 'POST', body: JSON.stringify({ name, params }) }),
 };

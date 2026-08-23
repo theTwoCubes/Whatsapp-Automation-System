@@ -204,7 +204,61 @@ export async function getConversationMessages(pool, id, limit = 200) {
 }
 
 export async function listTemplates(pool) {
-  const res = await pool.query('select name, language, category, body from templates where active = true order by name');
+  const res = await pool.query(
+    "select name, language, category, body, status from templates where active = true and (status is null or status = 'APPROVED') order by name",
+  );
+  return res.rows;
+}
+
+// Upserts the templates pulled from Meta so the console shows what can actually
+// be sent, with their live approval status.
+export async function syncTemplates(pool, templates) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    for (const t of templates) {
+      await client.query(
+        `insert into templates (name, language, category, body, status)
+         values ($1, $2, $3, $4, $5)
+         on conflict (name) do update set
+           language = excluded.language,
+           category = excluded.category,
+           body = excluded.body,
+           status = excluded.status`,
+        [t.name, t.language ?? 'en', t.category ?? null, t.body ?? null, t.status ?? null],
+      );
+    }
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function markAgentReplied(pool, conversationId) {
+  await pool.query('update conversations set last_agent_at = now() where id = $1', [conversationId]);
+}
+
+// Human owned conversations where the lead is waiting (the newest message is
+// inbound) and no agent has replied within the resume window. These get handed
+// back to the bot automatically.
+export async function conversationsToResume(pool, minutes) {
+  const res = await pool.query(
+    `select c.id, ct.wa_id
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     where c.state = 'human'
+       and coalesce(c.last_agent_at, c.assigned_at) < now() - make_interval(mins => $1)
+       and (
+         select direction from messages m
+         where m.conversation_id = c.id
+         order by m.created_at desc, m.id desc
+         limit 1
+       ) = 'inbound'`,
+    [minutes],
+  );
   return res.rows;
 }
 

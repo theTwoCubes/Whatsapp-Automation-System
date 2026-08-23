@@ -3,6 +3,8 @@ import { createPool } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
 import { buildServer } from './server.js';
 import { MetaClient } from './meta/client.js';
+import { AiClient } from './ai/client.js';
+import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 
 async function main() {
@@ -23,14 +25,16 @@ async function main() {
     process.exit(1);
   }
 
-  const app = buildServer(config, pool);
+  const realtime = createRealtime();
+  const app = buildServer(config, pool, realtime);
 
   if (process.env.NODE_ENV === 'production' && config.jwtSecret === 'dev-only-change-me') {
     app.log.warn('JWT_SECRET is not set, using the insecure default. Set JWT_SECRET in production.');
   }
 
   const meta = new MetaClient(config, app.log);
-  const stopScheduler = startScheduler({ pool, meta, config, log: app.log });
+  const ai = new AiClient(config, app.log);
+  const stopScheduler = startScheduler({ pool, meta, ai, config, realtime, log: app.log });
 
   const shutdown = async (signal) => {
     app.log.info({ signal }, 'shutting down');

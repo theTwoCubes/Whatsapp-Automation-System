@@ -66,6 +66,10 @@ export function loadConfig() {
     jwtSecret: process.env.JWT_SECRET?.trim() || 'dev-only-change-me',
     adminEmail: process.env.ADMIN_EMAIL?.trim() || '',
     adminPassword: process.env.ADMIN_PASSWORD?.trim() || '',
+
+    // Minutes a human can sit on a chat before the bot resumes automatically.
+    // 0 disables auto resume.
+    resumeMinutes: Number(process.env.HANDOFF_RESUME_MINUTES || 0),
   };
 }
 

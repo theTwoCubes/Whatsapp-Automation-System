@@ -34,6 +34,14 @@ export function dayLabel(value) {
   return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Highest {{n}} placeholder in a template body, so the console can ask for that
+// many parameter values.
+export function templateParamCount(body) {
+  if (!body) return 0;
+  const nums = [...body.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1]));
+  return nums.length ? Math.max(...nums) : 0;
+}
+
 // Groups messages by calendar day for the date separators.
 export function groupByDay(messages) {
   const groups = [];

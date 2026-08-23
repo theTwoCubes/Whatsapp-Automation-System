@@ -445,6 +445,61 @@ input {
   padding: 4px;
 }
 
+.window {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 10px;
+  margin-right: 4px;
+}
+.window.open {
+  background: #d8f3e6;
+  color: var(--green-dark);
+}
+.window.closed {
+  background: #fdecea;
+  color: #c0392b;
+}
+
+/* Templates */
+.template-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.template-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.template-bar select {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid #d0d5d9;
+  background: #fff;
+  font-size: 13px;
+}
+.param {
+  border: 1px solid #d0d5d9;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.param:focus {
+  outline: none;
+  border-color: var(--green);
+}
+.template-preview {
+  background: #fff;
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #333;
+  white-space: pre-wrap;
+}
+
 /* Watermark */
 .watermark {
   text-align: center;

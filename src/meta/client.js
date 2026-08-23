@@ -33,6 +33,33 @@ export class MetaClient {
     return this.send(to, { type: 'template', template });
   }
 
+  // Pulls the message templates and their approval status so the console can
+  // show what is actually allowed to be sent, especially outside the 24 hour
+  // window. Returns a flat list with the body text pulled out.
+  async fetchTemplates() {
+    const url = `${this.baseUrl}/${this.config.wabaId}/message_templates?fields=name,status,category,language,components&limit=200`;
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
+    }
+    return (data.data ?? []).map((t) => ({
+      name: t.name,
+      language: t.language,
+      category: t.category,
+      status: t.status,
+      body: (t.components ?? []).find((c) => c.type === 'BODY')?.text ?? null,
+    }));
+  }
+
   async send(to, content) {
     const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
     const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...content };
