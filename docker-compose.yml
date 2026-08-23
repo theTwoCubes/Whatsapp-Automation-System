@@ -1,3 +1,5 @@
+name: whatsapp-dev
+
 services:
   db:
     image: postgres:16

@@ -19,7 +19,7 @@ export function registerApi(app, deps) {
     try {
       await req.jwtVerify();
     } catch {
-      reply.code(401).send({ error: 'unauthorized' });
+      return reply.code(401).send({ error: 'unauthorized' });
     }
   };
 

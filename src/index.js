@@ -25,6 +25,10 @@ async function main() {
 
   const app = buildServer(config, pool);
 
+  if (process.env.NODE_ENV === 'production' && config.jwtSecret === 'dev-only-change-me') {
+    app.log.warn('JWT_SECRET is not set, using the insecure default. Set JWT_SECRET in production.');
+  }
+
   const meta = new MetaClient(config, app.log);
   const stopScheduler = startScheduler({ pool, meta, config, log: app.log });
 
