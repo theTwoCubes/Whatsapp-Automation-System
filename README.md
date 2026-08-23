@@ -1,12 +1,14 @@
 # WhatsApp Automation
 
-WhatsApp Cloud API service for a lead nurturing agent. Receives inbound
-messages through a webhook and replies within the 24 hour customer service
-window. This is the messaging layer only. The AI replies, database, drip
-campaigns and agent console are built on top of this in later phases.
+WhatsApp Cloud API service for a lead nurturing agent. Leads message the
+business, an AI answers from a knowledge base, follow up templates go out on a
+schedule, and a team can take over any chat from a web console.
 
 The system is inbound first. A lead messages the business, which opens the 24
-hour window, and every reply after that goes out inside that window.
+hour window, and every free form reply goes out inside that window. Follow ups
+after the window use approved templates.
+
+For running the whole stack on a server see [DEPLOY.md](DEPLOY.md).
 
 ## Stack
 

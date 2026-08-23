@@ -1,0 +1,5 @@
+# Caddy terminates HTTPS for the domain and proxies everything to the app.
+# It gets and renews certificates automatically. Websockets are upgraded as is.
+{$DOMAIN} {
+	reverse_proxy app:3000
+}
