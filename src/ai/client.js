@@ -1,32 +1,49 @@
-import OpenAI from 'openai';
+import { OpenAIProvider } from './providers/openai.js';
+import { GeminiProvider } from './providers/gemini.js';
 
-// Wraps the OpenAI chat API. The only place we call OpenAI from, so swapping
-// the model or provider is a one file change. When no api key is configured the
-// client is disabled and complete() throws, which the caller treats as a reason
-// to fall back to a canned reply.
+// Talks to whichever AI providers are configured. It tries the primary provider
+// first (set by AI_PROVIDER), and if that errors it fails over to the other. If
+// every provider errors, or none is configured, complete() throws and the
+// caller falls back to a canned message.
 export class AiClient {
-  constructor(config, log) {
+  constructor(config, log, providers) {
     this.log = log;
-    this.model = config.openaiModel;
-    this.enabled = Boolean(config.openaiApiKey);
-    this.client = this.enabled ? new OpenAI({ apiKey: config.openaiApiKey }) : null;
-    this.timeoutMs = 20000;
+    this.providers = providers ?? buildProviders(config);
+    this.order = orderProviders(config.aiProvider, this.providers);
+    this.enabled = this.order.length > 0;
   }
 
   async complete(messages, options = {}) {
     if (!this.enabled) {
-      throw new Error('AI disabled: OPENAI_API_KEY is not set');
+      throw new Error('AI disabled: no provider key configured');
     }
-    const body = {
-      model: options.model ?? this.model,
-      messages,
-      temperature: 0.6,
-      max_tokens: 400,
-    };
-    if (options.json) {
-      body.response_format = { type: 'json_object' };
+    let lastError;
+    for (const name of this.order) {
+      try {
+        return await this.providers[name].complete(messages, options);
+      } catch (err) {
+        lastError = err;
+        this.log.warn({ provider: name, err: err.message }, 'ai provider failed, trying the next one');
+      }
     }
-    const res = await this.client.chat.completions.create(body, { timeout: this.timeoutMs });
-    return res.choices[0]?.message?.content?.trim() ?? '';
+    throw lastError ?? new Error('all ai providers failed');
   }
+}
+
+export function buildProviders(config) {
+  const providers = {};
+  if (config.openaiApiKey) providers.openai = new OpenAIProvider(config.openaiApiKey, config.openaiModel);
+  if (config.geminiApiKey) providers.gemini = new GeminiProvider(config.geminiApiKey, config.geminiModel);
+  return providers;
+}
+
+// Primary provider first, then any others that are configured.
+export function orderProviders(primary, providers) {
+  const available = Object.keys(providers);
+  const order = [];
+  if (primary && available.includes(primary)) order.push(primary);
+  for (const name of available) {
+    if (!order.includes(name)) order.push(name);
+  }
+  return order;
 }

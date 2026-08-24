@@ -39,10 +39,14 @@ export function loadConfig() {
     port,
     graphApiVersion: process.env.GRAPH_API_VERSION?.trim() || 'v21.0',
 
-    // AI. Optional: with no key the bot falls back to a canned reply instead of
-    // failing, so testing without a key still works.
+    // AI. Two providers are supported. AI_PROVIDER picks the primary, the other
+    // is used as automatic failover. With no key the bot falls back to a canned
+    // reply, so testing without a key still works.
+    aiProvider: (process.env.AI_PROVIDER?.trim() || 'openai').toLowerCase(),
     openaiApiKey: process.env.OPENAI_API_KEY?.trim() || '',
     openaiModel: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+    geminiApiKey: process.env.GEMINI_API_KEY?.trim() || '',
+    geminiModel: process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash',
 
     // Business identity injected into the system prompt.
     businessName: process.env.BUSINESS_NAME?.trim() || 'our studio',
