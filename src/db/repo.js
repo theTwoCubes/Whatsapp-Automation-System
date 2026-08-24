@@ -340,6 +340,10 @@ export async function listMediaAssets(pool) {
   ).rows;
 }
 
+export async function getMessageRaw(pool, id) {
+  return (await pool.query('select id, type, raw from messages where id = $1', [id])).rows[0] ?? null;
+}
+
 export async function getMediaAsset(pool, id) {
   return (
     await pool.query('select id, meta_media_id, filename, mime_type, kind, caption from media_assets where id = $1', [id])

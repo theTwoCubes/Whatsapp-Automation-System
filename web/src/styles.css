@@ -679,6 +679,18 @@ input {
   border-color: #f0c7c1;
 }
 
+.media-img {
+  max-width: 240px;
+  max-height: 280px;
+  border-radius: 6px;
+  display: block;
+}
+.media-link {
+  color: var(--green-dark);
+  text-decoration: none;
+  font-weight: 600;
+}
+
 /* Watermark */
 .watermark {
   text-align: center;

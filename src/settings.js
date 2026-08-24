@@ -35,6 +35,22 @@ export async function getEditableSettings(pool, config) {
     handoff_message: db.handoff_message ?? config.handoffMessage,
     drip_steps: db.drip_steps ?? serializeDrip(config.dripSteps),
     resume_minutes: db.resume_minutes ?? String(config.resumeMinutes),
+    brand_name: db.brand_name ?? config.brandName,
+    brand_watermark: db.brand_watermark ?? config.brandWatermark,
+    support_email: db.support_email ?? config.supportEmail,
+    accent_color: db.accent_color ?? config.accentColor,
+  };
+}
+
+// Public branding for the console shell, safe to serve without auth.
+export async function getBranding(pool, config) {
+  const rows = (await pool.query('select key, value from settings')).rows;
+  const db = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    name: db.brand_name ?? config.brandName,
+    watermark: db.brand_watermark ?? config.brandWatermark,
+    supportEmail: db.support_email ?? config.supportEmail,
+    accentColor: db.accent_color ?? config.accentColor,
   };
 }
 
@@ -46,6 +62,10 @@ export const editableKeys = [
   'handoff_message',
   'drip_steps',
   'resume_minutes',
+  'brand_name',
+  'brand_watermark',
+  'support_email',
+  'accent_color',
 ];
 
 function resolve(db, config) {

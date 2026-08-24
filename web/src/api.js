@@ -58,6 +58,21 @@ export const api = {
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
   audit: () => req('/audit'),
+  createTemplate: (name, category, bodyText) =>
+    req('/templates/create', { method: 'POST', body: JSON.stringify({ name, category, bodyText }) }),
+  branding: () =>
+    fetch('/api/branding')
+      .then((r) => r.json())
+      .then((d) => d.branding)
+      .catch(() => null),
+  mediaObjectUrl: async (messageId) => {
+    const token = getToken();
+    const res = await fetch(`/api/messages/${messageId}/media`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('media failed');
+    return URL.createObjectURL(await res.blob());
+  },
   uploadMedia: async (file) => {
     const token = getToken();
     const fd = new FormData();

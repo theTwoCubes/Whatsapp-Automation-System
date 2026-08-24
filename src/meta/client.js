@@ -147,6 +147,41 @@ export class MetaClient {
     return data;
   }
 
+  // Creates a message template so the client can author templates from the
+  // console. It still has to be approved by Meta before it can be sent.
+  async createTemplate({ name, category, language, bodyText }) {
+    const url = `${this.baseUrl}/${this.config.wabaId}/message_templates`;
+    return this.postJson(url, {
+      name,
+      category: category || 'UTILITY',
+      language: language || 'en',
+      components: [{ type: 'BODY', text: bodyText }],
+    });
+  }
+
+  // Resolves the short lived download url for a media id, used to view media a
+  // lead has sent.
+  async getMediaUrl(mediaId) {
+    const data = await this.get(`${this.baseUrl}/${mediaId}`);
+    return data.url;
+  }
+
+  // Downloads media bytes from a media url. The url needs the same bearer token.
+  async downloadMedia(mediaUrl) {
+    let res;
+    try {
+      res = await fetch(mediaUrl, {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    if (!res.ok) throw new MetaApiError(`media download failed with HTTP ${res.status}`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { buffer, contentType: res.headers.get('content-type') || 'application/octet-stream' };
+  }
+
   async send(to, content) {
     const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
     const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...content };

@@ -81,6 +81,17 @@ export class FakeMeta {
     this.media.push({ to, kind, opts, wamid });
     return wamid;
   }
+  async createTemplate(t) {
+    this.created = this.created ?? [];
+    this.created.push(t);
+    return { id: 'tpl-1', status: 'PENDING' };
+  }
+  async getMediaUrl(id) {
+    return `https://media.example/${id}`;
+  }
+  async downloadMedia() {
+    return { buffer: Buffer.from('fake-bytes'), contentType: 'image/png' };
+  }
 }
 
 // Returns a fixed reply instead of calling OpenAI. Set fail=true to simulate the
@@ -121,4 +132,8 @@ export const testConfig = {
   ],
   dripLanguage: 'en',
   resumeMinutes: 0,
+  brandName: 'theTwoCubes',
+  brandWatermark: 'Made by theTwoCubes',
+  supportEmail: 'build@thetwocubes.com',
+  accentColor: '#00a884',
 };

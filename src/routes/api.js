@@ -1,6 +1,6 @@
 import { verifyPassword, hashPassword } from '../auth.js';
 import { handToHuman, handToBot } from '../handoff.js';
-import { getEditableSettings, editableKeys, invalidateSettings } from '../settings.js';
+import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
 import {
   getAgentByEmail,
@@ -26,7 +26,17 @@ import {
   getMediaAsset,
   addAudit,
   listAudit,
+  getMessageRaw,
 } from '../db/repo.js';
+
+// Pulls the media id out of an inbound message payload.
+function mediaIdFromRaw(raw) {
+  if (!raw) return null;
+  for (const kind of ['image', 'document', 'video', 'audio', 'sticker']) {
+    if (raw[kind]?.id) return raw[kind].id;
+  }
+  return null;
+}
 
 // Reject a path id that is not a positive integer with a 400 instead of letting
 // it reach Postgres and fail as a 500.
@@ -208,6 +218,44 @@ export function registerApi(app, deps) {
   });
 
   app.get('/api/audit', { preHandler: auth }, async () => ({ audit: await listAudit(pool, 150) }));
+
+  // Public branding for the console shell, no auth so the login page can theme.
+  app.get('/api/branding', async () => ({ branding: await getBranding(pool, deps.config) }));
+
+  // Create a template from the console. It still needs Meta approval before use.
+  app.post('/api/templates/create', { preHandler: auth }, async (req, reply) => {
+    const name = (req.body?.name ?? '').trim();
+    const bodyText = (req.body?.bodyText ?? '').trim();
+    if (!name || !bodyText) return reply.code(400).send({ error: 'name and body are required' });
+    try {
+      await meta.createTemplate({
+        name,
+        category: req.body?.category,
+        language: req.body?.language,
+        bodyText,
+      });
+      await audit(req, 'template created', name);
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Streams media a lead sent, so the console can show it.
+  app.get('/api/messages/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const message = await getMessageRaw(pool, req.params.id);
+    const mediaId = mediaIdFromRaw(message?.raw);
+    if (!mediaId) return reply.code(404).send({ error: 'no media on this message' });
+    try {
+      const url = await meta.getMediaUrl(mediaId);
+      const { buffer, contentType } = await meta.downloadMedia(url);
+      reply.header('Content-Type', contentType);
+      reply.header('Cache-Control', 'private, max-age=300');
+      return reply.send(buffer);
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
 
   // WhatsApp business profile, straight through to Meta.
   app.get('/api/profile', { preHandler: auth }, async (_req, reply) => {

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { BrandContext } from './brand.js';
 
 const tabs = [
   ['overview', 'Overview'],
@@ -8,6 +9,7 @@ const tabs = [
   ['templates', 'Templates'],
   ['agents', 'Agents'],
   ['settings', 'Settings'],
+  ['branding', 'Branding'],
   ['audit', 'Audit log'],
 ];
 
@@ -40,12 +42,27 @@ export default function Admin({ onBack, onLogout }) {
           {tab === 'templates' && <Templates />}
           {tab === 'agents' && <Agents />}
           {tab === 'settings' && <Settings />}
+          {tab === 'branding' && <Branding />}
           {tab === 'audit' && <AuditLog />}
         </div>
       </div>
-      <div className="watermark">
-        Made by theTwoCubes · <a href="mailto:build@thetwocubes.com">build@thetwocubes.com</a>
-      </div>
+      <AdminWatermark />
+    </div>
+  );
+}
+
+function AdminWatermark() {
+  const brand = useContext(BrandContext);
+  if (!brand?.watermark) return null;
+  return (
+    <div className="watermark">
+      {brand.watermark}
+      {brand.supportEmail ? (
+        <>
+          {' · '}
+          <a href={`mailto:${brand.supportEmail}`}>{brand.supportEmail}</a>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -182,6 +199,10 @@ function Knowledge() {
 function Templates() {
   const [data, error, reload] = useAsync(() => api.templates());
   const [msg, setMsg] = useState('');
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('UTILITY');
+  const [body, setBody] = useState('');
+  const [createMsg, setCreateMsg] = useState('');
 
   const sync = async () => {
     setMsg('Syncing...');
@@ -191,6 +212,17 @@ function Templates() {
       reload();
     } catch (e) {
       setMsg(e.message);
+    }
+  };
+  const create = async () => {
+    setCreateMsg('');
+    try {
+      await api.createTemplate(name.trim(), category, body.trim());
+      setCreateMsg('Submitted to Meta for approval. It will appear here once approved.');
+      setName('');
+      setBody('');
+    } catch (e) {
+      setCreateMsg(e.message);
     }
   };
   if (error) return <p className="error">{error}</p>;
@@ -210,6 +242,19 @@ function Templates() {
         </div>
       ))}
       {(data?.templates || []).length === 0 && <p className="muted">No approved templates yet.</p>}
+
+      <div className="add-box">
+        <strong>Create a template</strong>
+        <p className="muted">Use {'{{1}}'}, {'{{2}}'} for values you fill in when sending. Meta must approve it first.</p>
+        <input placeholder="Name, lowercase and underscores e.g. welcome_offer" value={name} onChange={(e) => setName(e.target.value)} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="UTILITY">Utility</option>
+          <option value="MARKETING">Marketing</option>
+        </select>
+        <textarea placeholder="Body text, e.g. Hi {{1}}, thanks for reaching out to us." value={body} onChange={(e) => setBody(e.target.value)} />
+        <button className="btn" onClick={create} disabled={!name.trim() || !body.trim()}>Submit for approval</button>
+        {createMsg && <span className="muted">{createMsg}</span>}
+      </div>
     </div>
   );
 }
@@ -294,6 +339,43 @@ function Settings() {
       <Field label="Auto resume after (minutes, 0 to disable)" value={form.resume_minutes} onChange={(v) => setForm({ ...form, resume_minutes: v })} />
       <div className="form-actions">
         <button className="btn" onClick={save}>Save settings</button>
+        {msg && <span className="muted">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Branding() {
+  const [data, error] = useAsync(() => api.getSettings());
+  const [form, setForm] = useState({});
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    if (data?.settings) setForm(data.settings);
+  }, [data]);
+  const save = async () => {
+    setMsg('');
+    try {
+      await api.saveSettings({
+        brand_name: form.brand_name,
+        brand_watermark: form.brand_watermark,
+        support_email: form.support_email,
+        accent_color: form.accent_color,
+      });
+      setMsg('Saved. Reload the page to apply the colour.');
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  if (error) return <p className="error">{error}</p>;
+  return (
+    <div className="form">
+      <p className="muted">White label the console for this client. Reload after saving to apply the accent colour.</p>
+      <Field label="Brand name" value={form.brand_name} onChange={(v) => setForm({ ...form, brand_name: v })} />
+      <Field label="Watermark" value={form.brand_watermark} onChange={(v) => setForm({ ...form, brand_watermark: v })} />
+      <Field label="Support email" value={form.support_email} onChange={(v) => setForm({ ...form, support_email: v })} />
+      <Field label="Accent colour (hex)" value={form.accent_color} onChange={(v) => setForm({ ...form, accent_color: v })} />
+      <div className="form-actions">
+        <button className="btn" onClick={save}>Save branding</button>
         {msg && <span className="muted">{msg}</span>}
       </div>
     </div>

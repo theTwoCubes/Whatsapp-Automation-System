@@ -74,6 +74,13 @@ export function loadConfig() {
     // Minutes a human can sit on a chat before the bot resumes automatically.
     // 0 disables auto resume.
     resumeMinutes: Number(process.env.HANDOFF_RESUME_MINUTES || 0),
+
+    // White label branding for the console. Editable in the console, these are
+    // just the defaults.
+    brandName: process.env.BRAND_NAME?.trim() || 'theTwoCubes',
+    brandWatermark: process.env.BRAND_WATERMARK?.trim() || 'Made by theTwoCubes',
+    supportEmail: process.env.SUPPORT_EMAIL?.trim() || 'build@thetwocubes.com',
+    accentColor: process.env.ACCENT_COLOR?.trim() || '#00a884',
   };
 }
 

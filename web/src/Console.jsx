@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken } from './api.js';
+import { BrandContext } from './brand.js';
 import { initials, avatarColor, shortTime, groupByDay, templateParamCount } from './lib.js';
 
 export default function Console({ onLogout, onOpenAdmin }) {
@@ -143,6 +144,48 @@ function mediaLabel(type) {
   return `[${type}]`;
 }
 
+// Fetches media a lead sent through the authed proxy and shows it.
+function InboundMedia({ message }) {
+  const [url, setUrl] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let objectUrl;
+    api
+      .mediaObjectUrl(message.id)
+      .then((u) => {
+        objectUrl = u;
+        setUrl(u);
+      })
+      .catch(() => setFailed(true));
+    return () => objectUrl && URL.revokeObjectURL(objectUrl);
+  }, [message.id]);
+
+  if (failed) return <span>{mediaLabel(message.type)}</span>;
+  if (!url) return <span>{mediaLabel(message.type)}...</span>;
+  if (message.type === 'image') return <img className="media-img" src={url} alt="shared media" />;
+  return (
+    <a className="media-link" href={url} target="_blank" rel="noreferrer">
+      {mediaLabel(message.type)} - open
+    </a>
+  );
+}
+
+function Watermark() {
+  const brand = useContext(BrandContext);
+  if (!brand?.watermark) return null;
+  return (
+    <div className="watermark">
+      {brand.watermark}
+      {brand.supportEmail ? (
+        <>
+          {' · '}
+          <a href={`mailto:${brand.supportEmail}`}>{brand.supportEmail}</a>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function Chat({ thread, templates, onSync, onChanged }) {
   const { conversation, messages } = thread;
   const [text, setText] = useState('');
@@ -201,7 +244,11 @@ function Chat({ thread, templates, onSync, onChanged }) {
             <div className="day">{g.label}</div>
             {g.items.map((m) => (
               <div key={m.id} className={`bubble ${m.direction}`}>
-                {m.body || mediaLabel(m.type)}
+                {m.direction === 'inbound' && m.type !== 'text' && !m.body ? (
+                  <InboundMedia message={m} />
+                ) : (
+                  m.body || mediaLabel(m.type)
+                )}
                 <span className="meta">
                   {shortTime(m.created_at)}
                   {m.direction === 'outbound' && <Ticks status={m.status} />}
@@ -263,9 +310,7 @@ function Chat({ thread, templates, onSync, onChanged }) {
         />
       </div>
 
-      <div className="watermark">
-        Made by theTwoCubes · <a href="mailto:build@thetwocubes.com">build@thetwocubes.com</a>
-      </div>
+      <Watermark />
     </>
   );
 }

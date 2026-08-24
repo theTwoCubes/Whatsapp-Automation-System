@@ -9,7 +9,7 @@ import { registerApi } from '../../src/routes/api.js';
 import { createAgent, addMediaAsset } from '../../src/db/repo.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
-import { inboundText } from './support/fixtures.js';
+import { inboundText, inboundImage } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -166,6 +166,51 @@ test('a media asset can be sent to a lead inside the window', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(meta.media.at(-1).kind, 'image');
   assert.equal(meta.media.at(-1).opts.caption, 'here is a sample');
+  await app.close();
+});
+
+test('branding is public and editable', async () => {
+  const app = await buildApp(new FakeMeta());
+  const pub = await app.inject({ method: 'GET', url: '/api/branding' });
+  assert.equal(pub.statusCode, 200);
+  assert.ok(pub.json().branding.name);
+
+  const t = await token(app);
+  await app.inject({ method: 'PUT', url: '/api/settings', headers: auth(t), payload: { brand_name: 'Acme Studio' } });
+  const after = await app.inject({ method: 'GET', url: '/api/branding' });
+  assert.equal(after.json().branding.name, 'Acme Studio');
+  await app.close();
+});
+
+test('a template can be created through the console', async () => {
+  const meta = new FakeMeta();
+  const app = await buildApp(meta);
+  const t = await token(app);
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/templates/create',
+    headers: auth(t),
+    payload: { name: 'welcome', bodyText: 'Hi there, thanks for reaching out.' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(meta.created.at(-1).name, 'welcome');
+  await app.close();
+});
+
+test('inbound media is proxied from meta', async () => {
+  await processWebhook(inboundImage({ id: 'wamid.IMG1' }), {
+    meta: new FakeMeta(),
+    ai: new FakeAi(),
+    pool,
+    config: apiConfig,
+    log: silentLog,
+  });
+  const msgId = (await pool.query("select id from messages where type = 'image' limit 1")).rows[0].id;
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: `/api/messages/${msgId}/media`, headers: auth(t) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['content-type'], 'image/png');
   await app.close();
 });
 
