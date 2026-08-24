@@ -8,6 +8,7 @@ const tabs = [
   ['templates', 'Templates'],
   ['agents', 'Agents'],
   ['settings', 'Settings'],
+  ['audit', 'Audit log'],
 ];
 
 export default function Admin({ onBack, onLogout }) {
@@ -39,6 +40,7 @@ export default function Admin({ onBack, onLogout }) {
           {tab === 'templates' && <Templates />}
           {tab === 'agents' && <Agents />}
           {tab === 'settings' && <Settings />}
+          {tab === 'audit' && <AuditLog />}
         </div>
       </div>
       <div className="watermark">
@@ -180,6 +182,7 @@ function Knowledge() {
 function Templates() {
   const [data, error, reload] = useAsync(() => api.templates());
   const [msg, setMsg] = useState('');
+
   const sync = async () => {
     setMsg('Syncing...');
     try {
@@ -293,6 +296,29 @@ function Settings() {
         <button className="btn" onClick={save}>Save settings</button>
         {msg && <span className="muted">{msg}</span>}
       </div>
+    </div>
+  );
+}
+
+function AuditLog() {
+  const [data, error] = useAsync(() => api.audit());
+  if (error) return <p className="error">{error}</p>;
+  if (!data) return <p className="muted">Loading...</p>;
+  return (
+    <div className="form">
+      <p className="muted">Recent actions taken in the console.</p>
+      {data.audit.map((a) => (
+        <div key={a.id} className="list-row">
+          <div>
+            <strong>{a.action}</strong> {a.target ? <span className="muted">{a.target}</span> : null}
+            <div className="muted">
+              {a.actor || 'system'} · {new Date(a.created_at).toLocaleString()}
+              {a.detail ? ` · ${a.detail}` : ''}
+            </div>
+          </div>
+        </div>
+      ))}
+      {data.audit.length === 0 && <p className="muted">Nothing yet.</p>}
     </div>
   );
 }

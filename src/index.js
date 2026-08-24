@@ -7,6 +7,23 @@ import { AiClient } from './ai/client.js';
 import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The database container can take a moment to accept connections after a
+// restart, so retry a few times before giving up.
+async function migrateWithRetry(pool, attempts = 10, delayMs = 2000) {
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await runMigrations(pool);
+      return;
+    } catch (err) {
+      if (i === attempts) throw err;
+      console.error(`database not ready (attempt ${i}/${attempts}), retrying in ${delayMs}ms`);
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function main() {
   let config;
   try {
@@ -18,9 +35,9 @@ async function main() {
 
   const pool = createPool(config);
   try {
-    await runMigrations(pool);
+    await migrateWithRetry(pool);
   } catch (err) {
-    console.error(`database not ready: ${err.message}`);
+    console.error(`database not ready after retries: ${err.message}`);
     await pool.end();
     process.exit(1);
   }

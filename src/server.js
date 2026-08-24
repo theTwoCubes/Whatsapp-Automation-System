@@ -20,6 +20,10 @@ export function buildServer(config, pool, realtime = createRealtime()) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'req.body.password'],
+        remove: true,
+      },
       transport:
         process.env.NODE_ENV === 'production'
           ? undefined
@@ -28,6 +32,14 @@ export function buildServer(config, pool, realtime = createRealtime()) {
               options: { translateTime: 'HH:MM:ss Z', ignore: 'pid,hostname' },
             },
     },
+  });
+
+  // Basic security headers on every response.
+  app.addHook('onSend', async (_req, reply, payload) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'SAMEORIGIN');
+    reply.header('Referrer-Policy', 'no-referrer');
+    return payload;
   });
 
   const meta = new MetaClient(config, app.log);
@@ -83,7 +95,14 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     reply.code(200).send();
 
     const body = req.body;
-    req.log.info({ payload: body }, 'webhook payload received');
+    // The payload carries message text and phone numbers, so keep the full dump
+    // to debug level and only log a summary at info in production.
+    if (process.env.NODE_ENV === 'production') {
+      req.log.info({ entries: body?.entry?.length ?? 0 }, 'webhook received');
+      req.log.debug({ payload: body }, 'webhook payload');
+    } else {
+      req.log.info({ payload: body }, 'webhook payload received');
+    }
 
     setImmediate(() => {
       processWebhook(body, { meta, ai, pool, config, realtime, log: req.log }).catch((err) => {

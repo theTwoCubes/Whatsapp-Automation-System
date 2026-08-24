@@ -53,6 +53,37 @@ async function makeConversation() {
   return (await pool.query('select id from conversations limit 1')).rows[0].id;
 }
 
+test('a non numeric id is rejected with 400 instead of a 500', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: '/api/conversations/not-a-number', headers: auth(t) });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('login is rate limited after repeated attempts', async () => {
+  const app = await buildApp(new FakeMeta());
+  let last;
+  for (let i = 0; i < 10; i += 1) {
+    last = await app.inject({ method: 'POST', url: '/api/login', payload: { email: 'a@b.com', password: 'wrong' } });
+  }
+  assert.equal(last.statusCode, 429, 'eventually throttled');
+  await app.close();
+});
+
+test('sensitive actions are written to the audit log', async () => {
+  const convId = await makeConversation();
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  await app.inject({ method: 'POST', url: `/api/conversations/${convId}/takeover`, headers: auth(t) });
+
+  const res = await app.inject({ method: 'GET', url: '/api/audit', headers: auth(t) });
+  const actions = res.json().audit.map((a) => a.action);
+  assert.ok(actions.includes('takeover'), 'takeover was audited');
+  assert.equal(res.json().audit[0].actor, 'a@b.com');
+  await app.close();
+});
+
 test('overview returns counts', async () => {
   const app = await buildApp(new FakeMeta());
   const t = await token(app);

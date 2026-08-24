@@ -36,7 +36,7 @@ async function ensureDatabase(url) {
 
 export async function resetTables(pool) {
   await pool.query(
-    'truncate messages, conversations, contacts, campaigns, knowledge_base, drip_jobs, templates, settings, media_assets restart identity cascade',
+    'truncate messages, conversations, contacts, campaigns, knowledge_base, drip_jobs, templates, settings, media_assets, audit_log restart identity cascade',
   );
   invalidateSettings();
 }

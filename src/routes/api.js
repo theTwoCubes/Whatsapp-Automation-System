@@ -1,6 +1,7 @@
 import { verifyPassword, hashPassword } from '../auth.js';
 import { handToHuman, handToBot } from '../handoff.js';
 import { getEditableSettings, editableKeys, invalidateSettings } from '../settings.js';
+import { createRateLimiter } from '../ratelimit.js';
 import {
   getAgentByEmail,
   listConversations,
@@ -23,7 +24,19 @@ import {
   addMediaAsset,
   listMediaAssets,
   getMediaAsset,
+  addAudit,
+  listAudit,
 } from '../db/repo.js';
+
+// Reject a path id that is not a positive integer with a 400 instead of letting
+// it reach Postgres and fail as a 500.
+const idParams = {
+  params: {
+    type: 'object',
+    properties: { id: { type: 'string', pattern: '^[0-9]+$' } },
+    required: ['id'],
+  },
+};
 
 function mediaKind(mime) {
   if (!mime) return 'document';
@@ -48,6 +61,7 @@ function bodyComponents(params) {
 // valid agent token.
 export function registerApi(app, deps) {
   const { pool, meta, realtime } = deps;
+  const loginLimiter = createRateLimiter({ max: 8, windowMs: 60000 });
 
   const auth = async (req, reply) => {
     try {
@@ -57,7 +71,17 @@ export function registerApi(app, deps) {
     }
   };
 
+  // Records who did what, best effort so it never blocks the action.
+  const audit = (req, action, target, detail) =>
+    addAudit(pool, { actor: req.user?.email, action, target, detail }).catch((err) =>
+      req.log.warn({ err }, 'failed to write audit entry'),
+    );
+
   app.post('/api/login', async (req, reply) => {
+    const limit = loginLimiter(req.ip);
+    if (!limit.ok) {
+      return reply.code(429).send({ error: 'too many attempts, try again shortly', retryAfter: limit.retryAfter });
+    }
     const { email, password } = req.body ?? {};
     const agent = email ? await getAgentByEmail(pool, email) : null;
     if (!agent || !verifyPassword(password ?? '', agent.password_hash)) {
@@ -71,7 +95,7 @@ export function registerApi(app, deps) {
     conversations: await listConversations(pool),
   }));
 
-  app.get('/api/conversations/:id', { preHandler: auth }, async (req, reply) => {
+  app.get('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     const messages = await getConversationMessages(pool, req.params.id);
@@ -84,7 +108,7 @@ export function registerApi(app, deps) {
     };
   });
 
-  app.post('/api/conversations/:id/messages', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const body = (req.body?.body ?? '').trim();
     if (!body) return reply.code(400).send({ error: 'body is required' });
     const conversation = await getConversationById(pool, req.params.id);
@@ -110,7 +134,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/conversations/:id/template', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/conversations/:id/template', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const name = (req.body?.name ?? '').trim();
     if (!name) return reply.code(400).send({ error: 'template name is required' });
     const conversation = await getConversationById(pool, req.params.id);
@@ -128,6 +152,7 @@ export function registerApi(app, deps) {
         });
       }
       await markAgentReplied(pool, conversation.id);
+      await audit(req, 'template sent', `conversation ${conversation.id}`, name);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {
@@ -135,15 +160,17 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/conversations/:id/takeover', { preHandler: auth }, async (req) => {
+  app.post('/api/conversations/:id/takeover', { preHandler: auth, schema: idParams }, async (req) => {
     await handToHuman(pool, req.params.id, req.user.email);
     await cancelDrips(pool, req.params.id);
+    await audit(req, 'takeover', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/handback', { preHandler: auth }, async (req) => {
+  app.post('/api/conversations/:id/handback', { preHandler: auth, schema: idParams }, async (req) => {
     await handToBot(pool, req.params.id);
+    await audit(req, 'handback', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
@@ -176,8 +203,11 @@ export function registerApi(app, deps) {
     }
     await setSettings(pool, entries);
     invalidateSettings();
+    await audit(req, 'settings updated', null, Object.keys(entries).join(', '));
     return { settings: await getEditableSettings(pool, deps.config) };
   });
+
+  app.get('/api/audit', { preHandler: auth }, async () => ({ audit: await listAudit(pool, 150) }));
 
   // WhatsApp business profile, straight through to Meta.
   app.get('/api/profile', { preHandler: auth }, async (_req, reply) => {
@@ -213,7 +243,7 @@ export function registerApi(app, deps) {
     return { id };
   });
 
-  app.put('/api/knowledge/:id', { preHandler: auth }, async (req) => {
+  app.put('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
     await updateKnowledge(pool, req.params.id, {
       title: req.body?.title,
       content: req.body?.content,
@@ -222,7 +252,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.delete('/api/knowledge/:id', { preHandler: auth }, async (req) => {
+  app.delete('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
     await deleteKnowledge(pool, req.params.id);
     return { ok: true };
   });
@@ -237,14 +267,16 @@ export function registerApi(app, deps) {
       return reply.code(400).send({ error: 'email and a password of at least 6 characters are required' });
     }
     await createAgent(pool, { email, name: req.body?.name ?? null, passwordHash: hashPassword(password) });
+    await audit(req, 'agent added', email);
     return { ok: true };
   });
 
-  app.delete('/api/agents/:id', { preHandler: auth }, async (req, reply) => {
+  app.delete('/api/agents/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
     if (String(req.user.id) === String(req.params.id)) {
       return reply.code(400).send({ error: 'you cannot remove your own login' });
     }
     await deleteAgent(pool, req.params.id);
+    await audit(req, 'agent removed', `agent ${req.params.id}`);
     return { ok: true };
   });
 
@@ -276,7 +308,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/conversations/:id/media', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/conversations/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     if (!windowOpen(conversation)) {
@@ -301,6 +333,7 @@ export function registerApi(app, deps) {
         });
       }
       await markAgentReplied(pool, conversation.id);
+      await audit(req, 'media sent', `conversation ${conversation.id}`, asset.filename);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {

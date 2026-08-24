@@ -57,6 +57,7 @@ export const api = {
   media: () => req('/media'),
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
+  audit: () => req('/audit'),
   uploadMedia: async (file) => {
     const token = getToken();
     const fd = new FormData();

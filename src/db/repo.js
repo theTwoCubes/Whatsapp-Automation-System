@@ -298,6 +298,19 @@ export async function deleteAgent(pool, id) {
   await pool.query('delete from agents where id = $1', [id]);
 }
 
+export async function addAudit(pool, entry) {
+  await pool.query('insert into audit_log (actor, action, target, detail) values ($1, $2, $3, $4)', [
+    entry.actor ?? null,
+    entry.action,
+    entry.target ?? null,
+    entry.detail ?? null,
+  ]);
+}
+
+export async function listAudit(pool, limit = 100) {
+  return (await pool.query('select id, actor, action, target, detail, created_at from audit_log order by id desc limit $1', [limit])).rows;
+}
+
 export async function overview(pool) {
   const r = await pool.query(
     `select
