@@ -13,6 +13,7 @@ import { processWebhook } from './handlers/message.js';
 import { registerApi } from './routes/api.js';
 import { createRealtime } from './realtime.js';
 import { seedAdmin } from './auth.js';
+import { metrics } from './db/repo.js';
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
@@ -62,6 +63,33 @@ export function buildServer(config, pool, realtime = createRealtime()) {
   });
 
   app.get('/health', () => ({ status: 'ok' }));
+
+  // Readiness: only ok once the database is reachable. For orchestration.
+  app.get('/ready', async (_req, reply) => {
+    try {
+      await pool.query('select 1');
+      return { status: 'ready' };
+    } catch {
+      return reply.code(503).send({ status: 'not ready' });
+    }
+  });
+
+  // Prometheus style metrics. Restrict this at the proxy if you do not want the
+  // counts public.
+  app.get('/metrics', async (_req, reply) => {
+    const m = await metrics(pool);
+    reply.header('Content-Type', 'text/plain; version=0.0.4');
+    return (
+      [
+        `wa_leads ${m.leads}`,
+        `wa_conversations_bot ${m.bot_chats}`,
+        `wa_conversations_human ${m.human_chats}`,
+        `wa_messages_inbound ${m.inbound}`,
+        `wa_messages_outbound ${m.outbound}`,
+        `wa_drip_pending ${m.drip_pending}`,
+      ].join('\n') + '\n'
+    );
+  });
 
   // Meta verification handshake. Echoes hub.challenge when the mode is subscribe
   // and the token matches, otherwise 403.

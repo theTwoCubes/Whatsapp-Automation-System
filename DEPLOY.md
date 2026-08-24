@@ -82,6 +82,16 @@ a matter of swapping values in `.env` and restarting:
 
 Nothing in the code is tied to a specific account, so no code changes are needed.
 
+## Monitoring and scaling
+
+- `GET /health` is a liveness check, `GET /ready` also checks the database, and
+  `GET /metrics` exposes Prometheus style counters. Restrict `/metrics` at Caddy
+  if you do not want the counts public.
+- The drip scheduler claims jobs atomically with `for update skip locked`, so you
+  can run more than one app instance without double sending follow ups. The live
+  update websocket is per instance, which is fine for one server; put it behind a
+  shared channel if you ever run several.
+
 ## Notes
 
 - The app is not exposed directly; Caddy is the only thing on ports 80 and 443

@@ -1,4 +1,4 @@
-import { dueDrips, markDrip, recordOutbound, conversationsToResume } from './db/repo.js';
+import { claimDueDrips, markDrip, recordOutbound, conversationsToResume } from './db/repo.js';
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
 import { getSettings } from './settings.js';
@@ -23,7 +23,7 @@ export function startScheduler(deps, intervalMs = 60000) {
 export async function runDueDrips(deps) {
   const { pool, meta, config, log } = deps;
   const settings = await getSettings(pool, config);
-  const jobs = await dueDrips(pool, 20);
+  const jobs = await claimDueDrips(pool, 20);
 
   for (const job of jobs) {
     try {

@@ -132,16 +132,30 @@ export async function cancelDrips(pool, conversationId) {
   );
 }
 
-// Follow ups that are due and whose conversation is still owned by the bot.
-export async function dueDrips(pool, limit = 20) {
+// Atomically claims the follow ups that are due and whose conversation is still
+// owned by the bot, marking them 'sending' so another running instance cannot
+// pick up the same job. Uses SKIP LOCKED so concurrent schedulers never block
+// or double send.
+export async function claimDueDrips(pool, limit = 20) {
   const res = await pool.query(
-    `select d.id, d.conversation_id, d.step, d.template_name, ct.wa_id
-     from drip_jobs d
-     join conversations c on c.id = d.conversation_id
-     join contacts ct on ct.id = c.contact_id
-     where d.status = 'pending' and d.run_at <= now() and c.state = 'bot'
-     order by d.run_at
-     limit $1`,
+    `with due as (
+       select d.id
+       from drip_jobs d
+       join conversations c on c.id = d.conversation_id
+       where d.status = 'pending' and d.run_at <= now() and c.state = 'bot'
+       order by d.run_at
+       limit $1
+       for update skip locked
+     ),
+     claimed as (
+       update drip_jobs set status = 'sending'
+       where id in (select id from due)
+       returning id, conversation_id, step, template_name
+     )
+     select cl.id, cl.conversation_id, cl.step, cl.template_name, ct.wa_id
+     from claimed cl
+     join conversations c on c.id = cl.conversation_id
+     join contacts ct on ct.id = c.contact_id`,
     [limit],
   );
   return res.rows;
@@ -309,6 +323,19 @@ export async function addAudit(pool, entry) {
 
 export async function listAudit(pool, limit = 100) {
   return (await pool.query('select id, actor, action, target, detail, created_at from audit_log order by id desc limit $1', [limit])).rows;
+}
+
+export async function metrics(pool) {
+  const r = await pool.query(
+    `select
+       (select count(*) from contacts) as leads,
+       (select count(*) from conversations where state = 'bot') as bot_chats,
+       (select count(*) from conversations where state = 'human') as human_chats,
+       (select count(*) from messages where direction = 'inbound') as inbound,
+       (select count(*) from messages where direction = 'outbound') as outbound,
+       (select count(*) from drip_jobs where status = 'pending') as drip_pending`,
+  );
+  return r.rows[0];
 }
 
 export async function overview(pool) {
