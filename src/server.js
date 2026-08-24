@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
+import fastifyMultipart from '@fastify/multipart';
 import { MetaClient } from './meta/client.js';
 import { AiClient } from './ai/client.js';
 import { verifySignature } from './security.js';
@@ -34,6 +35,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
 
   app.register(fastifyJwt, { secret: config.jwtSecret });
   app.register(fastifyWebsocket);
+  app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
 
   // Keep the raw JSON bytes so signature verification can hash the body as it
   // was received, then parse alongside it.

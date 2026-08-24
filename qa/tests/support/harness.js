@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { runMigrations } from '../../../src/db/migrate.js';
+import { invalidateSettings } from '../../../src/settings.js';
 
 // A test database, kept separate from the dev one. Override with TEST_DATABASE_URL.
 const testDatabaseUrl =
@@ -35,8 +36,9 @@ async function ensureDatabase(url) {
 
 export async function resetTables(pool) {
   await pool.query(
-    'truncate messages, conversations, contacts, campaigns, knowledge_base, drip_jobs, templates restart identity cascade',
+    'truncate messages, conversations, contacts, campaigns, knowledge_base, drip_jobs, templates, settings, media_assets restart identity cascade',
   );
+  invalidateSettings();
 }
 
 // Records outbound sends instead of calling Meta.
@@ -60,6 +62,24 @@ export class FakeMeta {
       { name: 'drip_day3', language: 'en', category: 'MARKETING', status: 'APPROVED', body: 'Hi {{1}}, still thinking it over?' },
       { name: 'pending_one', language: 'en', category: 'UTILITY', status: 'PENDING', body: 'Your order {{1}}' },
     ];
+  }
+  async getBusinessProfile() {
+    return this.profile ?? { about: 'We design logos and brands', email: 'hi@x.com' };
+  }
+  async updateBusinessProfile(fields) {
+    this.profile = { ...(this.profile ?? {}), ...fields };
+    return { success: true };
+  }
+  async uploadMedia(buffer, mimeType, filename) {
+    this.uploads = this.uploads ?? [];
+    this.uploads.push({ mimeType, filename });
+    return `media-${this.uploads.length}`;
+  }
+  async sendMedia(to, kind, opts) {
+    this.media = this.media ?? [];
+    const wamid = `wamid.MED${this.media.length + 1}`;
+    this.media.push({ to, kind, opts, wamid });
+    return wamid;
   }
 }
 
@@ -100,4 +120,5 @@ export const testConfig = {
     { step: 3, template: 'drip_day8', days: 8 },
   ],
   dripLanguage: 'en',
+  resumeMinutes: 0,
 };

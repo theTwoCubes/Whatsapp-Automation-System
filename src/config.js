@@ -73,7 +73,7 @@ export function loadConfig() {
   };
 }
 
-function parseDripSteps(raw) {
+export function parseDripSteps(raw) {
   return raw
     .split(',')
     .map((part, index) => {

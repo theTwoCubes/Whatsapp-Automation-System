@@ -1,6 +1,7 @@
 import { dueDrips, markDrip, recordOutbound, conversationsToResume } from './db/repo.js';
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
+import { getSettings } from './settings.js';
 
 // Runs the recurring background work: drip follow ups and the auto resume that
 // hands stalled chats back to the bot. In process on an interval, single
@@ -21,11 +22,12 @@ export function startScheduler(deps, intervalMs = 60000) {
 
 export async function runDueDrips(deps) {
   const { pool, meta, config, log } = deps;
+  const settings = await getSettings(pool, config);
   const jobs = await dueDrips(pool, 20);
 
   for (const job of jobs) {
     try {
-      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, config.dripLanguage);
+      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage);
       await markDrip(pool, job.id, 'sent');
       if (wamid) {
         await recordOutbound(pool, {
@@ -49,9 +51,10 @@ export async function runDueDrips(deps) {
 // then answers the waiting message so the lead is not left hanging.
 export async function runAutoResume(deps) {
   const { pool, meta, ai, config, realtime, log } = deps;
-  if (!config.resumeMinutes || config.resumeMinutes <= 0) return 0;
+  const settings = await getSettings(pool, config);
+  if (!settings.resumeMinutes || settings.resumeMinutes <= 0) return 0;
 
-  const rows = await conversationsToResume(pool, config.resumeMinutes);
+  const rows = await conversationsToResume(pool, settings.resumeMinutes);
   for (const row of rows) {
     try {
       await handToBot(pool, row.id);
@@ -60,11 +63,11 @@ export async function runAutoResume(deps) {
 
       let decision;
       try {
-        decision = await buildReply(pool, ai, config, row.id);
+        decision = await buildReply(pool, ai, settings, row.id);
       } catch {
         // fall back below
       }
-      const reply = decision?.reply || config.fallbackMessage;
+      const reply = decision?.reply || settings.fallbackMessage;
       const wamid = await meta.sendText(row.wa_id, reply);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });

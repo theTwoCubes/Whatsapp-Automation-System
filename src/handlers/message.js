@@ -1,6 +1,7 @@
 import { recordInbound, recordOutbound, updateStatus, scheduleDrips, cancelDrips } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { handToHuman } from '../handoff.js';
+import { getSettings } from '../settings.js';
 
 // Handles a verified webhook payload. Runs after the route has already returned
 // 200, so it must not throw back to the request. Messages and status callbacks
@@ -79,6 +80,7 @@ async function handleMessage(value, message, deps) {
   }
 
   const text = message.text.body;
+  const settings = await getSettings(pool, config);
 
   // The lead asked for a person. Hand off, stop the drip follow ups, and let the
   // team take it from here.
@@ -86,7 +88,7 @@ async function handleMessage(value, message, deps) {
     await handToHuman(pool, result.conversationId);
     await cancelDrips(pool, result.conversationId);
     log.info({ conversationId: result.conversationId }, 'handed conversation to a human on request');
-    await sendAndRecord(deps, message.from, result.conversationId, config.handoffMessage);
+    await sendAndRecord(deps, message.from, result.conversationId, settings.handoffMessage);
     return;
   }
 
@@ -95,7 +97,7 @@ async function handleMessage(value, message, deps) {
   // canned message so the lead always gets an answer.
   let decision;
   try {
-    decision = await buildReply(pool, ai, config, result.conversationId);
+    decision = await buildReply(pool, ai, settings, result.conversationId);
   } catch (err) {
     log.warn({ conversationId: result.conversationId, err }, 'ai reply unavailable, using fallback');
   }
@@ -105,15 +107,15 @@ async function handleMessage(value, message, deps) {
     await handToHuman(pool, result.conversationId);
     await cancelDrips(pool, result.conversationId);
     log.info({ conversationId: result.conversationId, reason: decision.reason }, 'ai handed conversation to a human');
-    await sendAndRecord(deps, message.from, result.conversationId, decision.reply || config.handoffMessage);
+    await sendAndRecord(deps, message.from, result.conversationId, decision.reply || settings.handoffMessage);
     return;
   }
 
-  const reply = decision?.reply || config.fallbackMessage;
+  const reply = decision?.reply || settings.fallbackMessage;
   await sendAndRecord(deps, message.from, result.conversationId, reply);
 
   // The lead is active, so reset the follow up schedule from now.
-  await scheduleDrips(pool, result.conversationId, config.dripSteps);
+  await scheduleDrips(pool, result.conversationId, settings.dripSteps);
 }
 
 async function sendAndRecord(deps, to, conversationId, body) {

@@ -60,6 +60,93 @@ export class MetaClient {
     }));
   }
 
+  // Reads the WhatsApp business profile so the client can manage it from the
+  // console instead of opening Meta.
+  async getBusinessProfile() {
+    const fields = 'about,address,description,email,profile_picture_url,websites,vertical';
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/whatsapp_business_profile?fields=${fields}`;
+    const data = await this.get(url);
+    return data.data?.[0] ?? {};
+  }
+
+  async updateBusinessProfile(fields) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/whatsapp_business_profile`;
+    return this.postJson(url, { messaging_product: 'whatsapp', ...fields });
+  }
+
+  // Uploads a file to Meta and returns its media id, which can then be sent to a
+  // lead. Media ids are reusable for a while.
+  async uploadMedia(buffer, mimeType, filename) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/media`;
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', new Blob([buffer], { type: mimeType }), filename || 'file');
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+        body: form,
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
+    }
+    return data.id;
+  }
+
+  // Sends an image or document to a lead by media id. Only works inside the 24
+  // hour window, same as a text message.
+  async sendMedia(to, kind, { id, link, caption, filename } = {}) {
+    const media = {};
+    if (id) media.id = id;
+    if (link) media.link = link;
+    if (caption) media.caption = caption;
+    if (kind === 'document' && filename) media.filename = filename;
+    return this.send(to, { type: kind, [kind]: media });
+  }
+
+  async get(url) {
+    let res;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
+    }
+    return data;
+  }
+
+  async postJson(url, payload) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.config.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
+    }
+    return data;
+  }
+
   async send(to, content) {
     const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
     const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...content };

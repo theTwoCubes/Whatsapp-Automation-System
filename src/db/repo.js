@@ -244,6 +244,95 @@ export async function markAgentReplied(pool, conversationId) {
 // Human owned conversations where the lead is waiting (the newest message is
 // inbound) and no agent has replied within the resume window. These get handed
 // back to the bot automatically.
+// Settings, knowledge base, agents, media and overview for the admin console.
+
+export async function setSettings(pool, entries) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    for (const [key, value] of Object.entries(entries)) {
+      await client.query(
+        `insert into settings (key, value, updated_at) values ($1, $2, now())
+         on conflict (key) do update set value = excluded.value, updated_at = now()`,
+        [key, value == null ? null : String(value)],
+      );
+    }
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listKnowledge(pool) {
+  return (await pool.query('select id, title, content, active from knowledge_base order by id')).rows;
+}
+
+export async function addKnowledge(pool, { title, content }) {
+  const r = await pool.query('insert into knowledge_base (title, content) values ($1, $2) returning id', [title, content]);
+  return r.rows[0].id;
+}
+
+export async function updateKnowledge(pool, id, { title, content, active }) {
+  await pool.query(
+    `update knowledge_base set
+       title = coalesce($2, title),
+       content = coalesce($3, content),
+       active = coalesce($4, active)
+     where id = $1`,
+    [id, title ?? null, content ?? null, active ?? null],
+  );
+}
+
+export async function deleteKnowledge(pool, id) {
+  await pool.query('delete from knowledge_base where id = $1', [id]);
+}
+
+export async function listAgents(pool) {
+  return (await pool.query('select id, email, name, created_at from agents order by id')).rows;
+}
+
+export async function deleteAgent(pool, id) {
+  await pool.query('delete from agents where id = $1', [id]);
+}
+
+export async function overview(pool) {
+  const r = await pool.query(
+    `select
+       (select count(*) from contacts) as leads,
+       (select count(*) from campaigns) as campaigns,
+       (select count(*) from conversations where state = 'bot') as bot_chats,
+       (select count(*) from conversations where state = 'human') as human_chats,
+       (select count(*) from messages where direction = 'inbound') as inbound,
+       (select count(*) from messages where direction = 'outbound') as outbound`,
+  );
+  return r.rows[0];
+}
+
+export async function addMediaAsset(pool, a) {
+  const r = await pool.query(
+    'insert into media_assets (meta_media_id, filename, mime_type, kind, caption) values ($1, $2, $3, $4, $5) returning id',
+    [a.metaMediaId ?? null, a.filename ?? null, a.mimeType ?? null, a.kind, a.caption ?? null],
+  );
+  return r.rows[0].id;
+}
+
+export async function listMediaAssets(pool) {
+  return (
+    await pool.query(
+      'select id, meta_media_id, filename, mime_type, kind, caption, created_at from media_assets order by id desc limit 100',
+    )
+  ).rows;
+}
+
+export async function getMediaAsset(pool, id) {
+  return (
+    await pool.query('select id, meta_media_id, filename, mime_type, kind, caption from media_assets where id = $1', [id])
+  ).rows[0] ?? null;
+}
+
 export async function conversationsToResume(pool, minutes) {
   const res = await pool.query(
     `select c.id, ct.wa_id

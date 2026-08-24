@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, getToken } from './api.js';
 import { initials, avatarColor, shortTime, groupByDay, templateParamCount } from './lib.js';
 
-export default function Console({ onLogout }) {
+export default function Console({ onLogout, onOpenAdmin }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [thread, setThread] = useState(null);
@@ -71,9 +71,14 @@ export default function Console({ onLogout }) {
             </div>
             <span>Console</span>
           </div>
-          <button className="icon-btn" onClick={onLogout}>
-            Sign out
-          </button>
+          <div className="head-actions">
+            <button className="icon-btn" onClick={onOpenAdmin}>
+              Admin
+            </button>
+            <button className="icon-btn" onClick={onLogout}>
+              Sign out
+            </button>
+          </div>
         </div>
         <div className="search">
           <input placeholder="Search name or number" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -128,6 +133,14 @@ function Ticks({ status }) {
   const read = status === 'read';
   const single = status === 'sent';
   return <span className={`ticks ${read ? 'read' : ''}`}>{single ? '✓' : '✓✓'}</span>;
+}
+
+function mediaLabel(type) {
+  if (type === 'image') return '📷 Photo';
+  if (type === 'document') return '📄 Document';
+  if (type === 'video') return '🎥 Video';
+  if (type === 'audio') return '🎤 Voice message';
+  return `[${type}]`;
 }
 
 function Chat({ thread, templates, onSync, onChanged }) {
@@ -188,7 +201,7 @@ function Chat({ thread, templates, onSync, onChanged }) {
             <div className="day">{g.label}</div>
             {g.items.map((m) => (
               <div key={m.id} className={`bubble ${m.direction}`}>
-                {m.body}
+                {m.body || mediaLabel(m.type)}
                 <span className="meta">
                   {shortTime(m.created_at)}
                   {m.direction === 'outbound' && <Ticks status={m.status} />}
@@ -205,6 +218,21 @@ function Chat({ thread, templates, onSync, onChanged }) {
       <div className="composer">
         {windowOpen ? (
           <div className="row">
+            <label className="attach" title="Attach a photo or document">
+              📎
+              <input
+                type="file"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) act(async () => {
+                    const asset = await api.uploadMedia(file);
+                    await api.sendMedia(conversation.id, asset.id, text.trim() || undefined);
+                  });
+                }}
+              />
+            </label>
             <input
               className="msg"
               placeholder="Type a message"

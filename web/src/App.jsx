@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
 import { api, getToken, setToken, clearToken } from './api.js';
 import Console from './Console.jsx';
+import Admin from './Admin.jsx';
 
 export default function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
+  const [view, setView] = useState('chats');
+
+  const logout = () => {
+    clearToken();
+    setAuthed(false);
+    setView('chats');
+  };
+
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
-  return (
-    <Console
-      onLogout={() => {
-        clearToken();
-        setAuthed(false);
-      }}
-    />
-  );
+  if (view === 'admin') return <Admin onBack={() => setView('chats')} onLogout={logout} />;
+  return <Console onOpenAdmin={() => setView('admin')} onLogout={logout} />;
 }
 
 function Login({ onLogin }) {
