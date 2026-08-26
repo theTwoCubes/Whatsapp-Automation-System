@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
@@ -41,8 +41,10 @@ export async function runMigrations(pool) {
   }
 }
 
-// Allow running standalone: node src/db/migrate.js
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Allow running standalone: node src/db/migrate.js. Compared as file urls, not
+// raw strings, since a path with spaces percent encodes differently between
+// import.meta.url and a plain file:// concatenation.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { loadConfig } = await import('../config.js');
   const { createPool } = await import('./pool.js');
   const pool = createPool(loadConfig());
