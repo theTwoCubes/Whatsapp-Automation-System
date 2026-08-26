@@ -48,6 +48,15 @@ export function loadConfig() {
     geminiApiKey: process.env.GEMINI_API_KEY?.trim() || '',
     geminiModel: process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash',
 
+    // Embeddings are provider fixed (OpenAI text-embedding-3-small at 1536
+    // dimensions) because vector spaces from different models are not
+    // compatible. Switching model or dimension means re-embedding everything.
+    embeddingModel: process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small',
+    retrievalTopK: Number(process.env.RETRIEVAL_TOP_K || 12),
+    retrievalTokenBudget: Number(process.env.RETRIEVAL_TOKEN_BUDGET || 1200),
+    retrievalSimilarityFloor: Number(process.env.RETRIEVAL_SIMILARITY_FLOOR || 0.5),
+    dedupSimilarityThreshold: Number(process.env.DEDUP_SIMILARITY_THRESHOLD || 0.93),
+
     // Business identity injected into the system prompt.
     businessName: process.env.BUSINESS_NAME?.trim() || 'our studio',
     businessAbout: process.env.BUSINESS_ABOUT?.trim() || '',

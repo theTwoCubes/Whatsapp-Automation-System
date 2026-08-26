@@ -45,11 +45,20 @@ export async function recordInbound(pool, m) {
          campaign_id = coalesce(conversations.campaign_id, excluded.campaign_id),
          window_expires_at = now() + interval '24 hours',
          updated_at = now()
-       returning id, state`,
+       returning id, state, campaign_id`,
       [contactId, campaignId],
     );
     const conversationId = conversation.rows[0].id;
     const state = conversation.rows[0].state;
+    const effectiveCampaignId = conversation.rows[0].campaign_id;
+
+    // Resolve the topic from the linked campaign so the caller can bias
+    // knowledge retrieval by service.
+    let topicId = null;
+    if (effectiveCampaignId) {
+      const t = await client.query('select topic_id from campaigns where id = $1', [effectiveCampaignId]);
+      topicId = t.rows[0]?.topic_id ?? null;
+    }
 
     const inserted = await client.query(
       `insert into messages (conversation_id, wa_message_id, direction, type, body, referral_campaign_id, raw)
@@ -60,7 +69,7 @@ export async function recordInbound(pool, m) {
     );
 
     await client.query('commit');
-    return { isNew: inserted.rowCount > 0, conversationId, contactId, state, campaignId };
+    return { isNew: inserted.rowCount > 0, conversationId, contactId, state, campaignId, topicId };
   } catch (err) {
     await client.query('rollback');
     throw err;

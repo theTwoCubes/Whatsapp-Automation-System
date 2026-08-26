@@ -50,7 +50,7 @@ export async function runDueDrips(deps) {
 // Hands chats back to the bot when a human has left the lead waiting too long,
 // then answers the waiting message so the lead is not left hanging.
 export async function runAutoResume(deps) {
-  const { pool, meta, ai, config, realtime, log } = deps;
+  const { pool, meta, ai, embeddings, config, realtime, log } = deps;
   const settings = await getSettings(pool, config);
   if (!settings.resumeMinutes || settings.resumeMinutes <= 0) return 0;
 
@@ -63,7 +63,9 @@ export async function runAutoResume(deps) {
 
       let decision;
       try {
-        decision = await buildReply(pool, ai, settings, row.id);
+        // Auto resume has no fresh query, so retrieval falls back to fts on the
+        // last message inside buildReply history.
+        decision = await buildReply(pool, ai, embeddings, settings, row.id, { query: '', topicId: null });
       } catch {
         // fall back below
       }

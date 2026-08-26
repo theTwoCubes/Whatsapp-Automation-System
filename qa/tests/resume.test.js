@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { runAutoResume } from '../../src/scheduler.js';
 import { recordInbound } from '../../src/db/repo.js';
 import { handToHuman } from '../../src/handoff.js';
-import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 
@@ -42,6 +42,7 @@ test('a stalled human chat is resumed and the lead gets a reply', async () => {
     pool,
     meta,
     ai: new FakeAi('Sorry for the wait, how can I help?'),
+    embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 15 },
     log: silentLog,
   });
@@ -60,6 +61,7 @@ test('a recently handled human chat is left alone', async () => {
     pool,
     meta,
     ai: new FakeAi('hi'),
+    embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 15 },
     log: silentLog,
   });
@@ -76,6 +78,7 @@ test('auto resume does nothing when disabled', async () => {
     pool,
     meta: new FakeMeta(),
     ai: new FakeAi('hi'),
+    embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 0 },
     log: silentLog,
   });

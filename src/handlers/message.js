@@ -7,7 +7,7 @@ import { getSettings } from '../settings.js';
 // 200, so it must not throw back to the request. Messages and status callbacks
 // arrive on the same endpoint with different shapes and are handled separately.
 export async function processWebhook(body, deps) {
-  const { meta, ai, pool, config, realtime, log } = deps;
+  const { meta, ai, embeddings, pool, config, realtime, log } = deps;
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -16,7 +16,7 @@ export async function processWebhook(body, deps) {
 
       if (value.messages?.length) {
         for (const msg of value.messages) {
-          await handleMessage(value, msg, { meta, ai, pool, config, realtime, log });
+          await handleMessage(value, msg, { meta, ai, embeddings, pool, config, realtime, log });
         }
       }
 
@@ -30,7 +30,7 @@ export async function processWebhook(body, deps) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { ai, pool, config, realtime, log } = deps;
+  const { ai, embeddings, pool, config, realtime, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   let result;
@@ -94,10 +94,15 @@ async function handleMessage(value, message, deps) {
 
   // AI reply. The model returns a reply plus its own judgement on whether a
   // human should take over. Any failure, including no api key, falls back to a
-  // canned message so the lead always gets an answer.
+  // canned message so the lead always gets an answer. Retrieval is scored
+  // against the message text and biased by the lead's topic if the campaign is
+  // linked to one.
   let decision;
   try {
-    decision = await buildReply(pool, ai, settings, result.conversationId);
+    decision = await buildReply(pool, ai, embeddings, settings, result.conversationId, {
+      query: text,
+      topicId: result.topicId ?? null,
+    });
   } catch (err) {
     log.warn({ conversationId: result.conversationId, err }, 'ai reply unavailable, using fallback');
   }

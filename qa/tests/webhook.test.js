@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText, inboundImage, statusUpdate, adReferral } from './support/fixtures.js';
-import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 
@@ -23,6 +23,7 @@ function deps(overrides = {}) {
   return {
     meta: overrides.meta ?? new FakeMeta(),
     ai: overrides.ai ?? new FakeAi(),
+    embeddings: overrides.embeddings ?? new FakeEmbeddings(),
     pool,
     config: testConfig,
     log: silentLog,

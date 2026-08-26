@@ -2,7 +2,7 @@ name: whatsapp-dev
 
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: whatsapp
       POSTGRES_PASSWORD: whatsapp
