@@ -103,6 +103,24 @@ export async function getConversationHistory(pool, conversationId, limit = 12) {
   return res.rows.reverse();
 }
 
+// Who the lead is and where they are in the funnel, so the prompt can be
+// personal without guessing: name if known, the linked service (via the
+// campaign's topic), and how many messages they have sent so far.
+export async function getConversationContext(pool, conversationId) {
+  const res = await pool.query(
+    `select ct.name as contact_name, c.created_at,
+            t.name as topic_name,
+            (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound') as turn_count
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     left join topics t on t.id = ca.topic_id
+     where c.id = $1`,
+    [conversationId],
+  );
+  return res.rows[0] ?? null;
+}
+
 export async function getActiveKnowledge(pool) {
   const res = await pool.query('select title, content from knowledge_base where active = true order by id');
   return res.rows;
