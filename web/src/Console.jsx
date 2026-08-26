@@ -210,7 +210,16 @@ function Chat({ thread, templates, onSync, onChanged }) {
 
   const groups = groupByDay(messages);
   const isHuman = conversation.state === 'human';
+  const isPending = conversation.state === 'pending';
   const windowOpen = conversation.window_open;
+
+  const statusLine = isHuman
+    ? conversation.assignee
+      ? ` · with ${conversation.assignee}`
+      : ` · with a human`
+    : isPending
+      ? ` · waiting for someone to pick this up`
+      : ` · handled by bot`;
 
   return (
     <>
@@ -222,22 +231,37 @@ function Chat({ thread, templates, onSync, onChanged }) {
           <div className="name">{conversation.name || conversation.wa_id}</div>
           <div className="sub">
             {conversation.wa_id}
-            {isHuman && conversation.assignee ? ` · with ${conversation.assignee}` : ` · handled by bot`}
+            {statusLine}
           </div>
         </div>
         <span className={`window ${windowOpen ? 'open' : 'closed'}`}>
           {windowOpen ? '24h window open' : 'window closed'}
         </span>
-        {isHuman ? (
+        {isHuman && (
           <button className="btn ghost" onClick={() => act(() => api.handback(conversation.id))}>
             Give back to bot
           </button>
-        ) : (
+        )}
+        {isPending && (
+          <>
+            <button className="btn ghost" onClick={() => act(() => api.rejectHandoff(conversation.id))}>
+              Reject
+            </button>
+            <button className="btn" onClick={() => act(() => api.acceptHandoff(conversation.id))}>
+              Accept
+            </button>
+          </>
+        )}
+        {!isHuman && !isPending && (
           <button className="btn" onClick={() => act(() => api.takeover(conversation.id))}>
             Take over
           </button>
         )}
       </div>
+
+      {isPending && conversation.handoff_reason && (
+        <div className="pending-banner">Waiting on a human: {conversation.handoff_reason}</div>
+      )}
 
       <div className="messages">
         {groups.map((g) => (

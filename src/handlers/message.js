@@ -9,7 +9,7 @@ import {
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { retrieveMedia } from '../knowledge/media.js';
-import { handToHuman } from '../handoff.js';
+import { handToPending } from '../handoff.js';
 import { getSettings } from '../settings.js';
 import { createBatcher } from './batcher.js';
 
@@ -100,9 +100,9 @@ async function handleMessage(value, message, deps) {
   // immediately means it does not get lost waiting on the debounce window.
   if (message.type !== 'text' || !message.text?.body) {
     const settings = await getSettings(pool, config);
-    await handToHuman(pool, result.conversationId);
+    await handToPending(pool, result.conversationId, `Lead sent a ${message.type}`);
     await cancelDrips(pool, result.conversationId);
-    log.info({ conversationId: result.conversationId, type: message.type }, 'lead sent an attachment, handed to a human');
+    log.info({ conversationId: result.conversationId, type: message.type }, 'lead sent an attachment, queued for a human');
     await sendAndRecord(deps, message.from, result.conversationId, settings.attachmentMessage);
     return;
   }
@@ -143,9 +143,9 @@ async function respondToLead(deps, conversationId, items) {
   // The lead asked for a person. Hand off, stop the drip follow ups, and let the
   // team take it from here.
   if (wantsHuman(text)) {
-    await handToHuman(pool, conversationId);
+    await handToPending(pool, conversationId, 'Lead asked to speak with a person');
     await cancelDrips(pool, conversationId);
-    log.info({ conversationId }, 'handed conversation to a human on request');
+    log.info({ conversationId }, 'queued conversation for a human on request');
     await sendAndRecord(deps, to, conversationId, settings.handoffMessage);
     return;
   }
@@ -167,9 +167,9 @@ async function respondToLead(deps, conversationId, items) {
 
   // The AI decided this needs a person.
   if (decision?.handoff) {
-    await handToHuman(pool, conversationId);
+    await handToPending(pool, conversationId, decision.reason || 'The ai judged this needs a person');
     await cancelDrips(pool, conversationId);
-    log.info({ conversationId, reason: decision.reason }, 'ai handed conversation to a human');
+    log.info({ conversationId, reason: decision.reason }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);
     return;
   }

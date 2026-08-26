@@ -92,6 +92,7 @@ function Overview() {
     ['Leads', o.leads],
     ['Campaigns', o.campaigns],
     ['With the bot', o.bot_chats],
+    ['Waiting for a human', o.pending_chats],
     ['With a human', o.human_chats],
     ['Messages in', o.inbound],
     ['Messages out', o.outbound],

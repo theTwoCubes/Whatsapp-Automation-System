@@ -216,7 +216,7 @@ export async function createAgent(pool, a) {
 
 export async function listConversations(pool) {
   const res = await pool.query(
-    `select c.id, c.state, c.assignee, c.window_expires_at,
+    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, m.created_at as last_at
      from conversations c
@@ -234,7 +234,7 @@ export async function listConversations(pool) {
 
 export async function getConversationById(pool, id) {
   const res = await pool.query(
-    `select c.id, c.state, c.assignee, c.window_expires_at, ct.wa_id, ct.name
+    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason, ct.wa_id, ct.name
      from conversations c join contacts ct on ct.id = c.contact_id
      where c.id = $1`,
     [id],
@@ -366,6 +366,7 @@ export async function metrics(pool) {
        (select count(*) from contacts) as leads,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
+       (select count(*) from conversations where state = 'pending') as pending_chats,
        (select count(*) from messages where direction = 'inbound') as inbound,
        (select count(*) from messages where direction = 'outbound') as outbound,
        (select count(*) from drip_jobs where status = 'pending') as drip_pending`,
@@ -420,6 +421,7 @@ export async function overview(pool) {
        (select count(*) from campaigns) as campaigns,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
+       (select count(*) from conversations where state = 'pending') as pending_chats,
        (select count(*) from messages where direction = 'inbound') as inbound,
        (select count(*) from messages where direction = 'outbound') as outbound`,
   );
@@ -492,12 +494,15 @@ export async function getMediaAsset(pool, id) {
   ).rows[0] ?? null;
 }
 
+// Stalled chats to hand back to the bot: either an agent has gone quiet on a
+// chat they own, or nobody accepted a pending handoff in time. Either way the
+// lead should not be left waiting indefinitely.
 export async function conversationsToResume(pool, minutes) {
   const res = await pool.query(
     `select c.id, ct.wa_id
      from conversations c
      join contacts ct on ct.id = c.contact_id
-     where c.state = 'human'
+     where c.state in ('human', 'pending')
        and coalesce(c.last_agent_at, c.assigned_at) < now() - make_interval(mins => $1)
        and (
          select direction from messages m

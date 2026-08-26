@@ -97,6 +97,12 @@ export function registerApi(app, deps) {
       req.log.warn({ err }, 'failed to write audit entry'),
     );
 
+  // An agent replying to a pending handoff has, in effect, just accepted it,
+  // so claim it for them instead of leaving it looking unclaimed once they
+  // have already started answering.
+  const claimIfPending = (conversation, email) =>
+    conversation.state === 'pending' ? handToHuman(pool, conversation.id, email) : Promise.resolve();
+
   app.post('/api/login', async (req, reply) => {
     const limit = loginLimiter(req.ip);
     if (!limit.ok) {
@@ -146,6 +152,7 @@ export function registerApi(app, deps) {
     try {
       const wamid = await meta.sendText(conversation.wa_id, body);
       if (wamid) await recordOutbound(pool, { conversationId: conversation.id, waMessageId: wamid, body });
+      await claimIfPending(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
@@ -171,6 +178,7 @@ export function registerApi(app, deps) {
           body: `[template] ${name}`,
         });
       }
+      await claimIfPending(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await audit(req, 'template sent', `conversation ${conversation.id}`, name);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
@@ -191,6 +199,32 @@ export function registerApi(app, deps) {
   app.post('/api/conversations/:id/handback', { preHandler: auth, schema: idParams }, async (req) => {
     await handToBot(pool, req.params.id);
     await audit(req, 'handback', `conversation ${req.params.id}`);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true };
+  });
+
+  // Accepting or rejecting a pending handoff. A handoff the bot or a lead
+  // queued sits pending until an agent claims it or sends it back to the bot.
+  app.post('/api/conversations/:id/accept', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    if (conversation.state !== 'pending') {
+      return reply.code(409).send({ error: 'this conversation is not waiting on a handoff' });
+    }
+    await handToHuman(pool, req.params.id, req.user.email);
+    await audit(req, 'handoff accepted', `conversation ${req.params.id}`);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true };
+  });
+
+  app.post('/api/conversations/:id/reject', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    if (conversation.state !== 'pending') {
+      return reply.code(409).send({ error: 'this conversation is not waiting on a handoff' });
+    }
+    await handToBot(pool, req.params.id);
+    await audit(req, 'handoff rejected', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
@@ -479,6 +513,7 @@ export function registerApi(app, deps) {
           mediaAssetId: asset.id,
         });
       }
+      await claimIfPending(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await audit(req, 'media sent', `conversation ${conversation.id}`, asset.filename);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });

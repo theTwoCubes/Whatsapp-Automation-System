@@ -252,6 +252,17 @@ input {
   background: #ffe3d6;
   color: #c05621;
 }
+.pill.pending {
+  background: #fff3c4;
+  color: #8a6d00;
+}
+.pending-banner {
+  background: #fff8e1;
+  color: #8a6d00;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
 .empty-list {
   color: var(--text-soft);
   text-align: center;

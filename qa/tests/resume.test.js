@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { runAutoResume } from '../../src/scheduler.js';
 import { recordInbound } from '../../src/db/repo.js';
-import { handToHuman } from '../../src/handoff.js';
+import { handToHuman, handToPending } from '../../src/handoff.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -69,6 +69,36 @@ test('a recently handled human chat is left alone', async () => {
   assert.equal(resumed, 0);
   const state = (await pool.query('select state from conversations where id = $1', [id])).rows[0].state;
   assert.equal(state, 'human', 'still with the human');
+});
+
+test('a pending handoff nobody accepted in time also resumes to the bot', async () => {
+  const { conversationId } = await recordInbound(pool, {
+    waId: '911111111112',
+    name: 'Unclaimed Lead',
+    waMessageId: `wamid.${Math.random()}`,
+    type: 'text',
+    body: 'can I speak to someone',
+    referral: null,
+    raw: {},
+  });
+  await handToPending(pool, conversationId, 'Lead asked to speak with a person');
+  await pool.query("update conversations set assigned_at = now() - interval '30 min' where id = $1", [conversationId]);
+
+  const meta = new FakeMeta();
+  const resumed = await runAutoResume({
+    pool,
+    meta,
+    ai: new FakeAi('Sorry for the wait, how can I help?'),
+    embeddings: new FakeEmbeddings(),
+    config: { ...testConfig, resumeMinutes: 15 },
+    log: silentLog,
+  });
+
+  assert.equal(resumed, 1);
+  const row = (await pool.query('select state, handoff_reason from conversations where id = $1', [conversationId])).rows[0];
+  assert.equal(row.state, 'bot', 'nobody claimed it in time, so the bot resumes');
+  assert.equal(row.handoff_reason, null, 'the stale handoff reason is cleared');
+  assert.equal(meta.sends.length, 1, 'the waiting lead got an answer');
 });
 
 test('auto resume does nothing when disabled', async () => {

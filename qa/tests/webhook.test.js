@@ -79,23 +79,24 @@ test('rapid fire messages in the same conversation are coalesced into one ai cal
   assert.equal(d.meta.sends.length, 1, 'a single reply sent for both messages');
 });
 
-test('asking for a human hands off and stops the bot', async () => {
+test('asking for a human queues the conversation and stops the bot', async () => {
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
 
-  const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'human');
+  const conv = await pool.query('select state, handoff_reason from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'pending');
+  assert.ok(conv.rows[0].handoff_reason, 'a reason is recorded for the agent');
   assert.equal(d.ai.calls, 0, 'ai not called on handoff');
   assert.equal(d.meta.sends[0].body, testConfig.handoffMessage);
 });
 
-test('once a human owns the conversation the bot stays quiet', async () => {
+test('once a handoff is pending the bot stays quiet', async () => {
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.H2', body: 'talk to a person' }), d);
   const sendsAfterHandoff = d.meta.sends.length;
 
   await processWebhook(inboundText({ id: 'wamid.H3', body: 'are you there' }), d);
-  assert.equal(d.meta.sends.length, sendsAfterHandoff, 'no new bot reply while human owns it');
+  assert.equal(d.meta.sends.length, sendsAfterHandoff, 'no new bot reply while pending on a human');
 });
 
 test('ai failure falls back to a canned reply instead of going silent', async () => {
@@ -113,8 +114,9 @@ test('the ai can decide on its own to hand a chat to a human', async () => {
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.AI1', body: 'can you do 2000 instead of 5000?' }), d);
 
-  const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'human', 'ai handoff flips the state');
+  const conv = await pool.query('select state, handoff_reason from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'pending', 'ai handoff queues the conversation');
+  assert.equal(conv.rows[0].handoff_reason, 'price negotiation');
   assert.equal(d.meta.sends[0].body, 'Let me get a colleague to help with that.');
 });
 
@@ -145,5 +147,5 @@ test('non text messages are stored and hand off to a human instead of being drop
   assert.equal(d.meta.sends[0].body, testConfig.attachmentMessage);
 
   const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'human', 'conversation handed to a human');
+  assert.equal(conv.rows[0].state, 'pending', 'conversation queued for a human');
 });
