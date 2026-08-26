@@ -15,11 +15,16 @@ import { registerApi } from './routes/api.js';
 import { createRealtime } from './realtime.js';
 import { seedAdmin } from './auth.js';
 import { metrics } from './db/repo.js';
+import { createRateLimiter } from './ratelimit.js';
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
 export function buildServer(config, pool, realtime = createRealtime()) {
   const app = Fastify({
+    // Caddy sits directly in front of the app and sets X-Forwarded-For, so
+    // trust it to get the real client ip for rate limiting and logging
+    // instead of always seeing the proxy's own address.
+    trustProxy: true,
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       redact: {
@@ -41,7 +46,34 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'SAMEORIGIN');
     reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'");
     return payload;
+  });
+
+  // A generous ceiling on the api as a whole, on top of the tighter one on
+  // login, so a stolen token or a runaway script cannot hammer the backend
+  // indefinitely. Console usage in normal operation stays well under this.
+  const apiLimiter = createRateLimiter({ max: 300, windowMs: 60000 });
+  app.addHook('onRequest', async (req, reply) => {
+    if (!req.url.startsWith('/api')) return;
+    const limit = apiLimiter(req.ip);
+    if (!limit.ok) {
+      reply.header('Retry-After', String(limit.retryAfter));
+      reply.code(429).send({ error: 'too many requests, slow down' });
+    }
+  });
+
+  // Unexpected errors are logged in full server side but never echoed back to
+  // the client, so a stray db error or similar never leaks internals like
+  // connection details through an api response.
+  app.setErrorHandler((err, req, reply) => {
+    const statusCode = err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
+    if (statusCode >= 500) {
+      req.log.error({ err }, 'unhandled route error');
+      reply.code(500).send({ error: 'something went wrong on our end' });
+      return;
+    }
+    reply.code(statusCode).send({ error: err.message });
   });
 
   const meta = new MetaClient(config, app.log);

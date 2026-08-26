@@ -65,6 +65,18 @@ async function main() {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
+  // A bug slipping past every try/catch should not take the process down
+  // silently. Log it with the same structured logger as everything else,
+  // then shut down cleanly rather than leaving the process in a broken state.
+  process.on('uncaughtException', (err) => {
+    app.log.error({ err }, 'uncaught exception');
+    void shutdown('uncaughtException');
+  });
+  process.on('unhandledRejection', (err) => {
+    app.log.error({ err }, 'unhandled rejection');
+    void shutdown('unhandledRejection');
+  });
+
   try {
     await app.listen({ port: config.port, host: '0.0.0.0' });
   } catch (err) {

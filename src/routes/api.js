@@ -539,14 +539,14 @@ export function registerApi(app, deps) {
 
   // Live updates. The token comes in as a query param since a browser websocket
   // cannot set an auth header.
-  app.get('/api/stream', { websocket: true }, (connection, req) => {
+  app.get('/api/stream', { websocket: true }, (socket, req) => {
     const token = req.query?.token;
     try {
       app.jwt.verify(token);
     } catch {
-      connection.socket.close();
+      socket.close();
       return;
     }
-    realtime.add(connection.socket);
+    realtime.add(socket);
   });
 }
