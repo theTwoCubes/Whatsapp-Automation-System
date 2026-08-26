@@ -3,6 +3,16 @@ import { handToHuman, handToBot } from '../handoff.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
 import {
+  listTopics,
+  upsertTopic,
+  updateTopic,
+  listKnowledgeByScope,
+  setKnowledgeActive,
+  deleteKnowledgeUnit,
+} from '../knowledge/topics.js';
+import { addKnowledgeUnit } from '../knowledge/writer.js';
+import { ingestText } from '../knowledge/ingestion.js';
+import {
   getAgentByEmail,
   listConversations,
   getConversationById,
@@ -13,10 +23,6 @@ import {
   cancelDrips,
   markAgentReplied,
   setSettings,
-  listKnowledge,
-  addKnowledge,
-  updateKnowledge,
-  deleteKnowledge,
   listAgents,
   createAgent,
   deleteAgent,
@@ -280,28 +286,81 @@ export function registerApi(app, deps) {
     }
   });
 
-  // Knowledge base.
-  app.get('/api/knowledge', { preHandler: auth }, async () => ({ knowledge: await listKnowledge(pool) }));
+  // Knowledge base. Tiered: base is the shared brain, topic is per service.
 
+  // Topics.
+  app.get('/api/topics', { preHandler: auth }, async () => ({ topics: await listTopics(pool) }));
+
+  app.post('/api/topics', { preHandler: auth }, async (req, reply) => {
+    const name = (req.body?.name ?? '').trim();
+    const slug = (req.body?.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const description = (req.body?.description ?? '').trim() || null;
+    if (!name || !slug) return reply.code(400).send({ error: 'name and slug are required' });
+    const topic = await upsertTopic(pool, { slug, name, description });
+    await audit(req, 'topic added', slug);
+    return { topic };
+  });
+
+  app.put('/api/topics/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    await updateTopic(pool, req.params.id, {
+      name: req.body?.name,
+      description: req.body?.description,
+      active: req.body?.active,
+    });
+    await audit(req, 'topic updated', `topic ${req.params.id}`);
+    return { ok: true };
+  });
+
+  // Knowledge listing per scope. scope=base or scope=topic&topicId=N.
+  app.get('/api/knowledge', { preHandler: auth }, async (req) => {
+    const scope = (req.query?.scope ?? 'base').trim();
+    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    return { knowledge: await listKnowledgeByScope(pool, { scope, topicId }) };
+  });
+
+  // Add a single knowledge unit, dedup gated. Body: { title, content, scope, topicId }.
   app.post('/api/knowledge', { preHandler: auth }, async (req, reply) => {
     const title = (req.body?.title ?? '').trim();
     const content = (req.body?.content ?? '').trim();
+    const scope = (req.body?.scope ?? 'base').trim();
+    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     if (!title || !content) return reply.code(400).send({ error: 'title and content are required' });
-    const id = await addKnowledge(pool, { title, content });
-    return { id };
+    if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
+    try {
+      const res = await addKnowledgeUnit(pool, deps.embeddings, { title, content, scope, topicId, source: 'manual' });
+      await audit(req, res.added ? 'knowledge added' : 'knowledge duplicate skipped', title);
+      return res;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Ingest raw text (an FAQ paste, a doc) into atomic deduped units.
+  app.post('/api/knowledge/ingest', { preHandler: auth }, async (req, reply) => {
+    const text = (req.body?.text ?? '').trim();
+    const scope = (req.body?.scope ?? 'base').trim();
+    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
+    if (!text) return reply.code(400).send({ error: 'text is required' });
+    if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
+    try {
+      const res = await ingestText(pool, deps.ai, deps.embeddings, text, { scope, topicId });
+      await audit(req, 'knowledge ingested', scope === 'topic' ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
+      return res;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
   });
 
   app.put('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
-    await updateKnowledge(pool, req.params.id, {
-      title: req.body?.title,
-      content: req.body?.content,
-      active: req.body?.active,
-    });
+    if (typeof req.body?.active === 'boolean') {
+      await setKnowledgeActive(pool, req.params.id, req.body.active);
+    }
     return { ok: true };
   });
 
   app.delete('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
-    await deleteKnowledge(pool, req.params.id);
+    await deleteKnowledgeUnit(pool, req.params.id);
+    await audit(req, 'knowledge deleted', `unit ${req.params.id}`);
     return { ok: true };
   });
 

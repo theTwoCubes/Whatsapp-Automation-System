@@ -679,6 +679,48 @@ input {
   border-color: #f0c7c1;
 }
 
+.topic-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 18px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.topic-tab {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #d0d5d9;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+.topic-tab:hover {
+  background: #f5f6f6;
+}
+.topic-tab.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.topic-tab.add {
+  border-style: dashed;
+  color: var(--green-dark);
+}
+.topic-tab .count {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.topic-tab.active .count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
 .media-img {
   max-width: 240px;
   max-height: 280px;

@@ -152,18 +152,121 @@ function Profile() {
 }
 
 function Knowledge() {
-  const [data, error, reload] = useAsync(() => api.knowledge());
+  // Tiered knowledge editor. Base tab shows the shared brain, plus one tab per
+  // Topic. Each pane supports adding a single fact, pasting raw text to be
+  // split into atomic deduped facts, and listing what is stored.
+  const [topics, setTopics] = useState([]);
+  const [scope, setScope] = useState('base');
+  const [topicId, setTopicId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [addTopicOpen, setAddTopicOpen] = useState(false);
+
+  useEffect(() => {
+    api.topics().then((d) => setTopics(d.topics)).catch(() => {});
+  }, [reloadKey]);
+
+  const openBase = () => {
+    setScope('base');
+    setTopicId(null);
+  };
+  const openTopic = (t) => {
+    setScope('topic');
+    setTopicId(t.id);
+  };
+
+  return (
+    <div>
+      <p className="muted">
+        The base knowledge is the shared brain that every conversation can draw from. Each Topic is a service
+        or campaign specific pack. The bot pulls the most relevant facts for every incoming message.
+      </p>
+
+      <div className="topic-tabs">
+        <button className={`topic-tab ${scope === 'base' ? 'active' : ''}`} onClick={openBase}>
+          Base
+        </button>
+        {topics.map((t) => (
+          <button
+            key={t.id}
+            className={`topic-tab ${scope === 'topic' && String(topicId) === String(t.id) ? 'active' : ''}`}
+            onClick={() => openTopic(t)}
+          >
+            {t.name} <span className="count">{t.knowledge_count}</span>
+          </button>
+        ))}
+        <button className="topic-tab add" onClick={() => setAddTopicOpen(true)}>
+          + Add topic
+        </button>
+      </div>
+
+      {addTopicOpen && (
+        <AddTopic
+          onCancel={() => setAddTopicOpen(false)}
+          onCreated={(t) => {
+            setAddTopicOpen(false);
+            setReloadKey((k) => k + 1);
+            openTopic(t);
+          }}
+        />
+      )}
+
+      <KnowledgePane
+        key={`${scope}-${topicId ?? 'base'}-${reloadKey}`}
+        scope={scope}
+        topicId={topicId}
+        onChange={() => setReloadKey((k) => k + 1)}
+      />
+    </div>
+  );
+}
+
+function AddTopic({ onCancel, onCreated }) {
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [description, setDescription] = useState('');
+  const [msg, setMsg] = useState('');
+  const submit = async () => {
+    setMsg('');
+    try {
+      const res = await api.addTopic(name.trim(), slug.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'), description.trim());
+      onCreated(res.topic);
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  return (
+    <div className="add-box">
+      <strong>Create a topic</strong>
+      <input placeholder="Name, e.g. Logo Design" value={name} onChange={(e) => setName(e.target.value)} />
+      <input placeholder="Slug (auto if blank)" value={slug} onChange={(e) => setSlug(e.target.value)} />
+      <input placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <div className="form-actions">
+        <button className="btn" onClick={submit} disabled={!name.trim()}>Create</button>
+        <button className="btn ghost" onClick={onCancel}>Cancel</button>
+        {msg && <span className="error">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function KnowledgePane({ scope, topicId, onChange }) {
+  const [data, error, reload] = useAsync(() => api.knowledge(scope, topicId), [scope, topicId]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [raw, setRaw] = useState('');
   const [msg, setMsg] = useState('');
 
   const add = async () => {
     setMsg('');
     try {
-      await api.addKnowledge(title, content);
-      setTitle('');
-      setContent('');
+      const res = await api.addKnowledge(title, content, scope, topicId);
+      setMsg(res.added ? 'Added.' : `Already known (matches unit ${res.duplicateOf}).`);
+      if (res.added) {
+        setTitle('');
+        setContent('');
+      }
       reload();
+      onChange?.();
     } catch (e) {
       setMsg(e.message);
     }
@@ -171,27 +274,53 @@ function Knowledge() {
   const remove = async (id) => {
     await api.deleteKnowledge(id);
     reload();
+    onChange?.();
+  };
+  const ingest = async () => {
+    setMsg('Processing...');
+    try {
+      const res = await api.ingestKnowledge(raw, scope, topicId);
+      setMsg(`Added ${res.added}, skipped ${res.skipped} duplicates.`);
+      setRaw('');
+      reload();
+      onChange?.();
+    } catch (e) {
+      setMsg(e.message);
+    }
   };
 
   if (error) return <p className="error">{error}</p>;
+  const rows = data?.knowledge || [];
+
   return (
     <div className="form">
-      <p className="muted">Facts the bot answers from. Keep them short and specific.</p>
-      {(data?.knowledge || []).map((k) => (
+      <div className="muted">{rows.length} facts stored in this scope.</div>
+      {rows.map((k) => (
         <div key={k.id} className="list-row">
           <div>
             <strong>{k.title}</strong>
             <div className="muted">{k.content}</div>
+            <div className="muted" style={{ fontSize: 11 }}>source: {k.source}</div>
           </div>
           <button className="btn ghost danger" onClick={() => remove(k.id)}>Delete</button>
         </div>
       ))}
+
       <div className="add-box">
+        <strong>Add a single fact</strong>
         <input placeholder="Title, e.g. Pricing" value={title} onChange={(e) => setTitle(e.target.value)} />
         <textarea placeholder="Content" value={content} onChange={(e) => setContent(e.target.value)} />
-        <button className="btn" onClick={add} disabled={!title.trim() || !content.trim()}>Add entry</button>
-        {msg && <span className="error">{msg}</span>}
+        <button className="btn" onClick={add} disabled={!title.trim() || !content.trim()}>Add fact</button>
       </div>
+
+      <div className="add-box">
+        <strong>Or paste an FAQ or block of text</strong>
+        <p className="muted">We split it into atomic facts and skip anything that duplicates what is already stored.</p>
+        <textarea placeholder="Paste Q: A: pairs or paragraphs" value={raw} onChange={(e) => setRaw(e.target.value)} rows={10} />
+        <button className="btn" onClick={ingest} disabled={!raw.trim()}>Process and add</button>
+      </div>
+
+      {msg && <p className="muted">{msg}</p>}
     </div>
   );
 }

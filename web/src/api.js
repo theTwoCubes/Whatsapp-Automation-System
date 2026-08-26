@@ -46,10 +46,18 @@ export const api = {
   saveSettings: (body) => req('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getProfile: () => req('/profile'),
   saveProfile: (body) => req('/profile', { method: 'PUT', body: JSON.stringify(body) }),
-  knowledge: () => req('/knowledge'),
-  addKnowledge: (title, content) => req('/knowledge', { method: 'POST', body: JSON.stringify({ title, content }) }),
+  knowledge: (scope = 'base', topicId = null) =>
+    req(`/knowledge?scope=${encodeURIComponent(scope)}${topicId ? `&topicId=${topicId}` : ''}`),
+  addKnowledge: (title, content, scope = 'base', topicId = null) =>
+    req('/knowledge', { method: 'POST', body: JSON.stringify({ title, content, scope, topicId }) }),
   updateKnowledge: (id, body) => req(`/knowledge/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteKnowledge: (id) => req(`/knowledge/${id}`, { method: 'DELETE' }),
+  ingestKnowledge: (text, scope = 'base', topicId = null) =>
+    req('/knowledge/ingest', { method: 'POST', body: JSON.stringify({ text, scope, topicId }) }),
+  topics: () => req('/topics'),
+  addTopic: (name, slug, description) =>
+    req('/topics', { method: 'POST', body: JSON.stringify({ name, slug, description }) }),
+  updateTopic: (id, body) => req(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   agents: () => req('/agents'),
   addAgent: (email, name, password) =>
     req('/agents', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
