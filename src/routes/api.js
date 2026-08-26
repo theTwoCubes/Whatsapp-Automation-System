@@ -98,11 +98,15 @@ export function registerApi(app, deps) {
       req.log.warn({ err }, 'failed to write audit entry'),
     );
 
-  // An agent replying to a pending handoff has, in effect, just accepted it,
-  // so claim it for them instead of leaving it looking unclaimed once they
-  // have already started answering.
-  const claimIfPending = (conversation, email) =>
-    conversation.state === 'pending' ? handToHuman(pool, conversation.id, email) : Promise.resolve();
+  // An agent sending anything to a conversation that is not already theirs
+  // has, in effect, just taken it over, whether that was a pending handoff or
+  // a chat the bot still owned. Claiming it here means the bot stops replying
+  // and any drip follow ups stop firing on top of what the agent just said,
+  // the same as clicking Take over would have done.
+  const claimConversation = (conversation, email) => {
+    if (conversation.state === 'human') return Promise.resolve();
+    return Promise.all([handToHuman(pool, conversation.id, email), cancelDrips(pool, conversation.id)]);
+  };
 
   app.post('/api/login', async (req, reply) => {
     const limit = loginLimiter(req.ip);
@@ -153,7 +157,7 @@ export function registerApi(app, deps) {
     try {
       const wamid = await meta.sendText(conversation.wa_id, body);
       if (wamid) await recordOutbound(pool, { conversationId: conversation.id, waMessageId: wamid, body });
-      await claimIfPending(conversation, req.user.email);
+      await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
@@ -179,7 +183,7 @@ export function registerApi(app, deps) {
           body: `[template] ${name}`,
         });
       }
-      await claimIfPending(conversation, req.user.email);
+      await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await audit(req, 'template sent', `conversation ${conversation.id}`, name);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
@@ -379,7 +383,12 @@ export function registerApi(app, deps) {
     if (!title || !content) return reply.code(400).send({ error: 'title and content are required' });
     if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
     try {
-      const res = await addKnowledgeUnit(pool, deps.embeddings, { title, content, scope, topicId, source: 'manual' });
+      const res = await addKnowledgeUnit(
+        pool,
+        deps.embeddings,
+        { title, content, scope, topicId, source: 'manual' },
+        { threshold: deps.config.dedupSimilarityThreshold },
+      );
       await audit(req, res.added ? 'knowledge added' : 'knowledge duplicate skipped', title);
       return res;
     } catch (err) {
@@ -408,7 +417,11 @@ export function registerApi(app, deps) {
     if (!text) return reply.code(400).send({ error: 'text is required' });
     if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
     try {
-      const res = await ingestText(pool, deps.ai, deps.embeddings, text, { scope, topicId });
+      const res = await ingestText(pool, deps.ai, deps.embeddings, text, {
+        scope,
+        topicId,
+        threshold: deps.config.dedupSimilarityThreshold,
+      });
       await audit(req, 'knowledge ingested', scope === 'topic' ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
@@ -527,7 +540,7 @@ export function registerApi(app, deps) {
           mediaAssetId: asset.id,
         });
       }
-      await claimIfPending(conversation, req.user.email);
+      await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await audit(req, 'media sent', `conversation ${conversation.id}`, asset.filename);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });

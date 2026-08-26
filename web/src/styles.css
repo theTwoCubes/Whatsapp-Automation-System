@@ -256,6 +256,24 @@ input {
   background: #fff3c4;
   color: #8a6d00;
 }
+.tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--panel-alt);
+  color: var(--text-soft);
+}
+.tag.bot {
+  background: #d8f3e6;
+  color: var(--green-dark);
+}
+.tag.human {
+  background: #ffe3d6;
+  color: #c05621;
+}
 .pending-banner {
   background: #fff8e1;
   color: #8a6d00;

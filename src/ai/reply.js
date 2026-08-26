@@ -23,10 +23,10 @@ export function wantsHuman(text) {
 // query text is passed explicitly so retrieval can score against exactly what
 // the lead is asking, not the whole thread.
 export async function buildReply(pool, ai, embeddings, config, conversationId, opts = {}) {
-  const { query = '', topicId = null } = opts;
+  const { query = '', topicId = null, topK, tokenBudget, similarityFloor } = opts;
 
   const [facts, history, context] = await Promise.all([
-    retrieveKnowledge(pool, embeddings, query, { topicId }),
+    retrieveKnowledge(pool, embeddings, query, { topicId, topK, tokenBudget, similarityFloor }),
     getConversationHistory(pool, conversationId, 14),
     getConversationContext(pool, conversationId),
   ]);

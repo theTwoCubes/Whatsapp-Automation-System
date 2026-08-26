@@ -67,7 +67,13 @@ export async function runAutoResume(deps) {
       try {
         // Auto resume has no fresh query, so retrieval falls back to fts on the
         // last message inside buildReply history.
-        decision = await buildReply(pool, ai, embeddings, settings, row.id, { query: '', topicId: null });
+        decision = await buildReply(pool, ai, embeddings, settings, row.id, {
+          query: '',
+          topicId: null,
+          topK: config.retrievalTopK,
+          tokenBudget: config.retrievalTokenBudget,
+          similarityFloor: config.retrievalSimilarityFloor,
+        });
       } catch {
         // fall back below
       }

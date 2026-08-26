@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { retrieveKnowledge } from '../../src/knowledge/retrieval.js';
 import { addKnowledgeUnit } from '../../src/knowledge/writer.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
-import { setupPool, resetTables, FakeEmbeddings } from './support/harness.js';
+import { buildReply } from '../../src/ai/reply.js';
+import { recordInbound } from '../../src/db/repo.js';
+import { setupPool, resetTables, FakeEmbeddings, FakeAi, testConfig } from './support/harness.js';
 
 let pool;
 let embed;
@@ -113,6 +115,27 @@ test('a genuinely new fact under the same topic is added', async () => {
     topicId: logoTopic.id,
   });
   assert.equal(res.added, true);
+});
+
+test('buildReply actually forwards the configured retrieval limits to retrieval', async () => {
+  const { logoTopic } = await seed();
+  const { conversationId } = await recordInbound(pool, {
+    waId: '919999999999',
+    name: 'Config Check',
+    waMessageId: `wamid.${Math.random()}`,
+    type: 'text',
+    body: 'logo revisions pricing',
+    referral: null,
+    raw: {},
+  });
+
+  const ai = new FakeAi(JSON.stringify({ reply: 'ok', handoff: false }));
+  const decision = await buildReply(pool, ai, embed, testConfig, conversationId, {
+    query: 'logo revisions pricing',
+    topicId: logoTopic.id,
+    tokenBudget: 30,
+  });
+  assert.ok(decision.facts.length <= 2, 'a tight token budget passed through opts actually limits what gets packed');
 });
 
 test('retrieval keeps working when embeddings fail, using full text fallback', async () => {

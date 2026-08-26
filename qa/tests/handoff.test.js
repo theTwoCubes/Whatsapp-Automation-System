@@ -145,3 +145,37 @@ test('an agent replying to a pending chat implicitly accepts it', async () => {
   assert.equal(conv.assignee, 'a@b.com');
   await app.close();
 });
+
+test('an agent messaging a chat the bot still owns claims it and stops the drips', async () => {
+  await processWebhook(inboundText({ id: `wamid.${Math.random()}`, body: 'hi' }), {
+    meta: new FakeMeta(),
+    ai: new FakeAi(),
+    embeddings: new FakeEmbeddings(),
+    pool,
+    config: testConfig,
+    log: silentLog,
+  });
+  const id = (await pool.query('select id from conversations limit 1')).rows[0].id;
+  const before = await pool.query("select count(*) as n from drip_jobs where conversation_id = $1 and status = 'pending'", [id]);
+  assert.ok(Number(before.rows[0].n) > 0, 'the bot reply already scheduled follow ups');
+
+  const app = await buildApp();
+  const token = await tokenFor(app);
+  const h = { authorization: `Bearer ${token}` };
+
+  const res = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${id}/messages`,
+    headers: h,
+    payload: { body: "I'll take it from here" },
+  });
+  assert.equal(res.statusCode, 200);
+
+  const conv = await getConversationById(pool, id);
+  assert.equal(conv.state, 'human', 'sending a message claims a bot owned chat, not just a pending one');
+  assert.equal(conv.assignee, 'a@b.com');
+
+  const after = await pool.query("select count(*) as n from drip_jobs where conversation_id = $1 and status = 'pending'", [id]);
+  assert.equal(Number(after.rows[0].n), 0, 'the drip follow ups are cancelled once an agent has stepped in');
+  await app.close();
+});

@@ -143,8 +143,8 @@ function Campaigns() {
               {c.source_type || 'click to whatsapp ad'} · created {new Date(c.created_at).toLocaleDateString()}
             </div>
             <div className="muted">
-              {c.leads} lead{c.leads === '1' ? '' : 's'} · {c.bot_chats} with the bot · {c.human_chats} with a human ·{' '}
-              {c.inbound} in / {c.outbound} out
+              {c.leads} lead{c.leads === '1' ? '' : 's'} · {c.bot_chats} with the bot · {c.pending_chats} pending ·{' '}
+              {c.human_chats} with a human · {c.inbound} in / {c.outbound} out
             </div>
           </div>
           <select value={c.topic_id || ''} onChange={(e) => link(c.id, e.target.value ? Number(e.target.value) : null)}>
@@ -165,7 +165,8 @@ function Campaigns() {
           <div className="muted" style={{ fontSize: 11 }}>leads with no ad referral</div>
           <div className="muted">
             {organic.leads || 0} lead{organic.leads === '1' ? '' : 's'} · {organic.bot_chats || 0} with the bot ·{' '}
-            {organic.human_chats || 0} with a human · {organic.inbound || 0} in / {organic.outbound || 0} out
+            {organic.pending_chats || 0} pending · {organic.human_chats || 0} with a human · {organic.inbound || 0} in
+            / {organic.outbound || 0} out
           </div>
         </div>
       </div>

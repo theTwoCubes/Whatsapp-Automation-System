@@ -160,6 +160,9 @@ async function respondToLead(deps, conversationId, items) {
     decision = await buildReply(pool, ai, embeddings, settings, conversationId, {
       query: text,
       topicId,
+      topK: config.retrievalTopK,
+      tokenBudget: config.retrievalTokenBudget,
+      similarityFloor: config.retrievalSimilarityFloor,
     });
   } catch (err) {
     log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');

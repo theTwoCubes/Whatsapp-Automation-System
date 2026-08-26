@@ -129,11 +129,6 @@ export async function getConversationContext(pool, conversationId) {
   return res.rows[0] ?? null;
 }
 
-export async function getActiveKnowledge(pool) {
-  const res = await pool.query('select title, content from knowledge_base where active = true order by id');
-  return res.rows;
-}
-
 // Cancels any pending follow ups for a conversation and schedules a fresh set
 // from now. Called whenever a lead is active, so the clock resets on each reply.
 export async function scheduleDrips(pool, conversationId, steps) {
@@ -290,9 +285,6 @@ export async function markAgentReplied(pool, conversationId) {
   await pool.query('update conversations set last_agent_at = now() where id = $1', [conversationId]);
 }
 
-// Human owned conversations where the lead is waiting (the newest message is
-// inbound) and no agent has replied within the resume window. These get handed
-// back to the bot automatically.
 // Settings, knowledge base, agents, media and overview for the admin console.
 
 export async function setSettings(pool, entries) {
@@ -313,30 +305,6 @@ export async function setSettings(pool, entries) {
   } finally {
     client.release();
   }
-}
-
-export async function listKnowledge(pool) {
-  return (await pool.query('select id, title, content, active from knowledge_base order by id')).rows;
-}
-
-export async function addKnowledge(pool, { title, content }) {
-  const r = await pool.query('insert into knowledge_base (title, content) values ($1, $2) returning id', [title, content]);
-  return r.rows[0].id;
-}
-
-export async function updateKnowledge(pool, id, { title, content, active }) {
-  await pool.query(
-    `update knowledge_base set
-       title = coalesce($2, title),
-       content = coalesce($3, content),
-       active = coalesce($4, active)
-     where id = $1`,
-    [id, title ?? null, content ?? null, active ?? null],
-  );
-}
-
-export async function deleteKnowledge(pool, id) {
-  await pool.query('delete from knowledge_base where id = $1', [id]);
 }
 
 export async function listAgents(pool) {
@@ -383,6 +351,7 @@ export async function campaignStats(pool) {
             count(distinct c.id) as leads,
             count(distinct c.id) filter (where c.state = 'bot') as bot_chats,
             count(distinct c.id) filter (where c.state = 'human') as human_chats,
+            count(distinct c.id) filter (where c.state = 'pending') as pending_chats,
             count(m.id) filter (where m.direction = 'inbound') as inbound,
             count(m.id) filter (where m.direction = 'outbound') as outbound,
             max(m.created_at) as last_activity
@@ -399,6 +368,7 @@ export async function campaignStats(pool) {
        count(distinct c.id) as leads,
        count(distinct c.id) filter (where c.state = 'bot') as bot_chats,
        count(distinct c.id) filter (where c.state = 'human') as human_chats,
+       count(distinct c.id) filter (where c.state = 'pending') as pending_chats,
        count(m.id) filter (where m.direction = 'inbound') as inbound,
        count(m.id) filter (where m.direction = 'outbound') as outbound,
        max(m.created_at) as last_activity
@@ -513,12 +483,4 @@ export async function conversationsToResume(pool, minutes) {
     [minutes],
   );
   return res.rows;
-}
-
-export async function setConversationState(pool, conversationId, state, assignee = null) {
-  await pool.query('update conversations set state = $2, assignee = $3, updated_at = now() where id = $1', [
-    conversationId,
-    state,
-    assignee,
-  ]);
 }

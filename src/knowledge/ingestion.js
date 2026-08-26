@@ -11,7 +11,7 @@ import { addKnowledgeUnit } from './writer.js';
 
 const MAX_UNITS_PER_INGEST = 200;
 
-export async function ingestText(pool, ai, embeddings, raw, { scope, topicId = null, source = 'ingested' } = {}) {
+export async function ingestText(pool, ai, embeddings, raw, { scope, topicId = null, source = 'ingested', threshold } = {}) {
   const text = String(raw || '').trim();
   if (!text) return { added: 0, skipped: 0, units: [] };
 
@@ -27,13 +27,18 @@ export async function ingestText(pool, ai, embeddings, raw, { scope, topicId = n
       continue;
     }
     try {
-      const res = await addKnowledgeUnit(pool, embeddings, {
-        title: c.title.slice(0, 200),
-        content: c.content,
-        scope,
-        topicId,
-        source,
-      });
+      const res = await addKnowledgeUnit(
+        pool,
+        embeddings,
+        {
+          title: c.title.slice(0, 200),
+          content: c.content,
+          scope,
+          topicId,
+          source,
+        },
+        { threshold },
+      );
       if (res.added) {
         added += 1;
         units.push({ id: res.id, title: c.title });
