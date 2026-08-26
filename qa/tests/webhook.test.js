@@ -67,6 +67,18 @@ test('duplicate webhook retry does not create a second message or a second reply
   assert.equal(d.meta.sends.length, 1, 'reply sent once');
 });
 
+test('rapid fire messages in the same conversation are coalesced into one ai call', async () => {
+  const d = deps();
+  const p1 = processWebhook(inboundText({ id: 'wamid.B1', body: 'hi, quick question' }), d);
+  await new Promise((r) => setTimeout(r, 5));
+  const p2 = processWebhook(inboundText({ id: 'wamid.B2', body: 'are you open on weekends' }), d);
+  await Promise.all([p1, p2]);
+
+  assert.equal(await count('messages'), 3, 'two inbound plus one outbound reply');
+  assert.equal(d.ai.calls, 1, 'coalesced into a single ai call');
+  assert.equal(d.meta.sends.length, 1, 'a single reply sent for both messages');
+});
+
 test('asking for a human hands off and stops the bot', async () => {
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
@@ -124,10 +136,14 @@ test('status callbacks update the stored message status', async () => {
   assert.equal(row.rows[0].status, 'read');
 });
 
-test('non text messages are stored but do not get a reply', async () => {
+test('non text messages are stored and hand off to a human instead of being dropped', async () => {
   const d = deps();
   await processWebhook(inboundImage({ id: 'wamid.I1' }), d);
 
-  assert.equal(await count('messages'), 1, 'image stored');
-  assert.equal(d.meta.sends.length, 0, 'no reply to an image');
+  assert.equal(await count('messages'), 2, 'image stored plus the handoff reply');
+  assert.equal(d.meta.sends.length, 1, 'a handoff message is sent instead of silence');
+  assert.equal(d.meta.sends[0].body, testConfig.attachmentMessage);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'human', 'conversation handed to a human');
 });

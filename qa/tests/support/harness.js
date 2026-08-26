@@ -158,6 +158,11 @@ export const testConfig = {
   businessTone: 'friendly',
   fallbackMessage: 'Thanks, the team will get back to you.',
   handoffMessage: 'Connecting you with a person now.',
+  attachmentMessage: 'Got your file, connecting you with a person now.',
+  messageBatchDebounceMs: 30,
+  messageBatchMaxWaitMs: 200,
+  mediaResendCooldownMinutes: 180,
+  mediaSimilarityFloor: 0.72,
   dripSteps: [
     { step: 1, template: 'drip_day3', days: 3 },
     { step: 2, template: 'drip_day5', days: 5 },

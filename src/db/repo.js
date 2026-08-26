@@ -87,6 +87,14 @@ export async function recordOutbound(pool, o) {
   );
 }
 
+// The current state of a conversation, checked right before the bot actually
+// replies so a handoff that happened while a reply was in flight (a debounce
+// window, an in flight ai call) is respected instead of raced past.
+export async function getConversationState(pool, conversationId) {
+  const res = await pool.query('select state from conversations where id = $1', [conversationId]);
+  return res.rows[0]?.state ?? null;
+}
+
 export async function updateStatus(pool, s) {
   await pool.query('update messages set status = $2 where wa_message_id = $1', [s.waMessageId, s.status]);
 }

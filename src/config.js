@@ -77,6 +77,11 @@ export function loadConfig() {
     mediaResendCooldownMinutes: Number(process.env.MEDIA_RESEND_COOLDOWN_MINUTES || 180),
     mediaSimilarityFloor: Number(process.env.MEDIA_SIMILARITY_FLOOR || 0.72),
 
+    // Message batching. Rapid fire messages from the same lead are coalesced
+    // into a single AI call instead of replying to each one separately.
+    messageBatchDebounceMs: Number(process.env.MESSAGE_BATCH_DEBOUNCE_MS || 2500),
+    messageBatchMaxWaitMs: Number(process.env.MESSAGE_BATCH_MAX_WAIT_MS || 8000),
+
     // Drip follow ups. Each entry is templateName:days. The template names must
     // match approved templates in WhatsApp Manager.
     dripSteps: parseDripSteps(process.env.DRIP_STEPS || 'drip_day3:3,drip_day5:5,drip_day8:8'),
