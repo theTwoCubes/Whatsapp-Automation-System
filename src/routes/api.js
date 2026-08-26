@@ -32,10 +32,12 @@ import {
   addMediaAsset,
   listMediaAssets,
   getMediaAsset,
+  deleteMediaAsset,
   addAudit,
   listAudit,
   getMessageRaw,
 } from '../db/repo.js';
+import { saveMediaAsset } from '../knowledge/media.js';
 
 // Pulls the media id out of an inbound message payload.
 function mediaIdFromRaw(raw) {
@@ -402,32 +404,54 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Media library.
-  app.get('/api/media', { preHandler: auth }, async () => ({ media: await listMediaAssets(pool) }));
+  // Media library. Assets are tagged to a topic with a description so the bot
+  // can find the right one by meaning, not just dump everything under a topic.
+  app.get('/api/media', { preHandler: auth }, async (req) => {
+    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    return { media: await listMediaAssets(pool, { topicId }) };
+  });
 
   app.post('/api/media', { preHandler: auth }, async (req, reply) => {
-    let file;
+    let file = null;
+    let topicId = null;
+    let description = null;
     try {
-      file = await req.file();
+      for await (const part of req.parts()) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          file = { buffer: await part.toBuffer(), mimetype: part.mimetype, filename: part.filename };
+        } else if (part.fieldname === 'topicId') {
+          topicId = part.value ? Number(part.value) : null;
+        } else if (part.fieldname === 'description') {
+          description = part.value || null;
+        }
+      }
     } catch {
-      file = null;
+      // fall through to the missing file check below
     }
     if (!file) return reply.code(400).send({ error: 'a file is required' });
 
     try {
-      const buffer = await file.toBuffer();
       const kind = mediaKind(file.mimetype);
-      const metaMediaId = await meta.uploadMedia(buffer, file.mimetype, file.filename);
-      const id = await addMediaAsset(pool, {
+      const metaMediaId = await meta.uploadMedia(file.buffer, file.mimetype, file.filename);
+      const id = await saveMediaAsset(pool, deps.embeddings, {
         metaMediaId,
         filename: file.filename,
         mimeType: file.mimetype,
         kind,
+        topicId,
+        description,
       });
+      await audit(req, 'media uploaded', `asset ${id}`, file.filename);
       return { id, kind, filename: file.filename };
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
+  });
+
+  app.delete('/api/media/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    await deleteMediaAsset(pool, req.params.id);
+    await audit(req, 'media removed', `asset ${req.params.id}`);
+    return { ok: true };
   });
 
   app.post('/api/conversations/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
@@ -452,6 +476,7 @@ export function registerApi(app, deps) {
           waMessageId: wamid,
           type: asset.kind,
           body: caption || `[${asset.kind}] ${asset.filename ?? ''}`.trim(),
+          mediaAssetId: asset.id,
         });
       }
       await markAgentReplied(pool, conversation.id);

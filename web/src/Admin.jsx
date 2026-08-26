@@ -7,6 +7,7 @@ const tabs = [
   ['campaigns', 'Campaigns'],
   ['profile', 'Business profile'],
   ['knowledge', 'Knowledge base'],
+  ['media', 'Media'],
   ['templates', 'Templates'],
   ['agents', 'Agents'],
   ['settings', 'Settings'],
@@ -41,6 +42,7 @@ export default function Admin({ onBack, onLogout }) {
           {tab === 'campaigns' && <Campaigns />}
           {tab === 'profile' && <Profile />}
           {tab === 'knowledge' && <Knowledge />}
+          {tab === 'media' && <Media />}
           {tab === 'templates' && <Templates />}
           {tab === 'agents' && <Agents />}
           {tab === 'settings' && <Settings />}
@@ -391,6 +393,113 @@ function KnowledgePane({ scope, topicId, onChange }) {
   );
 }
 
+function Media() {
+  // Segregated by topic, same shell as Knowledge, so both the bot and a human
+  // taking over can find the right file by service instead of one big pile.
+  const [topics, setTopics] = useState([]);
+  const [topicId, setTopicId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    api.topics().then((d) => setTopics(d.topics)).catch(() => {});
+  }, [reloadKey]);
+
+  return (
+    <div>
+      <p className="muted">
+        Upload files under a topic with a short description of what they show. The bot uses the description to
+        find the right file for what a lead is asking about, and a human taking over can browse the same library.
+      </p>
+
+      <div className="topic-tabs">
+        <button className={`topic-tab ${topicId === null ? 'active' : ''}`} onClick={() => setTopicId(null)}>
+          All
+        </button>
+        {topics.map((t) => (
+          <button
+            key={t.id}
+            className={`topic-tab ${String(topicId) === String(t.id) ? 'active' : ''}`}
+            onClick={() => setTopicId(t.id)}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
+
+      <MediaPane topics={topics} topicId={topicId} reloadKey={reloadKey} onChange={() => setReloadKey((k) => k + 1)} />
+    </div>
+  );
+}
+
+function MediaPane({ topics, topicId, reloadKey, onChange }) {
+  const [data, error, reload] = useAsync(() => api.media(topicId), [topicId, reloadKey]);
+  const [file, setFile] = useState(null);
+  const [uploadTopicId, setUploadTopicId] = useState('');
+  const [description, setDescription] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const upload = async () => {
+    if (!file) return;
+    setMsg('Uploading...');
+    try {
+      await api.uploadMedia(file, uploadTopicId ? Number(uploadTopicId) : null, description.trim());
+      setMsg('Uploaded.');
+      setFile(null);
+      setDescription('');
+      reload();
+      onChange?.();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  const remove = async (id) => {
+    await api.deleteMedia(id);
+    reload();
+    onChange?.();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  const rows = data?.media || [];
+
+  return (
+    <div className="form">
+      <div className="muted">{rows.length} file{rows.length === 1 ? '' : 's'} in this view.</div>
+      {rows.map((m) => (
+        <div key={m.id} className="list-row">
+          <div>
+            <strong>{m.filename}</strong> <span className="tag bot">{m.kind}</span>
+            {m.description && <div className="muted">{m.description}</div>}
+            <div className="muted" style={{ fontSize: 11 }}>
+              {topics.find((t) => t.id === m.topic_id)?.name || 'no topic'}
+            </div>
+          </div>
+          <button className="btn ghost danger" onClick={() => remove(m.id)}>Delete</button>
+        </div>
+      ))}
+
+      <div className="add-box">
+        <strong>Upload a file</strong>
+        <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        <select value={uploadTopicId} onChange={(e) => setUploadTopicId(e.target.value)}>
+          <option value="">No topic</option>
+          {topics.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        <textarea
+          placeholder="Description, e.g. Pricing sheet for logo design packages"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <button className="btn" onClick={upload} disabled={!file}>Upload</button>
+        {msg && <span className="muted">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
 function Templates() {
   const [data, error, reload] = useAsync(() => api.templates());
   const [msg, setMsg] = useState('');
@@ -530,6 +639,7 @@ function Settings() {
       <Field label="Tone" value={form.business_tone} onChange={(v) => setForm({ ...form, business_tone: v })} />
       <Field label="Fallback message" value={form.fallback_message} textarea onChange={(v) => setForm({ ...form, fallback_message: v })} />
       <Field label="Handoff message" value={form.handoff_message} textarea onChange={(v) => setForm({ ...form, handoff_message: v })} />
+      <Field label="Attachment received message" value={form.attachment_message} textarea onChange={(v) => setForm({ ...form, attachment_message: v })} />
       <Field label="Drip steps (template:days, comma separated)" value={form.drip_steps} onChange={(v) => setForm({ ...form, drip_steps: v })} />
       <Field label="Auto resume after (minutes, 0 to disable)" value={form.resume_minutes} onChange={(v) => setForm({ ...form, resume_minutes: v })} />
       <div className="form-actions">

@@ -68,6 +68,14 @@ export function loadConfig() {
     handoffMessage:
       process.env.HANDOFF_MESSAGE?.trim() ||
       "Sure, I'm connecting you with someone from our team. They'll reply here shortly.",
+    attachmentMessage:
+      process.env.ATTACHMENT_MESSAGE?.trim() ||
+      "Thanks for sending that over, I'm connecting you with someone from our team to take a look.",
+
+    // Media resend cooldown, in minutes. The bot avoids resending the same
+    // asset within this window rather than being hard blocked from it.
+    mediaResendCooldownMinutes: Number(process.env.MEDIA_RESEND_COOLDOWN_MINUTES || 180),
+    mediaSimilarityFloor: Number(process.env.MEDIA_SIMILARITY_FLOOR || 0.72),
 
     // Drip follow ups. Each entry is templateName:days. The template names must
     // match approved templates in WhatsApp Manager.

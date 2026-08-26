@@ -64,7 +64,8 @@ export const api = {
   addAgent: (email, name, password) =>
     req('/agents', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
   deleteAgent: (id) => req(`/agents/${id}`, { method: 'DELETE' }),
-  media: () => req('/media'),
+  media: (topicId = null) => req(`/media${topicId ? `?topicId=${topicId}` : ''}`),
+  deleteMedia: (id) => req(`/media/${id}`, { method: 'DELETE' }),
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
   audit: () => req('/audit'),
@@ -83,10 +84,12 @@ export const api = {
     if (!res.ok) throw new Error('media failed');
     return URL.createObjectURL(await res.blob());
   },
-  uploadMedia: async (file) => {
+  uploadMedia: async (file, topicId = null, description = '') => {
     const token = getToken();
     const fd = new FormData();
     fd.append('file', file);
+    if (topicId) fd.append('topicId', String(topicId));
+    if (description) fd.append('description', description);
     const res = await fetch('/api/media', {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},

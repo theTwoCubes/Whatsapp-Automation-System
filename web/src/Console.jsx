@@ -190,6 +190,7 @@ function Chat({ thread, templates, onSync, onChanged }) {
   const { conversation, messages } = thread;
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -280,6 +281,9 @@ function Chat({ thread, templates, onSync, onChanged }) {
                 }}
               />
             </label>
+            <button className="attach" title="Send from media library" onClick={() => setLibraryOpen((v) => !v)}>
+              🗂️
+            </button>
             <input
               className="msg"
               placeholder="Type a message"
@@ -302,6 +306,15 @@ function Chat({ thread, templates, onSync, onChanged }) {
             template below.
           </p>
         )}
+        {libraryOpen && (
+          <LibraryPanel
+            conversationId={conversation.id}
+            onSent={async () => {
+              setLibraryOpen(false);
+              await onChanged();
+            }}
+          />
+        )}
         <TemplatePanel
           conversationId={conversation.id}
           templates={templates}
@@ -312,6 +325,57 @@ function Chat({ thread, templates, onSync, onChanged }) {
 
       <Watermark />
     </>
+  );
+}
+
+function LibraryPanel({ conversationId, onSent }) {
+  const [topics, setTopics] = useState([]);
+  const [topicId, setTopicId] = useState(null);
+  const [media, setMedia] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.media(topicId).then((d) => setMedia(d.media || [])).catch(() => {});
+  }, [topicId]);
+
+  const send = async (assetId) => {
+    setError('');
+    try {
+      await api.sendMedia(conversationId, assetId);
+      await onSent();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="template-panel">
+      <div className="template-bar">
+        <select value={topicId ?? ''} onChange={(e) => setTopicId(e.target.value ? Number(e.target.value) : null)}>
+          <option value="">All topics</option>
+          {topics.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {media.map((m) => (
+        <div key={m.id} className="list-row">
+          <div>
+            <strong>{m.filename}</strong> <span className="tag bot">{m.kind}</span>
+            {m.description && <div className="muted">{m.description}</div>}
+          </div>
+          <button className="btn" onClick={() => send(m.id)}>Send</button>
+        </div>
+      ))}
+      {media.length === 0 && <p className="locked">No files in this library yet.</p>}
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }
 

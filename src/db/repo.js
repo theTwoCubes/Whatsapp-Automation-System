@@ -80,10 +80,10 @@ export async function recordInbound(pool, m) {
 
 export async function recordOutbound(pool, o) {
   await pool.query(
-    `insert into messages (conversation_id, wa_message_id, direction, type, body, status)
-     values ($1, $2, 'outbound', $3, $4, 'sent')
+    `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id)
+     values ($1, $2, 'outbound', $3, $4, 'sent', $5)
      on conflict (wa_message_id) do nothing`,
-    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null],
+    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null, o.mediaAssetId ?? null],
   );
 }
 
@@ -420,18 +420,58 @@ export async function overview(pool) {
 
 export async function addMediaAsset(pool, a) {
   const r = await pool.query(
-    'insert into media_assets (meta_media_id, filename, mime_type, kind, caption) values ($1, $2, $3, $4, $5) returning id',
-    [a.metaMediaId ?? null, a.filename ?? null, a.mimeType ?? null, a.kind, a.caption ?? null],
+    `insert into media_assets (meta_media_id, filename, mime_type, kind, caption, topic_id, description, embedding)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)
+     returning id`,
+    [
+      a.metaMediaId ?? null,
+      a.filename ?? null,
+      a.mimeType ?? null,
+      a.kind,
+      a.caption ?? null,
+      a.topicId ?? null,
+      a.description ?? null,
+      a.embedding ?? null,
+    ],
   );
   return r.rows[0].id;
 }
 
-export async function listMediaAssets(pool) {
+export async function listMediaAssets(pool, { topicId = null } = {}) {
+  if (topicId) {
+    return (
+      await pool.query(
+        `select id, meta_media_id, filename, mime_type, kind, caption, topic_id, description, created_at
+         from media_assets where topic_id = $1 order by id desc limit 100`,
+        [topicId],
+      )
+    ).rows;
+  }
   return (
     await pool.query(
-      'select id, meta_media_id, filename, mime_type, kind, caption, created_at from media_assets order by id desc limit 100',
+      `select id, meta_media_id, filename, mime_type, kind, caption, topic_id, description, created_at
+       from media_assets order by id desc limit 100`,
     )
   ).rows;
+}
+
+export async function deleteMediaAsset(pool, id) {
+  await pool.query('delete from media_assets where id = $1', [id]);
+}
+
+// Whether this exact asset already went out in this conversation recently, so
+// the bot can lean away from resending it without being hard blocked, in case
+// the lead genuinely asks again later.
+export async function wasMediaSentRecently(pool, conversationId, mediaAssetId, minutes = 180) {
+  const res = await pool.query(
+    `select exists(
+       select 1 from messages
+       where conversation_id = $1 and media_asset_id = $2 and direction = 'outbound'
+         and created_at > now() - make_interval(mins => $3)
+     ) as sent`,
+    [conversationId, mediaAssetId, minutes],
+  );
+  return res.rows[0].sent;
 }
 
 export async function getMessageRaw(pool, id) {
