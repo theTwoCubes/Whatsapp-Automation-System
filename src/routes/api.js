@@ -1,5 +1,6 @@
 import { verifyPassword, hashPassword } from '../auth.js';
 import { handToHuman, handToBot } from '../handoff.js';
+import { runWeeklyLearning } from '../knowledge/learning.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
 import {
@@ -380,6 +381,19 @@ export function registerApi(app, deps) {
     try {
       const res = await addKnowledgeUnit(pool, deps.embeddings, { title, content, scope, topicId, source: 'manual' });
       await audit(req, res.added ? 'knowledge added' : 'knowledge duplicate skipped', title);
+      return res;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Runs a learning pass on demand instead of waiting for the weekly
+  // schedule, mainly so it can be tried out or checked without a week's wait.
+  // Anything it finds lands inactive under review, same as the scheduled run.
+  app.post('/api/knowledge/learn', { preHandler: auth }, async (req, reply) => {
+    try {
+      const res = await runWeeklyLearning(pool, deps.ai, deps.embeddings, deps.config);
+      await audit(req, 'learning pass run', null, `added ${res.added}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
       return reply.code(400).send({ error: err.message });

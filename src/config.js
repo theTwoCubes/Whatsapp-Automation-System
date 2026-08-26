@@ -57,6 +57,10 @@ export function loadConfig() {
     retrievalSimilarityFloor: Number(process.env.RETRIEVAL_SIMILARITY_FLOOR || 0.5),
     dedupSimilarityThreshold: Number(process.env.DEDUP_SIMILARITY_THRESHOLD || 0.93),
 
+    // How often the weekly learning pass runs, scanning new conversation
+    // transcripts for facts to queue for review.
+    learningIntervalDays: Number(process.env.LEARNING_INTERVAL_DAYS || 7),
+
     // Business identity injected into the system prompt.
     businessName: process.env.BUSINESS_NAME?.trim() || 'our studio',
     businessAbout: process.env.BUSINESS_ABOUT?.trim() || '',

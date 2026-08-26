@@ -58,6 +58,7 @@ export const api = {
   deleteKnowledge: (id) => req(`/knowledge/${id}`, { method: 'DELETE' }),
   ingestKnowledge: (text, scope = 'base', topicId = null) =>
     req('/knowledge/ingest', { method: 'POST', body: JSON.stringify({ text, scope, topicId }) }),
+  runLearning: () => req('/knowledge/learn', { method: 'POST' }),
   topics: () => req('/topics'),
   addTopic: (name, slug, description) =>
     req('/topics', { method: 'POST', body: JSON.stringify({ name, slug, description }) }),

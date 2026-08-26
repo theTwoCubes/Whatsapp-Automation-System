@@ -9,7 +9,7 @@ const DEFAULT_DEDUP_THRESHOLD = 0.93;
 // fact is not lost, and a later re-embed pass can enrich it.
 export async function addKnowledgeUnit(pool, embeddingClient, unit, opts = {}) {
   const { title, content, scope, topicId = null, source = 'manual' } = unit;
-  const { threshold = DEFAULT_DEDUP_THRESHOLD } = opts;
+  const { threshold = DEFAULT_DEDUP_THRESHOLD, active = true } = opts;
   if (!title || !content) throw new Error('title and content are required');
 
   let embedding = null;
@@ -27,10 +27,10 @@ export async function addKnowledgeUnit(pool, embeddingClient, unit, opts = {}) {
   }
 
   const res = await pool.query(
-    `insert into knowledge_base (title, content, scope, topic_id, source, embedding)
-     values ($1, $2, $3, $4, $5, $6)
+    `insert into knowledge_base (title, content, scope, topic_id, source, embedding, active)
+     values ($1, $2, $3, $4, $5, $6, $7)
      returning id`,
-    [title, content, scope, topicId, source, embedding ? toPgVector(embedding) : null],
+    [title, content, scope, topicId, source, embedding ? toPgVector(embedding) : null, active],
   );
   return { added: true, id: res.rows[0].id, duplicateOf: null };
 }

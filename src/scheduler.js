@@ -2,15 +2,17 @@ import { claimDueDrips, markDrip, recordOutbound, conversationsToResume } from '
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
 import { getSettings } from './settings.js';
+import { getLearningCursor, runWeeklyLearning } from './knowledge/learning.js';
 
-// Runs the recurring background work: drip follow ups and the auto resume that
-// hands stalled chats back to the bot. In process on an interval, single
-// instance is fine for now.
+// Runs the recurring background work: drip follow ups, the auto resume that
+// hands stalled chats back to the bot, and the weekly learning pass. In
+// process on an interval, single instance is fine for now.
 export function startScheduler(deps, intervalMs = 60000) {
   const tick = async () => {
     try {
       await runDueDrips(deps);
       await runAutoResume(deps);
+      await runWeeklyLearningIfDue(deps);
     } catch (err) {
       deps.log.error({ err }, 'scheduler tick failed');
     }
@@ -80,4 +82,23 @@ export async function runAutoResume(deps) {
     }
   }
   return rows.length;
+}
+
+// Runs the weekly learning pass once the configured interval has elapsed
+// since the last run, otherwise does nothing. Checked every tick rather than
+// on its own timer so there is no second interval to manage.
+export async function runWeeklyLearningIfDue(deps) {
+  const { pool, ai, embeddings, config, log } = deps;
+  const cursor = await getLearningCursor(pool);
+  const intervalMs = (config.learningIntervalDays ?? 7) * 24 * 60 * 60 * 1000;
+  if (cursor.lastRunAt && Date.now() - new Date(cursor.lastRunAt).getTime() < intervalMs) return null;
+
+  try {
+    const result = await runWeeklyLearning(pool, ai, embeddings, config);
+    log.info(result, 'weekly learning pass completed');
+    return result;
+  } catch (err) {
+    log.error({ err }, 'weekly learning pass failed');
+    return null;
+  }
 }

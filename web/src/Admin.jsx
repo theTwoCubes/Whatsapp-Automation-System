@@ -229,6 +229,8 @@ function Knowledge() {
   const [topicId, setTopicId] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [addTopicOpen, setAddTopicOpen] = useState(false);
+  const [learnMsg, setLearnMsg] = useState('');
+  const [learning, setLearning] = useState(false);
 
   useEffect(() => {
     api.topics().then((d) => setTopics(d.topics)).catch(() => {});
@@ -243,11 +245,37 @@ function Knowledge() {
     setTopicId(t.id);
   };
 
+  const runLearning = async () => {
+    setLearning(true);
+    setLearnMsg('');
+    try {
+      const res = await api.runLearning();
+      setLearnMsg(
+        res.added > 0
+          ? `Found ${res.added} new fact${res.added === 1 ? '' : 's'} from recent chats, waiting for review below.`
+          : 'Scanned recent chats, nothing new to learn this time.',
+      );
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setLearnMsg(e.message);
+    } finally {
+      setLearning(false);
+    }
+  };
+
   return (
     <div>
       <p className="muted">
         The base knowledge is the shared brain that every conversation can draw from. Each Topic is a service
         or campaign specific pack. The bot pulls the most relevant facts for every incoming message.
+      </p>
+      <p className="muted">
+        Every week we also scan recent chats for things the team explained that are not written down yet. Nothing
+        goes live until you approve it below.{' '}
+        <button className="btn ghost" onClick={runLearning} disabled={learning}>
+          {learning ? 'Scanning...' : 'Scan recent chats now'}
+        </button>
+        {learnMsg && <span className="muted"> {learnMsg}</span>}
       </p>
 
       <div className="topic-tabs">
@@ -345,6 +373,11 @@ function KnowledgePane({ scope, topicId, onChange }) {
     reload();
     onChange?.();
   };
+  const approve = async (id) => {
+    await api.updateKnowledge(id, { active: true });
+    reload();
+    onChange?.();
+  };
   const ingest = async () => {
     setMsg('Processing...');
     try {
@@ -360,11 +393,31 @@ function KnowledgePane({ scope, topicId, onChange }) {
 
   if (error) return <p className="error">{error}</p>;
   const rows = data?.knowledge || [];
+  const live = rows.filter((k) => k.active);
+  const pendingReview = rows.filter((k) => !k.active);
 
   return (
     <div className="form">
-      <div className="muted">{rows.length} facts stored in this scope.</div>
-      {rows.map((k) => (
+      {pendingReview.length > 0 && (
+        <>
+          <div className="muted">{pendingReview.length} learned from recent chats, waiting for your review.</div>
+          {pendingReview.map((k) => (
+            <div key={k.id} className="list-row">
+              <div>
+                <strong>{k.title}</strong> <span className="tag human">learned</span>
+                <div className="muted">{k.content}</div>
+              </div>
+              <div className="form-actions">
+                <button className="btn ghost danger" onClick={() => remove(k.id)}>Reject</button>
+                <button className="btn" onClick={() => approve(k.id)}>Approve</button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div className="muted">{live.length} facts stored in this scope.</div>
+      {live.map((k) => (
         <div key={k.id} className="list-row">
           <div>
             <strong>{k.title}</strong>
