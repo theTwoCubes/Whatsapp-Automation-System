@@ -365,6 +365,46 @@ export async function metrics(pool) {
   return r.rows[0];
 }
 
+// Stats per Meta ad campaign, plus a separate organic bucket for leads that
+// arrived with no click to whatsapp referral at all. This is how the console
+// answers "where are our leads actually coming from".
+export async function campaignStats(pool) {
+  const campaigns = await pool.query(
+    `select ca.id, ca.headline, ca.source_type, ca.source_url, ca.topic_id, t.name as topic_name, ca.created_at,
+            count(distinct c.id) as leads,
+            count(distinct c.id) filter (where c.state = 'bot') as bot_chats,
+            count(distinct c.id) filter (where c.state = 'human') as human_chats,
+            count(m.id) filter (where m.direction = 'inbound') as inbound,
+            count(m.id) filter (where m.direction = 'outbound') as outbound,
+            max(m.created_at) as last_activity
+     from campaigns ca
+     left join topics t on t.id = ca.topic_id
+     left join conversations c on c.campaign_id = ca.id
+     left join messages m on m.conversation_id = c.id
+     group by ca.id, t.name
+     order by last_activity desc nulls last, ca.created_at desc`,
+  );
+
+  const organic = await pool.query(
+    `select
+       count(distinct c.id) as leads,
+       count(distinct c.id) filter (where c.state = 'bot') as bot_chats,
+       count(distinct c.id) filter (where c.state = 'human') as human_chats,
+       count(m.id) filter (where m.direction = 'inbound') as inbound,
+       count(m.id) filter (where m.direction = 'outbound') as outbound,
+       max(m.created_at) as last_activity
+     from conversations c
+     left join messages m on m.conversation_id = c.id
+     where c.campaign_id is null`,
+  );
+
+  return { campaigns: campaigns.rows, organic: organic.rows[0] };
+}
+
+export async function linkCampaignTopic(pool, campaignId, topicId) {
+  await pool.query('update campaigns set topic_id = $2 where id = $1', [campaignId, topicId]);
+}
+
 export async function overview(pool) {
   const r = await pool.query(
     `select

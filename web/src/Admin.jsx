@@ -4,6 +4,7 @@ import { BrandContext } from './brand.js';
 
 const tabs = [
   ['overview', 'Overview'],
+  ['campaigns', 'Campaigns'],
   ['profile', 'Business profile'],
   ['knowledge', 'Knowledge base'],
   ['templates', 'Templates'],
@@ -37,6 +38,7 @@ export default function Admin({ onBack, onLogout }) {
         </nav>
         <div className="admin-panel">
           {tab === 'overview' && <Overview />}
+          {tab === 'campaigns' && <Campaigns />}
           {tab === 'profile' && <Profile />}
           {tab === 'knowledge' && <Knowledge />}
           {tab === 'templates' && <Templates />}
@@ -100,6 +102,70 @@ function Overview() {
           <div className="stat-label">{label}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function Campaigns() {
+  const [data, error, reload] = useAsync(() => api.campaigns());
+  const [topics, setTopics] = useState([]);
+
+  useEffect(() => {
+    api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
+  }, []);
+
+  const link = async (campaignId, topicId) => {
+    await api.linkCampaignTopic(campaignId, topicId || null);
+    reload();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  if (!data) return <p className="muted">Loading...</p>;
+
+  const rows = data.campaigns || [];
+  const organic = data.organic || {};
+
+  return (
+    <div className="form">
+      <p className="muted">
+        Every lead is tracked back to the ad that brought them in, or marked organic if there was none. Link a
+        campaign to a Topic so its leads get answers weighted toward that service.
+      </p>
+
+      {rows.map((c) => (
+        <div key={c.id} className="list-row">
+          <div>
+            <strong>{c.headline || c.source_type || `Campaign ${c.id}`}</strong>
+            <div className="muted" style={{ fontSize: 11 }}>
+              {c.source_type || 'click to whatsapp ad'} · created {new Date(c.created_at).toLocaleDateString()}
+            </div>
+            <div className="muted">
+              {c.leads} lead{c.leads === '1' ? '' : 's'} · {c.bot_chats} with the bot · {c.human_chats} with a human ·{' '}
+              {c.inbound} in / {c.outbound} out
+            </div>
+          </div>
+          <select value={c.topic_id || ''} onChange={(e) => link(c.id, e.target.value ? Number(e.target.value) : null)}>
+            <option value="">No topic linked</option>
+            {topics.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
+      {rows.length === 0 && <p className="muted">No ad campaigns tracked yet.</p>}
+
+      <div className="list-row">
+        <div>
+          <strong>Organic</strong>
+          <div className="muted" style={{ fontSize: 11 }}>leads with no ad referral</div>
+          <div className="muted">
+            {organic.leads || 0} lead{organic.leads === '1' ? '' : 's'} · {organic.bot_chats || 0} with the bot ·{' '}
+            {organic.human_chats || 0} with a human · {organic.inbound || 0} in / {organic.outbound || 0} out
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

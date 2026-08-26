@@ -42,6 +42,8 @@ export const api = {
     req(`/conversations/${id}/template`, { method: 'POST', body: JSON.stringify({ name, params }) }),
 
   overview: () => req('/overview'),
+  campaigns: () => req('/campaigns'),
+  linkCampaignTopic: (id, topicId) => req(`/campaigns/${id}`, { method: 'PUT', body: JSON.stringify({ topicId }) }),
   getSettings: () => req('/settings'),
   saveSettings: (body) => req('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   getProfile: () => req('/profile'),

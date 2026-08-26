@@ -27,6 +27,8 @@ import {
   createAgent,
   deleteAgent,
   overview,
+  campaignStats,
+  linkCampaignTopic,
   addMediaAsset,
   listMediaAssets,
   getMediaAsset,
@@ -206,6 +208,19 @@ export function registerApi(app, deps) {
 
   // Overview stats.
   app.get('/api/overview', { preHandler: auth }, async () => ({ overview: await overview(pool) }));
+
+  // Where leads actually came from: one row per ad campaign plus an organic
+  // bucket for everyone who arrived with no click to whatsapp referral.
+  app.get('/api/campaigns', { preHandler: auth }, async () => campaignStats(pool));
+
+  // Links a campaign to a knowledge Topic, so replies for that campaign's
+  // leads get boosted toward the right service pack.
+  app.put('/api/campaigns/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
+    await linkCampaignTopic(pool, req.params.id, topicId);
+    await audit(req, 'campaign topic linked', `campaign ${req.params.id}`);
+    return { ok: true };
+  });
 
   // Editable settings.
   app.get('/api/settings', { preHandler: auth }, async () => ({
