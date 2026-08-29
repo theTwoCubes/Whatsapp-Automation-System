@@ -8,7 +8,6 @@ import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { MetaClient } from './meta/client.js';
 import { AiClient } from './ai/client.js';
-import { EmbeddingClient } from './ai/embeddings.js';
 import { verifySignature } from './security.js';
 import { processWebhook } from './handlers/message.js';
 import { registerApi } from './routes/api.js';
@@ -78,7 +77,6 @@ export function buildServer(config, pool, realtime = createRealtime()) {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
-  const embeddings = new EmbeddingClient(config, app.log);
 
   app.register(fastifyJwt, { secret: config.jwtSecret });
   app.register(fastifyWebsocket);
@@ -167,7 +165,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     }
 
     setImmediate(() => {
-      processWebhook(body, { meta, ai, embeddings, pool, config, realtime, log: req.log }).catch((err) => {
+      processWebhook(body, { meta, ai, pool, config, realtime, log: req.log }).catch((err) => {
         req.log.error({ err }, 'unhandled error processing webhook');
       });
     });
@@ -177,7 +175,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
   // plugin. Adding a websocket route synchronously before the plugin finishes
   // loading means its onRoute hook never sees the route and the upgrade fails.
   app.register(async (instance) => {
-    registerApi(instance, { pool, meta, ai, embeddings, config, realtime });
+    registerApi(instance, { pool, meta, ai, config, realtime });
   });
 
   // Serve the built console if it is there. Missing in dev and test, which is fine.

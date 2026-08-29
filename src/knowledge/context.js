@@ -75,7 +75,11 @@ function render(groups) {
       const body = g.rows
         .map((r) => {
           const lock = r.verbatim ? ' [quote this answer exactly, word for word]' : '';
-          return `Q: ${r.question}\nA: ${r.answer}${lock}`;
+          // FAQ id is shown so the model can name it when it decides to send
+          // the attached file, and the attachment flag is what tells it there
+          // is a file to send in the first place.
+          const media = r.media_asset_id ? ' [has an attached file you can send with this answer]' : '';
+          return `Q [id ${r.id}]: ${r.question}\nA: ${r.answer}${lock}${media}`;
         })
         .join('\n\n');
       return `${heading}\n${body}`;

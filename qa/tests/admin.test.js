@@ -10,7 +10,7 @@ import { createAgent, addMediaAsset } from '../../src/db/repo.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText, inboundImage } from './support/fixtures.js';
-import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 const apiConfig = { ...testConfig, jwtSecret: 'test-secret' };
@@ -34,7 +34,7 @@ async function buildApp(meta) {
   await app.register(fastifyJwt, { secret: 'test-secret' });
   await app.register(fastifyWebsocket);
   await app.register(fastifyMultipart);
-  registerApi(app, { pool, meta, ai: new FakeAi(), embeddings: new FakeEmbeddings(), config: apiConfig, realtime: noopRealtime });
+  registerApi(app, { pool, meta, ai: new FakeAi(), config: apiConfig, realtime: noopRealtime });
   await app.ready();
   return app;
 }
@@ -46,7 +46,6 @@ async function makeConversation() {
   await processWebhook(inboundText({ id: `wamid.${Math.random()}`, body: 'hi' }), {
     meta: new FakeMeta(),
     ai: new FakeAi(),
-    embeddings: new FakeEmbeddings(),
     pool,
     config: apiConfig,
     log: silentLog,
@@ -139,7 +138,6 @@ test('editing settings changes the bot fallback message', async () => {
   await processWebhook(inboundText({ id: 'wamid.S1', body: 'hello' }), {
     meta,
     ai: new FakeAi('x', true),
-    embeddings: new FakeEmbeddings(),
     pool,
     config: apiConfig,
     log: silentLog,
@@ -211,7 +209,6 @@ test('inbound media is proxied from meta', async () => {
   await processWebhook(inboundImage({ id: 'wamid.IMG1' }), {
     meta: new FakeMeta(),
     ai: new FakeAi(),
-    embeddings: new FakeEmbeddings(),
     pool,
     config: apiConfig,
     log: silentLog,

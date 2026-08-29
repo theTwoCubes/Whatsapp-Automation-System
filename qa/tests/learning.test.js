@@ -3,14 +3,12 @@ import assert from 'node:assert/strict';
 
 import { runWeeklyLearning, getLearningCursor } from '../../src/knowledge/learning.js';
 import { recordInbound, recordOutbound } from '../../src/db/repo.js';
-import { setupPool, resetTables, FakeAi, FakeEmbeddings, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeAi, testConfig } from './support/harness.js';
 
 let pool;
-let embeddings;
 
 before(async () => {
   pool = await setupPool();
-  embeddings = new FakeEmbeddings();
 });
 after(async () => {
   await pool?.end();

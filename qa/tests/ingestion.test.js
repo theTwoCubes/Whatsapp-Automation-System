@@ -10,7 +10,7 @@ import { ingestText } from '../../src/knowledge/ingestion.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { createAgent } from '../../src/db/repo.js';
 import { hashPassword } from '../../src/auth.js';
-import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 const apiConfig = { ...testConfig, jwtSecret: 'test-secret' };
@@ -38,7 +38,6 @@ async function buildApp() {
     pool,
     meta: new FakeMeta(),
     ai: new FakeAi(),
-    embeddings: new FakeEmbeddings(),
     config: apiConfig,
     realtime: noopRealtime,
   });

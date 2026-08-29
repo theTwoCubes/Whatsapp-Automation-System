@@ -181,6 +181,39 @@ test('with pack requests disabled the model is told there are only two shapes', 
   assert.match(system, /"action": "handoff"/);
 });
 
+test('faqs with a file attached are flagged in the prompt and the id is shown', async () => {
+  const assetId = (
+    await pool.query("insert into media_assets (kind, filename) values ('document', 'p.pdf') returning id")
+  ).rows[0].id;
+  const faq = await createFaq(pool, { question: 'Prices?', answer: 'See sheet.', mediaAssetId: assetId });
+
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+
+  const system = ai.lastMessages[0].content;
+  assert.match(system, new RegExp(`Q \\[id ${faq.id}\\]:`), 'each faq shows its id so the model can name it');
+  assert.match(system, /has an attached file you can send with this answer/);
+  assert.match(system, /send_faq_id/);
+});
+
+test('send_faq_id is only trusted when the id was actually in the packs given', async () => {
+  const assetId = (
+    await pool.query("insert into media_assets (kind, filename) values ('document', 'p.pdf') returning id")
+  ).rows[0].id;
+  const faq = await createFaq(pool, { question: 'Prices?', answer: 'See sheet.', mediaAssetId: assetId });
+
+  const id = await conversation();
+  const good = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_faq_id: Number(faq.id) }));
+  const goodDecision = await buildReply(pool, good, testConfig, id, {});
+  assert.equal(goodDecision.sendFaqId, Number(faq.id));
+
+  const bad = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_faq_id: 99999 }));
+  const badDecision = await buildReply(pool, bad, testConfig, id, {});
+  assert.equal(badDecision.sendFaqId, null, 'an id not in the given packs is dropped rather than trusted');
+  assert.equal(badDecision.reply, 'Here it is.', 'the reply itself still goes through');
+});
+
 test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });

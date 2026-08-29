@@ -7,10 +7,11 @@ import {
   getConversationState,
   getActivePackIds,
   addActivePackIds,
+  getMediaAsset,
   wasMediaSentRecently,
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
-import { retrieveMedia } from '../knowledge/media.js';
+import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { handToPending } from '../handoff.js';
 import { getSettings } from '../settings.js';
@@ -31,7 +32,7 @@ function getBatcher(config) {
 // 200, so it must not throw back to the request. Messages and status callbacks
 // arrive on the same endpoint with different shapes and are handled separately.
 export async function processWebhook(body, deps) {
-  const { meta, ai, embeddings, pool, config, realtime, log } = deps;
+  const { meta, ai, pool, config, realtime, log } = deps;
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -40,7 +41,7 @@ export async function processWebhook(body, deps) {
 
       if (value.messages?.length) {
         for (const msg of value.messages) {
-          await handleMessage(value, msg, { meta, ai, embeddings, pool, config, realtime, log });
+          await handleMessage(value, msg, { meta, ai, pool, config, realtime, log });
         }
       }
 
@@ -191,7 +192,9 @@ async function respondToLead(deps, conversationId, items) {
 
   const reply = decision?.reply || settings.fallbackMessage;
   await sendAndRecord(deps, to, conversationId, reply);
-  await maybeSendMedia(deps, conversationId, to, text, topicId);
+  if (decision?.sendFaqId) {
+    await maybeSendFaqMedia(deps, conversationId, to, decision.sendFaqId);
+  }
 
   // The lead is active, so reset the follow up schedule from now.
   await scheduleDrips(pool, conversationId, settings.dripSteps);
@@ -228,16 +231,17 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
   return packs;
 }
 
-// Looks for a media asset closely matching what the lead asked about and
-// sends it along, leaning away from resending the same file recently without
-// being hard blocked from it.
-async function maybeSendMedia(deps, conversationId, to, query, topicId) {
-  const { pool, embeddings, meta, realtime, log, config } = deps;
+// Sends the file the client attached to a specific FAQ, when the model asked
+// for it as part of its reply. The cooldown stops the bot from resending the
+// same file to the same conversation within a window, without hard blocking a
+// lead who genuinely asks for it again later.
+async function maybeSendFaqMedia(deps, conversationId, to, faqId) {
+  const { pool, meta, realtime, log, config } = deps;
   try {
-    const asset = await retrieveMedia(pool, embeddings, query, {
-      topicId,
-      similarityFloor: config.mediaSimilarityFloor,
-    });
+    const faq = await getFaq(pool, faqId);
+    if (!faq?.media_asset_id) return;
+
+    const asset = await getMediaAsset(pool, faq.media_asset_id);
     if (!asset) return;
 
     const recently = await wasMediaSentRecently(pool, conversationId, asset.id, config.mediaResendCooldownMinutes);
@@ -259,7 +263,7 @@ async function maybeSendMedia(deps, conversationId, to, query, topicId) {
       realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
-    log.warn({ conversationId, err }, 'failed to auto send matching media');
+    log.warn({ conversationId, faqId, err }, 'failed to send faq attachment');
   }
 }
 

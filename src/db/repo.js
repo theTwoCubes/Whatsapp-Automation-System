@@ -422,8 +422,8 @@ export async function overview(pool) {
 
 export async function addMediaAsset(pool, a) {
   const r = await pool.query(
-    `insert into media_assets (meta_media_id, filename, mime_type, kind, caption, topic_id, description, embedding)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
+    `insert into media_assets (meta_media_id, filename, mime_type, kind, caption, topic_id, description)
+     values ($1, $2, $3, $4, $5, $6, $7)
      returning id`,
     [
       a.metaMediaId ?? null,
@@ -433,7 +433,6 @@ export async function addMediaAsset(pool, a) {
       a.caption ?? null,
       a.topicId ?? null,
       a.description ?? null,
-      a.embedding ?? null,
     ],
   );
   return r.rows[0].id;

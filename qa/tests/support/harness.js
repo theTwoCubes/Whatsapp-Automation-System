@@ -111,38 +111,6 @@ export class FakeAi {
   }
 }
 
-// Deterministic embeddings for tests, no OpenAI call. Same text always maps to
-// the same 1536 dim vector, and vectors are built so texts that share more
-// characters end up closer in cosine similarity than texts that share fewer.
-// That is enough to exercise the retrieval and dedup logic realistically.
-export class FakeEmbeddings {
-  constructor({ fail = false } = {}) {
-    this.enabled = true;
-    this.dimensions = 1536;
-    this.fail = fail;
-    this.calls = 0;
-  }
-  async embed(text) {
-    this.calls += 1;
-    if (this.fail) throw new Error('embeddings unavailable');
-    const clean = (text || '').toLowerCase();
-    if (!clean) return null;
-    const v = new Array(this.dimensions).fill(0);
-    // Bag of chars into the first 128 slots, plus a bigram bucket.
-    for (let i = 0; i < clean.length; i += 1) {
-      v[clean.charCodeAt(i) % 128] += 1;
-    }
-    for (let i = 0; i < clean.length - 1; i += 1) {
-      const idx = 128 + ((clean.charCodeAt(i) * 31 + clean.charCodeAt(i + 1)) % 512);
-      v[idx] += 1;
-    }
-    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
-    return v.map((x) => x / norm);
-  }
-  async embedBatch(texts) {
-    return Promise.all(texts.map((t) => this.embed(t)));
-  }
-}
 
 export const silentLog = {
   info() {},
@@ -165,7 +133,6 @@ export const testConfig = {
   messageBatchDebounceMs: 30,
   messageBatchMaxWaitMs: 200,
   mediaResendCooldownMinutes: 180,
-  mediaSimilarityFloor: 0.72,
   dripSteps: [
     { step: 1, template: 'drip_day3', days: 3 },
     { step: 2, template: 'drip_day5', days: 5 },

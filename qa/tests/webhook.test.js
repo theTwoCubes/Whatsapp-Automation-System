@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText, inboundImage, statusUpdate, adReferral } from './support/fixtures.js';
-import { setupPool, resetTables, FakeMeta, FakeAi, FakeEmbeddings, silentLog, testConfig } from './support/harness.js';
+import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 
@@ -23,7 +23,6 @@ function deps(overrides = {}) {
   return {
     meta: overrides.meta ?? new FakeMeta(),
     ai: overrides.ai ?? new FakeAi(),
-    embeddings: overrides.embeddings ?? new FakeEmbeddings(),
     pool,
     config: testConfig,
     log: silentLog,
@@ -192,6 +191,49 @@ test('a pack pulled in once stays for the next turn without being renegotiated',
   await processWebhook(inboundText({ id: 'wamid.S2', body: 'and how long does that take?' }), d2);
 
   assert.match(spy.lastSystem, /Poster price\?/, 'the sticky pack survives into the next turn');
+});
+
+test('the ai naming an attached faq id sends the file alongside the reply', async () => {
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  const assetId = (
+    await pool.query("insert into media_assets (kind, filename, meta_media_id) values ('document', 'prices.pdf', 'meta-1') returning id")
+  ).rows[0].id;
+  const faq = await createFaq(pool, { question: 'What does it cost?', answer: 'See attached sheet.', mediaAssetId: assetId });
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Here is the price sheet.', send_faq_id: Number(faq.id) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.MED1', body: 'what does it cost?' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'the text reply went out');
+  assert.equal(d.meta.media?.length, 1, 'the attachment went out too');
+  assert.equal(d.meta.media[0].opts.filename, 'prices.pdf');
+});
+
+test('a send_faq_id for a faq without an attachment sends nothing extra, only the reply', async () => {
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  const faq = await createFaq(pool, { question: 'Hours?', answer: 'Monday to Saturday.' });
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Monday to Saturday.', send_faq_id: Number(faq.id) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.MED2', body: 'when are you open?' }), d);
+
+  assert.equal(d.meta.sends.length, 1);
+  assert.equal(d.meta.media?.length ?? 0, 0, 'nothing to attach, so nothing is sent');
+});
+
+test('the same attachment is not sent twice inside the cooldown window', async () => {
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  const assetId = (
+    await pool.query("insert into media_assets (kind, filename, meta_media_id) values ('document', 'p.pdf', 'meta-2') returning id")
+  ).rows[0].id;
+  const faq = await createFaq(pool, { question: 'Prices?', answer: 'See attached.', mediaAssetId: assetId });
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Here.', send_faq_id: Number(faq.id) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.CD1', body: 'prices?' }), d);
+  await processWebhook(inboundText({ id: 'wamid.CD2', body: 'and again?' }), d);
+
+  assert.equal(d.meta.media?.length, 1, 'a repeat within the cooldown is silently skipped, no duplicate goes out');
 });
 
 test('non text messages are stored and hand off to a human instead of being dropped', async () => {

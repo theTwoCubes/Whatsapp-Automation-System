@@ -49,11 +49,18 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   const raw = await ai.complete(messages, { json: true });
   const parsed = parseDecision(raw, catalog);
 
+  // Only allow the model to name a file that was actually in the packs it
+  // was given. Anything else is dropped silently rather than surfacing as
+  // an error: the reply is still valid, just without an attachment.
+  const validFaqIdSet = new Set(faqs.faqIds.map((id) => Number(id)));
+  const sendFaqId = validFaqIdSet.has(Number(parsed.sendFaqId)) ? Number(parsed.sendFaqId) : null;
+
   return {
     reply: parsed.reply ? humanize(parsed.reply) : '',
     handoff: parsed.handoff,
     reason: parsed.reason,
     requestedPackIds: parsed.requestedPackIds,
+    sendFaqId,
     packs: faqs.packs,
     faqCount: faqs.faqCount,
     contextTokens: faqs.tokens,
@@ -65,23 +72,23 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
 // handoff, because the failure we can afford is a person reading the chat,
 // not a made up answer going out or a runaway loop of pack requests.
 function parseDecision(raw, catalog) {
-  if (!raw) return { reply: '', handoff: true, reason: 'the assistant returned nothing', requestedPackIds: [] };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendFaqId: null };
+  if (!raw) return { ...empty, reason: 'the assistant returned nothing' };
 
   let obj;
   try {
     obj = JSON.parse(raw);
   } catch {
-    return { reply: '', handoff: true, reason: 'the assistant did not return usable output', requestedPackIds: [] };
+    return { ...empty, reason: 'the assistant did not return usable output' };
   }
 
   const reply = typeof obj?.reply === 'string' ? obj.reply.trim() : '';
   const reason = typeof obj?.reason === 'string' ? obj.reason.trim() : '';
+  const sendFaqId = Number.isInteger(Number(obj?.send_faq_id)) ? Number(obj.send_faq_id) : null;
 
   if (obj?.action === 'answer') {
-    if (!reply) {
-      return { reply: '', handoff: true, reason: 'the assistant answered with an empty message', requestedPackIds: [] };
-    }
-    return { reply, handoff: false, reason: '', requestedPackIds: [] };
+    if (!reply) return { ...empty, reason: 'the assistant answered with an empty message' };
+    return { reply, handoff: false, reason: '', requestedPackIds: [], sendFaqId };
   }
 
   if (obj?.action === 'need_packs') {
@@ -91,20 +98,15 @@ function parseDecision(raw, catalog) {
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n) && catalogIds.has(String(n)));
     if (valid.length === 0) {
-      return {
-        reply: '',
-        handoff: true,
-        reason: 'the assistant asked for a pack that does not exist',
-        requestedPackIds: [],
-      };
+      return { ...empty, reason: 'the assistant asked for a pack that does not exist' };
     }
-    return { reply: '', handoff: false, reason: '', requestedPackIds: valid };
+    return { reply: '', handoff: false, reason: '', requestedPackIds: valid, sendFaqId: null };
   }
 
   if (obj?.action === 'handoff') {
-    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [] };
+    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendFaqId: null };
   }
-  return { reply: '', handoff: true, reason: 'the assistant returned an unknown action', requestedPackIds: [] };
+  return { ...empty, reason: 'the assistant returned an unknown action' };
 }
 
 function instructions(config, faqText, catalog, allowPackRequests) {
@@ -117,15 +119,24 @@ function instructions(config, faqText, catalog, allowPackRequests) {
   const actionsSection = allowPackRequests
     ? [
         'Reply with JSON in exactly one of these three shapes.',
-        'To answer from what is below: {"action": "answer", "reply": "the message to send"}',
+        'To answer from what is below: {"action": "answer", "reply": "the message to send", "send_faq_id": null}',
         'To ask for another service pack when the answers you have do not cover the question but one of the packs listed under "Other services" clearly would: {"action": "need_packs", "pack_ids": [1, 2]}',
         'To pass it to a person: {"action": "handoff", "reply": "a short friendly holding message", "reason": "why, in a few words, for the team"}',
       ].join('\n')
     : [
         'Reply with JSON in exactly one of these two shapes.',
-        'To answer: {"action": "answer", "reply": "the message to send"}',
+        'To answer: {"action": "answer", "reply": "the message to send", "send_faq_id": null}',
         'To pass it to a person: {"action": "handoff", "reply": "a short friendly holding message", "reason": "why, in a few words, for the team"}',
       ].join('\n');
+
+  const mediaGuidance = [
+    '',
+    'Attaching a file to your reply:',
+    '- Some answers are marked "[has an attached file you can send with this answer]". Only those.',
+    '- When you use one of those answers and the customer actually asked about what the file shows (a portfolio, a price sheet, samples of past work, and so on), put its id in send_faq_id and the file will be sent with your reply.',
+    '- Leave send_faq_id null in every other case: when the answer you used has no attachment, when the customer did not ask for anything visual, or when you have already sent the same file earlier in this chat.',
+    '- Only ever name an id that appears in the answers below. Do not invent one.',
+  ].join('\n');
 
   const packRequestGuidance = allowPackRequests
     ? [
@@ -174,6 +185,7 @@ function instructions(config, faqText, catalog, allowPackRequests) {
     '',
     actionsSection,
     packRequestGuidance,
+    mediaGuidance,
     '',
     'Approved answers:',
     faqText || 'There are no approved answers yet. Hand every chat to a person.',

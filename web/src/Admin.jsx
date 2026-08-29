@@ -463,9 +463,21 @@ function PackSettings({ topicId, onChanged }) {
 
 function FaqRow({ faq, first, last, onMove, onChanged }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ question: faq.question, answer: faq.answer, verbatim: faq.verbatim, pinned: faq.pinned });
+  const [form, setForm] = useState({
+    question: faq.question,
+    answer: faq.answer,
+    verbatim: faq.verbatim,
+    pinned: faq.pinned,
+    mediaAssetId: faq.media_asset_id,
+  });
   const [history, setHistory] = useState(null);
+  const [media, setMedia] = useState(null);
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    if (!editing || media) return;
+    api.media(faq.topic_id).then((d) => setMedia(d.media || [])).catch(() => {});
+  }, [editing, faq.topic_id, media]);
 
   const save = async () => {
     setMsg('');
@@ -509,6 +521,21 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
           <input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} />
           <span>Always include, even when trimming for length</span>
         </label>
+        <label className="field">
+          <span>Send this file with the answer, when it fits</span>
+          <select
+            value={form.mediaAssetId ?? ''}
+            onChange={(e) => setForm({ ...form, mediaAssetId: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">No file</option>
+            {(media || []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.filename}
+                {m.description ? ` - ${m.description}` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="form-actions">
           <button className="btn" onClick={save}>Save</button>
           <button className="btn ghost" onClick={() => setEditing(false)}>Cancel</button>
@@ -524,6 +551,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
         <strong>{faq.question}</strong>
         {faq.verbatim && <span className="tag human">word for word</span>}
         {faq.pinned && <span className="tag">always included</span>}
+        {faq.media_asset_id && <span className="tag bot">has file</span>}
         {!faq.active && <span className="tag human">learned, awaiting review</span>}
         <div className="muted">{faq.answer}</div>
         {history && (

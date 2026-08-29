@@ -40,7 +40,6 @@ import {
   listAudit,
   getMessageRaw,
 } from '../db/repo.js';
-import { saveMediaAsset } from '../knowledge/media.js';
 
 // Pulls the media id out of an inbound message payload.
 function mediaIdFromRaw(raw) {
@@ -537,7 +536,7 @@ export function registerApi(app, deps) {
     try {
       const kind = mediaKind(file.mimetype);
       const metaMediaId = await meta.uploadMedia(file.buffer, file.mimetype, file.filename);
-      const id = await saveMediaAsset(pool, deps.embeddings, {
+      const id = await addMediaAsset(pool, {
         metaMediaId,
         filename: file.filename,
         mimeType: file.mimetype,

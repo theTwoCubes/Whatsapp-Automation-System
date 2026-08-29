@@ -75,10 +75,10 @@ export function loadConfig() {
       process.env.ATTACHMENT_MESSAGE?.trim() ||
       "Thanks for sending that over, I'm connecting you with someone from our team to take a look.",
 
-    // Media resend cooldown, in minutes. The bot avoids resending the same
-    // asset within this window rather than being hard blocked from it.
+    // Media resend cooldown, in minutes. Within this window the bot avoids
+    // sending the same file to the same conversation again, but a lead who
+    // genuinely asks for it once more is not hard blocked from it either.
     mediaResendCooldownMinutes: Number(process.env.MEDIA_RESEND_COOLDOWN_MINUTES || 180),
-    mediaSimilarityFloor: Number(process.env.MEDIA_SIMILARITY_FLOOR || 0.72),
 
     // Message batching. Rapid fire messages from the same lead are coalesced
     // into a single AI call instead of replying to each one separately.

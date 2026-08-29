@@ -4,7 +4,6 @@ import { runMigrations } from './db/migrate.js';
 import { buildServer } from './server.js';
 import { MetaClient } from './meta/client.js';
 import { AiClient } from './ai/client.js';
-import { EmbeddingClient } from './ai/embeddings.js';
 import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 
@@ -52,8 +51,7 @@ async function main() {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
-  const embeddings = new EmbeddingClient(config, app.log);
-  const stopScheduler = startScheduler({ pool, meta, ai, embeddings, config, realtime, log: app.log });
+  const stopScheduler = startScheduler({ pool, meta, ai, config, realtime, log: app.log });
 
   const shutdown = async (signal) => {
     app.log.info({ signal }, 'shutting down');
