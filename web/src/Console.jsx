@@ -365,6 +365,7 @@ export default function Console({ onConversationsChange }) {
             <ContextPanel
               thread={thread}
               onChanged={() => { loadThread(selected); loadList(true); }}
+              onCloseContext={() => setShowContext(false)}
             />
           )}
         </div>
@@ -472,7 +473,7 @@ function EmptyChat() {
 }
 
 // Context Panel
-function ContextPanel({ thread, onChanged }) {
+function ContextPanel({ thread, onChanged, onCloseContext }) {
   const { conversation: c } = thread;
   const toast               = useToast();
 
