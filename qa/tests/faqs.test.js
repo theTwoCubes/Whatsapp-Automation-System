@@ -11,6 +11,8 @@ import {
   listFaqVersions,
   rollbackFaq,
   listPacks,
+  searchFaqs,
+  bulkUpdateFaqs,
 } from '../../src/knowledge/faqs.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { setupPool, resetTables } from './support/harness.js';
@@ -124,6 +126,62 @@ test('the pack list always leads with base and counts only active entries', asyn
   assert.equal(packs[0].faq_count, 1);
   const logo = packs.find((p) => p.slug === 'logo_design');
   assert.equal(logo.faq_count, 1, 'the deactivated entry is not counted');
+});
+
+test('search finds a match in either the question or the answer, case insensitively', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.', topicId: logo.id });
+  await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday, 10am to 7pm.' });
+  await createFaq(pool, { question: 'How many revisions?', answer: 'The logo package includes two rounds.', topicId: logo.id });
+
+  const byQuestion = await searchFaqs(pool, 'REVISIONS');
+  assert.equal(byQuestion.length, 1);
+  assert.equal(byQuestion[0].question, 'How many revisions?');
+  assert.equal(byQuestion[0].topic_name, 'Logo Design', 'the pack the match belongs to comes through');
+
+  const byAnswer = await searchFaqs(pool, 'monday');
+  assert.equal(byAnswer.length, 1);
+  assert.equal(byAnswer[0].question, 'What are your hours?');
+
+  const acrossPacks = await searchFaqs(pool, 'logo');
+  assert.ok(acrossPacks.length >= 2, 'search reaches across every pack');
+
+  const noMatch = await searchFaqs(pool, 'nothing that exists');
+  assert.equal(noMatch.length, 0);
+});
+
+test('bulk deactivating a set of ids moves them out of the live prompt at once', async () => {
+  const a = await createFaq(pool, { question: 'First', answer: 'x' });
+  const b = await createFaq(pool, { question: 'Second', answer: 'y' });
+  const c = await createFaq(pool, { question: 'Third', answer: 'z' });
+
+  const res = await bulkUpdateFaqs(pool, [a.id, b.id], 'deactivate', 'a@b.com');
+  assert.equal(res.affected, 2);
+
+  const rows = await listFaqs(pool, { pack: 'base' });
+  const active = rows.filter((r) => r.active).map((r) => r.question);
+  assert.deepEqual(active, ['Third'], 'only the untouched entry is still live');
+
+  const history = await listFaqVersions(pool, a.id);
+  assert.equal(history[0].actor, 'a@b.com', 'the bulk change is snapshotted per entry');
+});
+
+test('bulk delete removes rows and their history in one shot', async () => {
+  const a = await createFaq(pool, { question: 'First', answer: 'x' });
+  const b = await createFaq(pool, { question: 'Second', answer: 'y' });
+
+  const res = await bulkUpdateFaqs(pool, [a.id, b.id], 'delete');
+  assert.equal(res.affected, 2);
+  assert.equal(await getFaq(pool, a.id), null);
+  assert.equal((await listFaqVersions(pool, a.id)).length, 0);
+});
+
+test('bulk with no ids or an unknown action is rejected without touching anything', async () => {
+  const a = await createFaq(pool, { question: 'Only one', answer: 'x' });
+  assert.deepEqual(await bulkUpdateFaqs(pool, [], 'delete'), { affected: 0 });
+
+  await assert.rejects(() => bulkUpdateFaqs(pool, [a.id], 'nuke'), /unknown bulk action/);
+  assert.ok(await getFaq(pool, a.id), 'row still there after an invalid action');
 });
 
 test('a faq needs both a question and an answer', async () => {

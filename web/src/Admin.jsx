@@ -230,6 +230,8 @@ function Faqs() {
   const [addTopicOpen, setAddTopicOpen] = useState(false);
   const [learnMsg, setLearnMsg] = useState('');
   const [learning, setLearning] = useState(false);
+  const [search, setSearch] = useState('');
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
 
   const reloadPacks = () => {
     api.packs().then((d) => setPacks(d.packs || [])).catch(() => {});
@@ -254,6 +256,17 @@ function Faqs() {
     }
   };
 
+  const doExport = async () => {
+    const data = await api.exportFaqs();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `faqs-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <p className="muted">
@@ -267,41 +280,215 @@ function Faqs() {
         goes live until you approve it.{' '}
         <button className="btn ghost" onClick={runLearning} disabled={learning}>
           {learning ? 'Scanning...' : 'Scan recent chats now'}
-        </button>
+        </button>{' '}
+        <button className="btn ghost" onClick={() => setSimulatorOpen((v) => !v)}>
+          {simulatorOpen ? 'Close simulator' : 'Test a question'}
+        </button>{' '}
+        <button className="btn ghost" onClick={doExport}>Export</button>
         {learnMsg && <span className="muted"> {learnMsg}</span>}
       </p>
 
-      <div className="topic-tabs">
-        {packs.map((p) => (
-          <button
-            key={p.slug}
-            className={`topic-tab ${String(pack) === String(p.topic_id ?? 'base') ? 'active' : ''}`}
-            onClick={() => setPack(p.topic_id ?? 'base')}
-          >
-            {p.name} <span className="count">{p.faq_count}</span>
-          </button>
-        ))}
-        <button className="topic-tab add" onClick={() => setAddTopicOpen(true)}>
-          + Add pack
-        </button>
+      {simulatorOpen && <Simulator packs={packs} />}
+
+      <div className="search">
+        <input
+          placeholder="Search across every pack"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
 
-      {addTopicOpen && (
-        <AddTopic
-          onCancel={() => setAddTopicOpen(false)}
-          onCreated={(t) => {
-            setAddTopicOpen(false);
-            setReloadKey((k) => k + 1);
-            setPack(t.id);
-          }}
-        />
-      )}
+      {search.trim() ? (
+        <FaqSearchResults query={search.trim()} onChange={() => setReloadKey((k) => k + 1)} />
+      ) : (
+        <>
+          <div className="topic-tabs">
+            {packs.map((p) => (
+              <button
+                key={p.slug}
+                className={`topic-tab ${String(pack) === String(p.topic_id ?? 'base') ? 'active' : ''}`}
+                onClick={() => setPack(p.topic_id ?? 'base')}
+              >
+                {p.name} <span className="count">{p.faq_count}</span>
+              </button>
+            ))}
+            <button className="topic-tab add" onClick={() => setAddTopicOpen(true)}>
+              + Add pack
+            </button>
+          </div>
 
-      <FaqPane
-        key={`${pack}-${reloadKey}`}
-        pack={pack}
-        onChange={() => setReloadKey((k) => k + 1)}
+          {addTopicOpen && (
+            <AddTopic
+              onCancel={() => setAddTopicOpen(false)}
+              onCreated={(t) => {
+                setAddTopicOpen(false);
+                setReloadKey((k) => k + 1);
+                setPack(t.id);
+              }}
+            />
+          )}
+
+          <FaqPane
+            key={`${pack}-${reloadKey}`}
+            pack={pack}
+            onChange={() => setReloadKey((k) => k + 1)}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function FaqSearchResults({ query, onChange }) {
+  const [data, error, reload] = useAsync(() => api.searchFaqs(query), [query]);
+  const [msg, setMsg] = useState('');
+
+  const remove = async (id) => {
+    await api.deleteFaq(id);
+    reload();
+    onChange?.();
+  };
+  const toggle = async (id, active) => {
+    await api.updateFaq(id, { active });
+    reload();
+    onChange?.();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  const rows = data?.faqs || [];
+
+  return (
+    <div className="form">
+      <div className="muted">
+        {rows.length === 0
+          ? 'No answer matches that.'
+          : `${rows.length} match${rows.length === 1 ? '' : 'es'} across every pack.`}
+      </div>
+      {rows.map((f) => (
+        <div key={f.id} className="list-row">
+          <div>
+            <strong>{f.question}</strong>{' '}
+            <span className="tag">{f.topic_name || 'Base'}</span>
+            {f.verbatim && <span className="tag human">word for word</span>}
+            {!f.active && <span className="tag human">inactive</span>}
+            <div className="muted">{f.answer}</div>
+          </div>
+          <div className="form-actions">
+            {f.active ? (
+              <button className="btn ghost" onClick={() => toggle(f.id, false)}>Deactivate</button>
+            ) : (
+              <button className="btn" onClick={() => toggle(f.id, true)}>Activate</button>
+            )}
+            <button className="btn ghost danger" onClick={() => remove(f.id)}>Delete</button>
+          </div>
+        </div>
+      ))}
+      {msg && <p className="muted">{msg}</p>}
+    </div>
+  );
+}
+
+function Simulator({ packs }) {
+  // Dry runs the reply pipeline against a message the client types, without
+  // touching any conversation or sending anything. Shows what the model would
+  // be given and, if the ai is configured, what it would answer.
+  const [text, setText] = useState('');
+  const [topicId, setTopicId] = useState('');
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [contextOpen, setContextOpen] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    setErr('');
+    setResult(null);
+    try {
+      const r = await api.simulate({ text: text.trim(), topicId: topicId ? Number(topicId) : null });
+      setResult(r);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const servicePacks = packs.filter((p) => p.topic_id != null);
+  const packNames = new Map(packs.map((p) => [String(p.topic_id ?? 'base'), p.name]));
+
+  return (
+    <div className="add-box">
+      <strong>Test what the bot would say</strong>
+      <p className="muted">
+        Pretend a lead sent this message. We put together the exact same context the bot would see, and show
+        what it would answer. Nothing is sent, nothing is recorded on any conversation.
+      </p>
+      <textarea
+        placeholder="Type a question a customer might ask"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={3}
       />
+      <label className="field">
+        <span>Pretend they came through this service (optional)</span>
+        <select value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+          <option value="">No campaign linked</option>
+          {servicePacks.map((p) => (
+            <option key={p.topic_id} value={p.topic_id}>{p.name}</option>
+          ))}
+        </select>
+      </label>
+      <div className="form-actions">
+        <button className="btn" onClick={run} disabled={!text.trim() || busy}>
+          {busy ? 'Running...' : 'Run'}
+        </button>
+        {err && <span className="error">{err}</span>}
+      </div>
+
+      {result && (
+        <div className="sim-result">
+          <div className="muted">
+            Packs given to the bot:{' '}
+            {result.packsIncluded.map((p) => packNames.get(String(p)) || `#${p}`).join(', ')}
+            {result.keywordMatches.length > 0 && (
+              <> · pulled in by keyword: {result.keywordMatches.map((id) => packNames.get(String(id)) || `#${id}`).join(', ')}</>
+            )}
+            {' · '}
+            {result.faqCount} answer{result.faqCount === 1 ? '' : 's'}, about {result.contextTokens} tokens
+            {result.droppedForBudget > 0 && ` (${result.droppedForBudget} dropped to fit)`}
+          </div>
+
+          {result.decision ? (
+            <div className={`sim-decision ${result.decision.handoff ? 'handoff' : 'answer'}`}>
+              {result.decision.handoff ? (
+                <>
+                  <strong>Would hand off to a person.</strong>
+                  <div className="muted">Reason: {result.decision.reason || 'not given'}</div>
+                  {result.decision.reply && <div className="muted">Holding message: {result.decision.reply}</div>}
+                </>
+              ) : (
+                <>
+                  <strong>Would answer:</strong>
+                  <div>{result.decision.reply}</div>
+                  {result.decision.sendFaqId && (
+                    <div className="muted">Would also send the file attached to answer #{result.decision.sendFaqId}</div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="muted">
+              No AI provider is configured, so we cannot show the actual answer. The context above is what would
+              be sent when one is.
+            </div>
+          )}
+
+          <button className="btn ghost" onClick={() => setContextOpen((v) => !v)}>
+            {contextOpen ? 'Hide the exact prompt' : 'Show the exact prompt'}
+          </button>
+          {contextOpen && <pre className="sim-context">{result.context || '(no answers to show)'}</pre>}
+        </div>
+      )}
     </div>
   );
 }

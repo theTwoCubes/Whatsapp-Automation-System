@@ -300,6 +300,37 @@ input {
   padding: 6px 0;
   font-size: 12px;
 }
+.sim-result {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sim-decision {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sim-decision.handoff {
+  background: #fff8e1;
+}
+.sim-context {
+  background: #0e1116;
+  color: #d7dde5;
+  padding: 12px;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
 .pending-banner {
   background: #fff8e1;
   color: #8a6d00;

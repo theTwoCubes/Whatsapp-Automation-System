@@ -14,7 +14,11 @@ import {
   listFaqVersions,
   rollbackFaq,
   listPacks,
+  searchFaqs,
+  bulkUpdateFaqs,
 } from '../knowledge/faqs.js';
+import { simulateReply } from '../knowledge/simulator.js';
+import { getSettings } from '../settings.js';
 import {
   getAgentByEmail,
   listConversations,
@@ -405,6 +409,76 @@ export function registerApi(app, deps) {
     await deleteFaq(pool, req.params.id);
     await audit(req, 'faq deleted', `faq ${req.params.id}`);
     return { ok: true };
+  });
+
+  // Substring search across every pack. Kept literal instead of similarity
+  // ranked so the client can trust that what is shown is what matched.
+  app.get('/api/faqs/search', { preHandler: auth }, async (req) => {
+    const q = (req.query?.q ?? '').toString().trim();
+    return { faqs: q ? await searchFaqs(pool, q) : [] };
+  });
+
+  // Bulk activate, deactivate or delete. Wrapped in a transaction inside so a
+  // partial success cannot leave the list mid update.
+  app.post('/api/faqs/bulk', { preHandler: auth }, async (req, reply) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+    const action = req.body?.action;
+    if (ids.length === 0) return reply.code(400).send({ error: 'ids are required' });
+    if (!['activate', 'deactivate', 'delete'].includes(action)) {
+      return reply.code(400).send({ error: 'action must be activate, deactivate or delete' });
+    }
+    try {
+      const res = await bulkUpdateFaqs(pool, ids, action, req.user.email);
+      await audit(req, `faqs ${action}`, null, `${res.affected} entries`);
+      return res;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Dry run: type a message, see the packs assembled, the exact context text
+  // the model would see and, if the ai is configured, what it would actually
+  // answer. This is the client's confidence check before a change goes live.
+  app.post('/api/faqs/simulate', { preHandler: auth }, async (req, reply) => {
+    const text = (req.body?.text ?? '').toString().trim();
+    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
+    const callAi = req.body?.callAi !== false;
+    if (!text) return reply.code(400).send({ error: 'a message is required' });
+    try {
+      const settings = await getSettings(pool, deps.config);
+      const result = await simulateReply(pool, deps.ai, deps.config, settings, { text, topicId, callAi });
+      return result;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Everything in a single JSON dump so the client can back the whole store
+  // up, review it offline or diff two states. Ordered exactly as it would go
+  // into the prompt: base first, then each service pack in name order, entries
+  // in their configured position.
+  app.get('/api/faqs/export', { preHandler: auth }, async () => {
+    const packs = await listPacks(pool);
+    const out = [];
+    for (const p of packs) {
+      const faqs = await listFaqs(pool, { pack: p.topic_id ?? 'base' });
+      out.push({
+        pack: p.slug,
+        name: p.name,
+        topic_id: p.topic_id,
+        faqs: faqs.map((f) => ({
+          id: f.id,
+          question: f.question,
+          answer: f.answer,
+          verbatim: f.verbatim,
+          pinned: f.pinned,
+          active: f.active,
+          source: f.source,
+          media_asset_id: f.media_asset_id,
+        })),
+      });
+    }
+    return { exported_at: new Date().toISOString(), packs: out };
   });
 
   app.post('/api/faqs/reorder', { preHandler: auth }, async (req, reply) => {

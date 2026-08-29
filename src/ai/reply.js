@@ -25,7 +25,7 @@ export function wantsHuman(text) {
 // one when the question genuinely needs it. If it asks, the caller pulls that
 // pack in and calls back once. That is the only round trip that ever happens.
 export async function buildReply(pool, ai, config, conversationId, opts = {}) {
-  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true } = opts;
+  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [] } = opts;
 
   const topicIds = packs.filter((p) => p !== 'base');
   const [faqs, catalog, history, context] = await Promise.all([
@@ -44,6 +44,12 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   ];
   for (const m of history) {
     messages.push({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: m.body ?? '' });
+  }
+  // Synthetic turns appended after the real history. The simulator uses this
+  // to try out a message without recording it, so the model sees the same
+  // shape it would in a live call.
+  for (const t of extraTurns) {
+    messages.push({ role: t.direction === 'inbound' ? 'user' : 'assistant', content: t.body ?? '' });
   }
 
   const raw = await ai.complete(messages, { json: true });

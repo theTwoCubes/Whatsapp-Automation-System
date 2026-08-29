@@ -138,6 +138,68 @@ export async function reorderFaqs(pool, orderedIds) {
   }
 }
 
+// Case insensitive substring search across question and answer. At this scale
+// a plain ILIKE is fast enough, and unlike a similarity match it is easy for
+// the client to reason about: what you see in the list is what matched.
+export async function searchFaqs(pool, query, { limit = 100 } = {}) {
+  const q = (query || '').trim();
+  if (!q) return [];
+  const res = await pool.query(
+    `select f.id, f.topic_id, f.question, f.answer, f.verbatim, f.pinned, f.position,
+            f.media_asset_id, f.active, f.source, f.created_at, f.updated_at,
+            t.name as topic_name
+     from faqs f
+     left join topics t on t.id = f.topic_id
+     where f.question ilike $1 or f.answer ilike $1
+     order by f.active desc, f.topic_id nulls first, f.position, f.id
+     limit $2`,
+    [`%${q}%`, limit],
+  );
+  return res.rows;
+}
+
+// Bulk activate, deactivate or delete, wrapped in one transaction so a partial
+// success cannot leave the list in a half updated state. Every write is still
+// snapshotted, except delete which cascades the history away with the row.
+export async function bulkUpdateFaqs(pool, ids, action, actor = null) {
+  if (!Array.isArray(ids) || ids.length === 0) return { affected: 0 };
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    let affected = 0;
+    if (action === 'delete') {
+      const res = await client.query('delete from faqs where id = any($1)', [ids]);
+      affected = res.rowCount;
+    } else if (action === 'activate' || action === 'deactivate') {
+      const value = action === 'activate';
+      const rows = (
+        await client.query(
+          `update faqs set active = $2, updated_at = now() where id = any($1) returning id, question, answer, verbatim`,
+          [ids, value],
+        )
+      ).rows;
+      for (const row of rows) {
+        await client.query(
+          'insert into faq_versions (faq_id, question, answer, verbatim, actor) values ($1, $2, $3, $4, $5)',
+          [row.id, row.question, row.answer, row.verbatim, actor],
+        );
+      }
+      affected = rows.length;
+    } else {
+      throw new Error(`unknown bulk action: ${action}`);
+    }
+
+    await client.query('commit');
+    return { affected };
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listFaqVersions(pool, faqId, limit = 50) {
   const res = await pool.query(
     `select id, faq_id, question, answer, verbatim, actor, created_at
