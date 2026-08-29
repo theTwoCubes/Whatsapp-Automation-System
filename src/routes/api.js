@@ -34,6 +34,7 @@ import {
   recordOutbound,
   cancelDrips,
   markAgentReplied,
+  markInboundRead,
   setSettings,
   listAgents,
   createAgent,
@@ -140,6 +141,13 @@ export function registerApi(app, deps) {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     const messages = await getConversationMessages(pool, req.params.id);
+    
+    const readWamid = await markInboundRead(pool, req.params.id);
+    if (readWamid) {
+      meta.markRead(readWamid).catch(err => req.log.error({ err, wamid: readWamid }, 'failed to mark message read on meta'));
+      realtime.emit({ type: 'refresh', conversationId: conversation.id });
+    }
+
     return {
       conversation: {
         ...conversation,
@@ -167,8 +175,9 @@ export function registerApi(app, deps) {
     try {
       const wamid = await meta.sendText(conversation.wa_id, body);
       if (wamid) await recordOutbound(pool, { conversationId: conversation.id, waMessageId: wamid, body });
-      await claimConversation(conversation, req.user.email);
+      await claimConversation(pool, conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
+      await pool.query('update conversations set last_read_at = now() where id = $1', [conversation.id]);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {

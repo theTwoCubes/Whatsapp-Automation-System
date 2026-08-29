@@ -111,6 +111,16 @@ export class MetaClient {
     return this.send(to, { type: kind, [kind]: media });
   }
 
+  // Marks an inbound message as read so the customer sees blue ticks.
+  async markRead(wamid) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
+    return this.postJson(url, {
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: wamid,
+    });
+  }
+
   async get(url) {
     let res;
     try {

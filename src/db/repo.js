@@ -95,6 +95,20 @@ export async function getConversationState(pool, conversationId) {
   return res.rows[0]?.state ?? null;
 }
 
+export async function markInboundRead(pool, conversationId) {
+  const res = await pool.query(
+    `update messages set status = 'read' 
+     where conversation_id = $1 and direction = 'inbound' and status is null 
+     returning id, wa_message_id`
+    , [conversationId]
+  );
+  if (res.rows.length > 0) {
+    const sorted = res.rows.sort((a, b) => a.id - b.id);
+    return sorted[sorted.length - 1].wa_message_id;
+  }
+  return null;
+}
+
 // A record of every time a chat left the bot for a person. Written once per
 // handoff, not overwritten, so the weekly refinement pass can walk them by
 // id and see exactly what the bot could not answer. source picks apart the
@@ -137,7 +151,17 @@ export async function addActivePackIds(pool, conversationId, ids) {
 }
 
 export async function updateStatus(pool, s) {
-  await pool.query('update messages set status = $2 where wa_message_id = $1', [s.waMessageId, s.status]);
+  await pool.query(
+    `update messages set status = $2 
+     where wa_message_id = $1 
+       and (
+         ($2 = 'read') or
+         ($2 = 'delivered' and status is distinct from 'read') or
+         ($2 = 'sent' and status is distinct from 'read' and status is distinct from 'delivered') or
+         ($2 = 'failed')
+       )`,
+    [s.waMessageId, s.status]
+  );
 }
 
 // Recent messages for a conversation in chronological order, for the AI context.
@@ -254,7 +278,8 @@ export async function listConversations(pool) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             ct.wa_id, ct.name, ca.headline as campaign,
-            m.body as last_message, m.created_at as last_at
+            m.body as last_message, m.created_at as last_at,
+            (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
@@ -269,6 +294,7 @@ export async function listConversations(pool) {
 }
 
 export async function getConversationById(pool, id) {
+  await pool.query('update conversations set last_read_at = now() where id = $1', [id]);
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason, ct.wa_id, ct.name
      from conversations c join contacts ct on ct.id = c.contact_id

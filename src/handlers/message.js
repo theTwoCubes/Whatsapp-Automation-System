@@ -10,6 +10,7 @@ import {
   addActivePackIds,
   getMediaAsset,
   wasMediaSentRecently,
+  markInboundRead,
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { getFaq } from '../knowledge/faqs.js';
@@ -285,6 +286,11 @@ async function maybeSendFaqMedia(deps, conversationId, to, faqId) {
 async function sendAndRecord(deps, to, conversationId, body) {
   const { meta, pool, realtime, log } = deps;
   try {
+    const readWamid = await markInboundRead(pool, conversationId);
+    if (readWamid) {
+      meta.markRead(readWamid).catch(err => log.error({ err, wamid: readWamid }, 'failed to mark message read on meta before bot reply'));
+    }
+
     const wamid = await meta.sendText(to, body);
     if (wamid) {
       await recordOutbound(pool, { conversationId, waMessageId: wamid, body });

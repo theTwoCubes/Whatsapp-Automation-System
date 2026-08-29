@@ -167,12 +167,14 @@ function Watermark() {
 function Ticks({ status }) {
   if (!status) return null;
   if (status === 'sent')
-    return <span className="text-white/50 inline-flex"><Check size={12} /></span>;
-  return (
-    <span className={`inline-flex ${status === 'read' ? 'text-white' : 'text-white/50'}`}>
-      <CheckCheck size={12} />
-    </span>
-  );
+    return <span className="text-white inline-flex"><Check size={16} /></span>;
+  if (status === 'delivered')
+    return <span className="text-white inline-flex"><CheckCheck size={16} /></span>;
+  if (status === 'read')
+    return <span className="text-red-500 inline-flex"><CheckCheck size={16} /></span>;
+  if (status === 'failed')
+    return <span className="text-red-500 inline-flex" title="Failed to send"><AlertCircle size={16} /></span>;
+  return null;
 }
 
 // Console Root
@@ -201,10 +203,19 @@ export default function Console({ onConversationsChange }) {
     }
   }, [toast, onConversationsChange]);
 
+  const fetchCounter = useRef(0);
+
   const loadThread = useCallback(async (id) => {
     if (!id) return;
-    try { setThread(await api.conversation(id)); } catch { /* retry */ }
-  }, []);
+    const currentFetch = ++fetchCounter.current;
+    try { 
+      const data = await api.conversation(id);
+      if (currentFetch === fetchCounter.current) {
+        setThread(data); 
+        loadList(true);
+      }
+    } catch { /* retry */ }
+  }, [loadList]);
 
   useEffect(() => {
     loadList();
@@ -398,10 +409,16 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
           <span className="text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-base text-gray-500 truncate">{c.last_message || 'No messages yet'}</span>
-          {c.state === 'pending' && (
-            <span className="w-2 h-2 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
-          )}
+          <span className={`text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
+            {c.last_message || 'No messages yet'}
+          </span>
+          {c.unread_count > 0 ? (
+            <span className="min-w-[24px] h-[24px] rounded-full flex items-center justify-center bg-green-500 text-white text-sm font-bold px-2 flex-shrink-0">
+              {c.unread_count}
+            </span>
+          ) : c.state === 'pending' ? (
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
+          ) : null}
         </div>
       </div>
     </button>

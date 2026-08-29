@@ -104,7 +104,7 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const show = useCallback((message, type = 'info', duration = 4000) => {
+  const show = useCallback((message, type = 'info', duration = 2000) => {
     const id = ++counterRef.current;
     setToasts((prev) => [...prev, { id, message, type, duration }]);
     if (duration > 0) setTimeout(() => dismiss(id), duration);
