@@ -300,6 +300,27 @@ input {
   padding: 6px 0;
   font-size: 12px;
 }
+.proposal {
+  border-top: 1px dashed var(--line);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.proposal:first-of-type {
+  border-top: 0;
+  padding-top: 4px;
+}
+.contra-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.contra-pair > div {
+  background: var(--panel-alt);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
 .sim-result {
   margin-top: 12px;
   border-top: 1px solid var(--line);

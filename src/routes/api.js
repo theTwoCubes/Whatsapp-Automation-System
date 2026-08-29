@@ -1,6 +1,11 @@
 import { verifyPassword, hashPassword } from '../auth.js';
 import { handToHuman, handToBot } from '../handoff.js';
-import { runWeeklyLearning } from '../knowledge/learning.js';
+import {
+  runWeeklyRefinement,
+  listProposals,
+  dismissProposal,
+  markProposalApproved,
+} from '../knowledge/refinement.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
 import { listTopics, upsertTopic, updateTopic } from '../knowledge/topics.js';
@@ -530,17 +535,64 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Runs a learning pass on demand instead of waiting for the weekly
-  // schedule. Anything it finds lands inactive for review, same as the
-  // scheduled run.
-  app.post('/api/faqs/learn', { preHandler: auth }, async (req, reply) => {
+  // Runs the refinement pass on demand instead of waiting for the weekly
+  // schedule. Everything it finds lands as a proposal the client reviews.
+  app.post('/api/faqs/refine', { preHandler: auth }, async (req, reply) => {
     try {
-      const res = await runWeeklyLearning(pool, deps.ai);
-      await audit(req, 'learning pass run', null, `added ${res.added}, skipped ${res.skipped}`);
+      const res = await runWeeklyRefinement(pool, deps.ai);
+      await audit(req, 'refinement pass run', null,
+        `${res.gaps.proposed} gap(s), ${res.contradictions.proposed} contradiction(s)`);
       return res;
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
+  });
+
+  // What the refinement pass found: proposed answers for gaps the bot ran
+  // into, and contradiction pairs it spotted in existing packs. Nothing here
+  // is live, everything needs the client to act on it.
+  app.get('/api/faqs/proposals', { preHandler: auth }, async (req) => {
+    const status = ['open', 'approved', 'dismissed'].includes(req.query?.status) ? req.query.status : 'open';
+    return { proposals: await listProposals(pool, { status }) };
+  });
+
+  // Approving a gap proposal creates a real FAQ from it. Anything the client
+  // edits before hitting approve is what actually gets stored, so the model's
+  // draft is a starting point rather than a commitment.
+  app.post('/api/faqs/proposals/:id/approve', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const question = (req.body?.question ?? '').trim();
+    const answer = (req.body?.answer ?? '').trim();
+    const topicId = req.body?.topicId !== undefined
+      ? (req.body.topicId ? Number(req.body.topicId) : null)
+      : undefined;
+
+    if (!question || !answer) {
+      return reply.code(400).send({ error: 'question and answer are required' });
+    }
+    try {
+      const proposal = await pool.query('select topic_id, kind from faq_proposals where id = $1', [req.params.id]);
+      if (proposal.rows.length === 0) return reply.code(404).send({ error: 'not found' });
+      if (proposal.rows[0].kind !== 'gap') {
+        return reply.code(400).send({ error: 'only gap proposals turn into new answers, contradictions are just dismissed once resolved' });
+      }
+      const finalTopicId = topicId === undefined ? proposal.rows[0].topic_id : topicId;
+      const faq = await createFaq(
+        pool,
+        { question, answer, topicId: finalTopicId, source: 'refinement' },
+        req.user.email,
+      );
+      await markProposalApproved(pool, req.params.id, req.user.email);
+      await audit(req, 'gap proposal approved', `faq ${faq.id}`, question);
+      return { faq };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/faqs/proposals/:id/dismiss', { preHandler: auth, schema: idParams }, async (req) => {
+    await dismissProposal(pool, req.params.id, req.user.email);
+    await audit(req, 'proposal dismissed', `proposal ${req.params.id}`);
+    return { ok: true };
   });
 
   // Bulk import: paste an FAQ document or raw notes and split it into entries

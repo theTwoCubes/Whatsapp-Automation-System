@@ -2,7 +2,7 @@ import { claimDueDrips, markDrip, recordOutbound, conversationsToResume, getActi
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
 import { getSettings } from './settings.js';
-import { getLearningCursor, runWeeklyLearning } from './knowledge/learning.js';
+import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
 // hands stalled chats back to the bot, and the weekly learning pass. In
@@ -12,7 +12,7 @@ export function startScheduler(deps, intervalMs = 60000) {
     try {
       await runDueDrips(deps);
       await runAutoResume(deps);
-      await runWeeklyLearningIfDue(deps);
+      await runWeeklyRefinementIfDue(deps);
     } catch (err) {
       deps.log.error({ err }, 'scheduler tick failed');
     }
@@ -93,21 +93,21 @@ export async function runAutoResume(deps) {
   return rows.length;
 }
 
-// Runs the weekly learning pass once the configured interval has elapsed
+// Runs the weekly refinement pass once the configured interval has elapsed
 // since the last run, otherwise does nothing. Checked every tick rather than
 // on its own timer so there is no second interval to manage.
-export async function runWeeklyLearningIfDue(deps) {
+export async function runWeeklyRefinementIfDue(deps) {
   const { pool, ai, config, log } = deps;
-  const cursor = await getLearningCursor(pool);
+  const cursor = await getRefinementCursor(pool);
   const intervalMs = (config.learningIntervalDays ?? 7) * 24 * 60 * 60 * 1000;
   if (cursor.lastRunAt && Date.now() - new Date(cursor.lastRunAt).getTime() < intervalMs) return null;
 
   try {
-    const result = await runWeeklyLearning(pool, ai);
-    log.info(result, 'weekly learning pass completed');
+    const result = await runWeeklyRefinement(pool, ai);
+    log.info(result, 'weekly refinement pass completed');
     return result;
   } catch (err) {
-    log.error({ err }, 'weekly learning pass failed');
+    log.error({ err }, 'weekly refinement pass failed');
     return null;
   }
 }

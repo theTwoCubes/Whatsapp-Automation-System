@@ -242,12 +242,13 @@ function Faqs() {
     setLearning(true);
     setLearnMsg('');
     try {
-      const res = await api.runLearning();
-      setLearnMsg(
-        res.added > 0
-          ? `Found ${res.added} new answer${res.added === 1 ? '' : 's'} from recent chats, waiting for review below.`
-          : 'Scanned recent chats, nothing new to learn this time.',
-      );
+      const res = await api.runRefinement();
+      const gaps = res.gaps?.proposed || 0;
+      const contras = res.contradictions?.proposed || 0;
+      const parts = [];
+      if (gaps) parts.push(`${gaps} gap${gaps === 1 ? '' : 's'} to fill`);
+      if (contras) parts.push(`${contras} contradiction${contras === 1 ? '' : 's'}`);
+      setLearnMsg(parts.length ? `Found ${parts.join(' and ')}, waiting for review below.` : 'Nothing new to flag this time.');
       setReloadKey((k) => k + 1);
     } catch (e) {
       setLearnMsg(e.message);
@@ -276,10 +277,11 @@ function Faqs() {
         cover goes to a person instead of being guessed at.
       </p>
       <p className="muted">
-        Every week we also scan recent chats for things the team explained that are not written down yet. Nothing
-        goes live until you approve it.{' '}
+        Every week we also look for gaps (questions the bot could not answer and passed to you) and contradictions
+        (pairs of answers here that disagree). Anything found lands as a proposal below, nothing goes live until
+        you approve it.{' '}
         <button className="btn ghost" onClick={runLearning} disabled={learning}>
-          {learning ? 'Scanning...' : 'Scan recent chats now'}
+          {learning ? 'Looking...' : 'Look for gaps and contradictions'}
         </button>{' '}
         <button className="btn ghost" onClick={() => setSimulatorOpen((v) => !v)}>
           {simulatorOpen ? 'Close simulator' : 'Test a question'}
@@ -287,6 +289,8 @@ function Faqs() {
         <button className="btn ghost" onClick={doExport}>Export</button>
         {learnMsg && <span className="muted"> {learnMsg}</span>}
       </p>
+
+      <Proposals reloadKey={reloadKey} onChange={() => setReloadKey((k) => k + 1)} />
 
       {simulatorOpen && <Simulator packs={packs} />}
 
@@ -384,6 +388,122 @@ function FaqSearchResults({ query, onChange }) {
         </div>
       ))}
       {msg && <p className="muted">{msg}</p>}
+    </div>
+  );
+}
+
+function Proposals({ reloadKey, onChange }) {
+  // Gap and contradiction proposals from the weekly refinement pass. Gaps
+  // become new FAQs on approve, contradictions just get dismissed once the
+  // client has fixed the underlying pair in the FAQ tab below.
+  const [data, error, reload] = useAsync(() => api.proposals('open'), [reloadKey]);
+  const proposals = data?.proposals || [];
+
+  const refresh = () => {
+    reload();
+    onChange?.();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+  if (proposals.length === 0) return null;
+
+  const gaps = proposals.filter((p) => p.kind === 'gap');
+  const contras = proposals.filter((p) => p.kind === 'contradiction');
+
+  return (
+    <div className="proposals">
+      {gaps.length > 0 && (
+        <div className="add-box">
+          <strong>Questions the bot could not answer</strong>
+          <p className="muted">
+            Each of these came up in a real chat and the bot passed it to a person. Approve the draft (edit it
+            first if you want), or dismiss it if it is not worth writing down.
+          </p>
+          {gaps.map((p) => (
+            <GapProposal key={p.id} proposal={p} onChanged={refresh} />
+          ))}
+        </div>
+      )}
+      {contras.length > 0 && (
+        <div className="add-box">
+          <strong>Answers here that seem to disagree</strong>
+          <p className="muted">
+            Two live answers in the same pack said different things about the same fact. Fix or delete one of
+            them in the FAQ list, then dismiss the flag.
+          </p>
+          {contras.map((p) => (
+            <ContradictionProposal key={p.id} proposal={p} onChanged={refresh} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GapProposal({ proposal, onChanged }) {
+  const [question, setQuestion] = useState(proposal.question || '');
+  const [answer, setAnswer] = useState(proposal.answer || '');
+  const [msg, setMsg] = useState('');
+
+  const approve = async () => {
+    setMsg('');
+    try {
+      await api.approveProposal(proposal.id, { question: question.trim(), answer: answer.trim() });
+      onChanged();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  const dismiss = async () => {
+    await api.dismissProposal(proposal.id);
+    onChanged();
+  };
+
+  return (
+    <div className="proposal">
+      <div className="muted" style={{ fontSize: 12 }}>
+        {proposal.topic_name || 'Base'}
+        {proposal.reason ? ` · ${proposal.reason}` : ''}
+        {proposal.sample_conversation_ids?.length > 0
+          ? ` · seen in ${proposal.sample_conversation_ids.length} chat${proposal.sample_conversation_ids.length === 1 ? '' : 's'}`
+          : ''}
+      </div>
+      <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="The question a customer would ask" />
+      <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="The answer, in the words you want it said" rows={3} />
+      <div className="form-actions">
+        <button className="btn" onClick={approve} disabled={!question.trim() || !answer.trim()}>Approve and add</button>
+        <button className="btn ghost" onClick={dismiss}>Dismiss</button>
+        {msg && <span className="error">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ContradictionProposal({ proposal, onChanged }) {
+  const dismiss = async () => {
+    await api.dismissProposal(proposal.id);
+    onChanged();
+  };
+  return (
+    <div className="proposal">
+      <div className="muted" style={{ fontSize: 12 }}>
+        {proposal.topic_name || 'Base'} · {proposal.reason}
+      </div>
+      <div className="contra-pair">
+        <div>
+          <div className="muted" style={{ fontSize: 11 }}>Answer #{proposal.faq_id_a}</div>
+          <strong>{proposal.faq_a_question}</strong>
+          <div className="muted">{proposal.faq_a_answer}</div>
+        </div>
+        <div>
+          <div className="muted" style={{ fontSize: 11 }}>Answer #{proposal.faq_id_b}</div>
+          <strong>{proposal.faq_b_question}</strong>
+          <div className="muted">{proposal.faq_b_answer}</div>
+        </div>
+      </div>
+      <div className="form-actions">
+        <button className="btn ghost" onClick={dismiss}>Dismiss (I have fixed it)</button>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import {
   recordInbound,
   recordOutbound,
+  recordHandoff,
   updateStatus,
   scheduleDrips,
   cancelDrips,
@@ -105,6 +106,12 @@ async function handleMessage(value, message, deps) {
   if (message.type !== 'text' || !message.text?.body) {
     const settings = await getSettings(pool, config);
     await handToPending(pool, result.conversationId, `Lead sent a ${message.type}`);
+    await recordHandoff(pool, {
+      conversationId: result.conversationId,
+      source: 'attachment',
+      reason: `Lead sent a ${message.type}`,
+      topicId: result.topicId ?? null,
+    });
     await cancelDrips(pool, result.conversationId);
     log.info({ conversationId: result.conversationId, type: message.type }, 'lead sent an attachment, queued for a human');
     await sendAndRecord(deps, message.from, result.conversationId, settings.attachmentMessage);
@@ -148,6 +155,12 @@ async function respondToLead(deps, conversationId, items) {
   // team take it from here.
   if (wantsHuman(text)) {
     await handToPending(pool, conversationId, 'Lead asked to speak with a person');
+    await recordHandoff(pool, {
+      conversationId,
+      source: 'lead',
+      reason: 'Lead asked to speak with a person',
+      topicId,
+    });
     await cancelDrips(pool, conversationId);
     log.info({ conversationId }, 'queued conversation for a human on request');
     await sendAndRecord(deps, to, conversationId, settings.handoffMessage);
@@ -183,7 +196,9 @@ async function respondToLead(deps, conversationId, items) {
 
   // The AI decided this needs a person.
   if (decision?.handoff) {
-    await handToPending(pool, conversationId, decision.reason || 'The ai judged this needs a person');
+    const reason = decision.reason || 'The ai judged this needs a person';
+    await handToPending(pool, conversationId, reason);
+    await recordHandoff(pool, { conversationId, source: 'ai', reason, topicId });
     await cancelDrips(pool, conversationId);
     log.info({ conversationId, reason: decision.reason }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);

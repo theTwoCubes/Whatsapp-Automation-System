@@ -36,9 +36,11 @@ async function ensureDatabase(url) {
 
 export async function resetTables(pool) {
   await pool.query(
-    'truncate messages, conversations, contacts, campaigns, knowledge_base, faqs, faq_versions, drip_jobs, templates, settings, media_assets, audit_log, topics restart identity cascade',
+    'truncate messages, conversations, contacts, campaigns, knowledge_base, faqs, faq_versions, faq_proposals, handoff_events, drip_jobs, templates, settings, media_assets, audit_log, topics restart identity cascade',
   );
-  await pool.query('update learning_state set last_message_id = 0, last_run_at = null where id = 1');
+  await pool.query(
+    'update learning_state set last_message_id = 0, last_handoff_id = 0, last_run_at = null where id = 1',
+  );
   invalidateSettings();
 }
 

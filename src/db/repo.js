@@ -95,6 +95,25 @@ export async function getConversationState(pool, conversationId) {
   return res.rows[0]?.state ?? null;
 }
 
+// A record of every time a chat left the bot for a person. Written once per
+// handoff, not overwritten, so the weekly refinement pass can walk them by
+// id and see exactly what the bot could not answer. source picks apart the
+// kind of handoff: 'ai' means the model itself judged the chat needed a
+// person, which is the only signal that indicates a real knowledge gap.
+export async function recordHandoff(pool, { conversationId, source, reason = null, topicId = null }) {
+  const messageIdRow = await pool.query(
+    `select id from messages where conversation_id = $1 and direction = 'inbound'
+     order by created_at desc, id desc limit 1`,
+    [conversationId],
+  );
+  const messageId = messageIdRow.rows[0]?.id ?? null;
+  await pool.query(
+    `insert into handoff_events (conversation_id, message_id, source, reason, topic_id)
+     values ($1, $2, $3, $4, $5)`,
+    [conversationId, messageId, source, reason, topicId],
+  );
+}
+
 // Packs the conversation has pulled in on top of the campaign's own pack.
 export async function getActivePackIds(pool, conversationId) {
   const res = await pool.query('select active_pack_ids from conversations where id = $1', [conversationId]);

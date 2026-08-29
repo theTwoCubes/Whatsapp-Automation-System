@@ -52,7 +52,11 @@ export const api = {
   saveProfile: (body) => req('/profile', { method: 'PUT', body: JSON.stringify(body) }),
   importFaqs: (text, topicId = null) =>
     req('/faqs/import', { method: 'POST', body: JSON.stringify({ text, topicId }) }),
-  runLearning: () => req('/faqs/learn', { method: 'POST' }),
+  runRefinement: () => req('/faqs/refine', { method: 'POST' }),
+  proposals: (status = 'open') => req(`/faqs/proposals?status=${encodeURIComponent(status)}`),
+  approveProposal: (id, body) =>
+    req(`/faqs/proposals/${id}/approve`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissProposal: (id) => req(`/faqs/proposals/${id}/dismiss`, { method: 'POST' }),
   packs: () => req('/packs'),
   faqs: (pack = 'all') => req(`/faqs?pack=${encodeURIComponent(pack)}`),
   addFaq: (body) => req('/faqs', { method: 'POST', body: JSON.stringify(body) }),
