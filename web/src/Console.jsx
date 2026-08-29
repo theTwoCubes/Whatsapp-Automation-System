@@ -1,42 +1,122 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useContext, useEffect, useMemo, useRef, useState,
+} from 'react';
+import {
+  Search, Paperclip, Library, Send, Clock, AlertCircle,
+  CheckCheck, Check, ChevronRight, X, MessageSquare,
+  FileText, Image as ImageIcon, ChevronDown, LayoutList,
+} from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
-import { initials, avatarColor, shortTime, groupByDay, templateParamCount } from './lib.js';
+import { shortTime, groupByDay, templateParamCount } from './lib.js';
+import Avatar from './components/ui/Avatar.jsx';
+import { StateBadge } from './components/ui/Badge.jsx';
+import Button from './components/ui/Button.jsx';
+import { ChatRowSkeleton } from './components/ui/Skeleton.jsx';
+import { useToast } from './components/ui/Toast.jsx';
 
-export default function Console({ onLogout, onOpenAdmin }) {
+// Helpers
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d    = new Date(dateStr);
+  const diff = Math.floor((new Date() - d) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return `${diff} days ago`;
+}
+
+function windowLabel(conv) {
+  return conv.window_open
+    ? { label: '24h window open', open: true }
+    : { label: 'Window closed',   open: false };
+}
+
+function mediaLabel(type) {
+  const map = { image: '📷 Photo', document: '📄 Document', video: '🎥 Video', audio: '🎤 Voice' };
+  return map[type] || `[${type}]`;
+}
+
+// Inbound Media
+function InboundMedia({ message }) {
+  const [url, setUrl]       = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let obj;
+    api.mediaObjectUrl(message.id)
+      .then((u) => { obj = u; setUrl(u); })
+      .catch(() => setFailed(true));
+    return () => obj && URL.revokeObjectURL(obj);
+  }, [message.id]);
+  if (failed) return <span>{mediaLabel(message.type)}</span>;
+  if (!url)   return <span>{mediaLabel(message.type)}…</span>;
+  if (message.type === 'image')
+    return <img className="max-w-[240px] rounded-lg" src={url} alt="Shared media" />;
+  return (
+    <a className="underline" href={url} target="_blank" rel="noreferrer">
+      {mediaLabel(message.type)} — open
+    </a>
+  );
+}
+
+// Watermark
+function Watermark() {
+  const brand = useContext(BrandContext);
+  if (!brand?.watermark) return null;
+  return (
+    <div className="text-center text-xs text-gray-400 px-4 py-1.5 border-t border-gray-100">
+      {brand.watermark}
+      {brand.supportEmail && (
+        <> · <a href={`mailto:${brand.supportEmail}`} className="hover:underline">{brand.supportEmail}</a></>
+      )}
+    </div>
+  );
+}
+
+// Ticks
+function Ticks({ status }) {
+  if (!status) return null;
+  if (status === 'sent')
+    return <span className="text-white/50 inline-flex"><Check size={12} /></span>;
+  return (
+    <span className={`inline-flex ${status === 'read' ? 'text-white' : 'text-white/50'}`}>
+      <CheckCheck size={12} />
+    </span>
+  );
+}
+
+// Console Root
+export default function Console({ onConversationsChange }) {
   const [conversations, setConversations] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [thread, setThread] = useState(null);
-  const [templates, setTemplates] = useState([]);
-  const [query, setQuery] = useState('');
-  const selectedRef = useRef(null);
+  const [selected, setSelected]           = useState(null);
+  const [thread, setThread]               = useState(null);
+  const [templates, setTemplates]         = useState([]);
+  const [query, setQuery]                 = useState('');
+  const [filter, setFilter]               = useState('all');
+  const [loading, setLoading]             = useState(true);
+  const selectedRef                        = useRef(null);
+  const toast                              = useToast();
 
-  const loadList = useCallback(async () => {
+  const loadList = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const { conversations } = await api.conversations();
-      setConversations(conversations);
+      const { conversations: list } = await api.conversations();
+      setConversations(list);
+      onConversationsChange?.(list);
     } catch (err) {
-      if (err.message === 'unauthorized') onLogout();
+      if (err.message !== 'unauthorized') toast.error('Could not load conversations');
+    } finally {
+      setLoading(false);
     }
-  }, [onLogout]);
+  }, [toast, onConversationsChange]);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
-    try {
-      setThread(await api.conversation(id));
-    } catch {
-      // a later refresh will retry
-    }
-  }, []);
-
-  const syncTemplates = useCallback(async () => {
-    const d = await api.syncTemplates();
-    setTemplates(d.templates || []);
+    try { setThread(await api.conversation(id)); } catch { /* retry */ }
   }, []);
 
   useEffect(() => {
     loadList();
-    api.templates().then((d) => setTemplates(d.templates)).catch(() => {});
+    api.templates().then((d) => setTemplates(d.templates || [])).catch(() => {});
   }, [loadList]);
 
   useEffect(() => {
@@ -44,240 +124,434 @@ export default function Console({ onLogout, onOpenAdmin }) {
     loadThread(selected);
   }, [selected, loadThread]);
 
+  // WebSocket real-time
   useEffect(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
     ws.onmessage = () => {
-      loadList();
+      loadList(true);
       if (selectedRef.current) loadThread(selectedRef.current);
     };
     return () => ws.close();
   }, [loadList, loadThread]);
 
   const filtered = useMemo(() => {
+    let list = conversations;
+    if (filter !== 'all') list = list.filter((c) => c.state === filter);
     const q = query.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter(
-      (c) => (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q),
+    if (q) list = list.filter((c) =>
+      (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q)
     );
-  }, [conversations, query]);
+    return list;
+  }, [conversations, query, filter]);
+
+  const counts = useMemo(() => ({
+    all:     conversations.length,
+    pending: conversations.filter((c) => c.state === 'pending').length,
+    bot:     conversations.filter((c) => c.state === 'bot').length,
+    human:   conversations.filter((c) => c.state === 'human').length,
+  }), [conversations]);
+
+  const syncTemplates = useCallback(async () => {
+    const d = await api.syncTemplates();
+    setTemplates(d.templates || []);
+  }, []);
+
+  const FILTERS = [
+    { key: 'all',     label: 'All' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'bot',     label: 'AI' },
+    { key: 'human',   label: 'Agent' },
+  ];
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="side-head">
-          <div className="me">
-            <div className="avatar sm" style={{ background: 'var(--green)' }}>
-              tC
-            </div>
-            <span>Console</span>
-          </div>
-          <div className="head-actions">
-            <button className="icon-btn" onClick={onOpenAdmin}>
-              Admin
-            </button>
-            <button className="icon-btn" onClick={onLogout}>
-              Sign out
-            </button>
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+
+      {/* Chat List */}
+      <div className="w-[320px] flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+
+        {/* Search bar */}
+        <div className="flex-shrink-0 px-3 py-3 border-b border-gray-200">
+          <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
+            <Search size={14} className="text-gray-400 flex-shrink-0" />
+            <input
+              className="flex-1 text-sm outline-none placeholder:text-gray-400 bg-transparent text-gray-900"
+              placeholder="Search conversations…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search conversations"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-600">
+                <X size={13} />
+              </button>
+            )}
           </div>
         </div>
-        <div className="search">
-          <input placeholder="Search name or number" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-        <div className="chat-list">
-          {filtered.length === 0 && <div className="empty-list">No chats yet</div>}
-          {filtered.map((c) => (
+
+        {/* Filter tabs */}
+        <div className="flex flex-shrink-0 border-b border-gray-100 px-3 gap-1" role="tablist">
+          {FILTERS.map(({ key, label }) => (
             <button
-              key={c.id}
-              className={`chat-row ${String(selected) === String(c.id) ? 'active' : ''}`}
-              onClick={() => setSelected(c.id)}
+              key={key}
+              role="tab"
+              aria-selected={filter === key}
+              onClick={() => setFilter(key)}
+              className={`
+                relative flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors duration-100
+                ${filter === key
+                  ? 'text-gray-900'
+                  : 'text-gray-400 hover:text-gray-600'}
+              `}
             >
-              <div className="avatar" style={{ background: avatarColor(c.wa_id) }}>
-                {initials(c.name, c.wa_id)}
-              </div>
-              <div className="chat-main">
-                <div className="chat-top">
-                  <span className="name">{c.name || c.wa_id}</span>
-                  <span className="time">{shortTime(c.last_at)}</span>
-                </div>
-                <div className="chat-bottom">
-                  <span className="preview">{c.last_message || 'No messages yet'}</span>
-                  <span className={`pill ${c.state}`}>{c.state}</span>
-                </div>
-              </div>
+              {label}
+              {filter === key && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full"
+                  style={{ background: 'var(--accent)' }}
+                />
+              )}
+              {key === 'pending' && counts.pending > 0 && (
+                <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                  {counts.pending}
+                </span>
+              )}
             </button>
           ))}
         </div>
-      </aside>
 
-      <main className="chat">
-        {thread ? (
-          <Chat
-            thread={thread}
-            templates={templates}
-            onSync={syncTemplates}
-            onChanged={() => loadThread(selected)}
-          />
-        ) : (
-          <div className="empty-chat">
-            <div className="big">💬</div>
-            <p>Select a chat to start</p>
+        {/* Conversation list */}
+        <div className="flex-1 overflow-y-auto" role="list">
+          {loading && Array.from({ length: 6 }).map((_, i) => <ChatRowSkeleton key={i} />)}
+          {!loading && filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-40 text-sm text-gray-400 px-6 text-center">
+              {query ? 'No conversations match your search.' : 'No conversations yet.'}
+            </div>
+          )}
+          {!loading && filtered.map((c) => {
+            const isActive = String(selected) === String(c.id);
+            return (
+              <button
+                key={c.id}
+                role="listitem"
+                onClick={() => setSelected(c.id)}
+                aria-current={isActive ? 'true' : undefined}
+                className={`
+                  w-full flex gap-3 px-4 py-3.5 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
+                  ${isActive
+                    ? 'bg-gray-100'
+                    : c.state === 'pending'
+                      ? 'bg-amber-50/50 hover:bg-amber-50'
+                      : 'hover:bg-gray-50'}
+                `}
+              >
+                <Avatar name={c.name} waId={c.wa_id} size="lg" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-sm font-semibold text-gray-900 truncate">{c.name || c.wa_id}</span>
+                    <span className="text-xs text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-gray-500 truncate">{c.last_message || 'No messages yet'}</span>
+                    {c.state === 'pending' && (
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Thread */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white">
+        {thread
+          ? <ChatThread
+              thread={thread}
+              templates={templates}
+              onSync={syncTemplates}
+              onChanged={() => { loadThread(selected); loadList(true); }}
+            />
+          : <EmptyChat />
+        }
+      </div>
+
+      {/* Context Panel */}
+      {thread && (
+        <ContextPanel
+          thread={thread}
+          onChanged={() => { loadThread(selected); loadList(true); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Empty Chat
+function EmptyChat() {
+  return (
+    <div className="flex flex-col items-center justify-center flex-1 gap-4">
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-gray-100">
+        <MessageSquare size={28} className="text-gray-400" />
+      </div>
+      <div className="text-center">
+        <p className="text-base font-semibold text-gray-700 mb-1">No conversation selected</p>
+        <p className="text-sm text-gray-400 max-w-[220px]">
+          Choose a conversation from the list to view messages and reply.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Context Panel
+function ContextPanel({ thread, onChanged }) {
+  const { conversation: c } = thread;
+  const toast               = useToast();
+
+  const act = async (fn, successMsg) => {
+    try {
+      await fn();
+      onChanged();
+      if (successMsg) toast.success(successMsg);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const isBot     = c.state === 'bot';
+  const isPending = c.state === 'pending';
+  const isHuman   = c.state === 'human';
+
+  return (
+    <aside
+      className="w-[280px] flex-shrink-0 flex flex-col border-l border-gray-200 bg-white overflow-y-auto"
+      aria-label="Conversation details"
+    >
+      {/* Contact header */}
+      <div className="flex items-center gap-3 px-5 py-5 border-b border-gray-100">
+        <Avatar name={c.name} waId={c.wa_id} size="lg" />
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-gray-900 truncate">{c.name || c.wa_id}</div>
+          <div className="text-xs text-gray-400 mt-0.5">{c.wa_id}</div>
+        </div>
+      </div>
+
+      {/* Meta section */}
+      <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Details</div>
+        <ContextRow label="Status"><StateBadge state={c.state} /></ContextRow>
+        {c.assignee && <ContextRow label="Agent"><span className="text-gray-700">{c.assignee}</span></ContextRow>}
+        <ContextRow label="24h window">
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.window_open ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+            {c.window_open ? 'Open' : 'Closed'}
+          </span>
+        </ContextRow>
+        <ContextRow label="Started"><span className="text-gray-700">{daysSince(c.created_at)}</span></ContextRow>
+        {c.handoff_reason && (
+          <div className="flex flex-col gap-1 bg-amber-50 rounded-lg px-3 py-2">
+            <span className="text-xs font-semibold text-amber-700">Reason flagged</span>
+            <span className="text-xs text-amber-800 italic">"{c.handoff_reason}"</span>
           </div>
         )}
-      </main>
+      </div>
+
+      {/* Source */}
+      {(c.topic_name || c.campaign_id) && (
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Source</div>
+          <ContextRow label="Campaign"><span className="text-gray-700">{c.topic_name || `#${c.campaign_id}`}</span></ContextRow>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="px-5 py-4 flex flex-col gap-2">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actions</div>
+        {isHuman && (
+          <Button variant="secondary" size="sm" className="w-full justify-center"
+            onClick={() => act(() => api.handback(c.id), 'Returned to AI')}>
+            Give back to AI
+          </Button>
+        )}
+        {isPending && (
+          <>
+            <Button variant="primary" size="sm" className="w-full justify-center"
+              onClick={() => act(() => api.acceptHandoff(c.id), 'Conversation accepted')}>
+              Accept conversation
+            </Button>
+            <Button variant="secondary" size="sm" className="w-full justify-center"
+              onClick={() => act(() => api.rejectHandoff(c.id), 'Rejected, AI taking over')}>
+              Reject
+            </Button>
+          </>
+        )}
+        {isBot && (
+          <Button variant="secondary" size="sm" className="w-full justify-center"
+            onClick={() => act(() => api.takeover(c.id), 'You have taken over this conversation')}>
+            Take over
+          </Button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function ContextRow({ label, children }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-xs text-gray-400 flex-shrink-0">{label}</span>
+      <span className="text-xs text-right">{children}</span>
     </div>
   );
 }
 
-function Ticks({ status }) {
-  if (!status) return null;
-  const read = status === 'read';
-  const single = status === 'sent';
-  return <span className={`ticks ${read ? 'read' : ''}`}>{single ? '✓' : '✓✓'}</span>;
-}
-
-function mediaLabel(type) {
-  if (type === 'image') return '📷 Photo';
-  if (type === 'document') return '📄 Document';
-  if (type === 'video') return '🎥 Video';
-  if (type === 'audio') return '🎤 Voice message';
-  return `[${type}]`;
-}
-
-// Fetches media a lead sent through the authed proxy and shows it.
-function InboundMedia({ message }) {
-  const [url, setUrl] = useState(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let objectUrl;
-    api
-      .mediaObjectUrl(message.id)
-      .then((u) => {
-        objectUrl = u;
-        setUrl(u);
-      })
-      .catch(() => setFailed(true));
-    return () => objectUrl && URL.revokeObjectURL(objectUrl);
-  }, [message.id]);
-
-  if (failed) return <span>{mediaLabel(message.type)}</span>;
-  if (!url) return <span>{mediaLabel(message.type)}...</span>;
-  if (message.type === 'image') return <img className="media-img" src={url} alt="shared media" />;
-  return (
-    <a className="media-link" href={url} target="_blank" rel="noreferrer">
-      {mediaLabel(message.type)} - open
-    </a>
-  );
-}
-
-function Watermark() {
-  const brand = useContext(BrandContext);
-  if (!brand?.watermark) return null;
-  return (
-    <div className="watermark">
-      {brand.watermark}
-      {brand.supportEmail ? (
-        <>
-          {' · '}
-          <a href={`mailto:${brand.supportEmail}`}>{brand.supportEmail}</a>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function Chat({ thread, templates, onSync, onChanged }) {
+// Chat Thread
+function ChatThread({ thread, templates, onSync, onChanged }) {
   const { conversation, messages } = thread;
-  const [text, setText] = useState('');
-  const [error, setError] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [text, setText]               = useState('');
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showLibrary, setShowLibrary]     = useState(false);
   const endRef = useRef(null);
+  const toast  = useToast();
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages.length, conversation.id]);
 
-  const act = async (fn) => {
-    setError('');
+  const act = async (fn, successMsg) => {
     try {
-      await fn();
+      const result = await fn();
       setText('');
       await onChanged();
+      if (successMsg) toast.success(successMsg);
+      return result;
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   };
 
-  const groups = groupByDay(messages);
-  const isHuman = conversation.state === 'human';
-  const isPending = conversation.state === 'pending';
-  const windowOpen = conversation.window_open;
+  const send = () => {
+    if (!text.trim()) return;
+    act(() => api.send(conversation.id, text.trim()), 'Message sent');
+  };
 
-  const statusLine = isHuman
-    ? conversation.assignee
-      ? ` · with ${conversation.assignee}`
-      : ` · with a human`
-    : isPending
-      ? ` · waiting for someone to pick this up`
-      : ` · handled by bot`;
+  const groups    = groupByDay(messages);
+  const isPending = conversation.state === 'pending';
+  const isHuman   = conversation.state === 'human';
+  const win       = windowLabel(conversation);
 
   return (
-    <>
-      <div className="chat-head">
-        <div className="avatar sm" style={{ background: avatarColor(conversation.wa_id) }}>
-          {initials(conversation.name, conversation.wa_id)}
-        </div>
-        <div className="who">
-          <div className="name">{conversation.name || conversation.wa_id}</div>
-          <div className="sub">
-            {conversation.wa_id}
-            {statusLine}
+    <div className="flex flex-col flex-1 min-h-0">
+
+      {/* Thread header */}
+      <div className="flex items-center gap-3 px-5 h-[60px] border-b border-gray-200 flex-shrink-0 bg-white">
+        <Avatar name={conversation.name} waId={conversation.wa_id} size="md" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-gray-900 truncate">
+            {conversation.name || conversation.wa_id}
+          </div>
+          <div className="flex items-center gap-1 text-xs text-gray-400">
+            <span>{conversation.wa_id}</span>
+            {conversation.assignee && (
+              <><ChevronRight size={11} /><span>with {conversation.assignee}</span></>
+            )}
           </div>
         </div>
-        <span className={`window ${windowOpen ? 'open' : 'closed'}`}>
-          {windowOpen ? '24h window open' : 'window closed'}
-        </span>
-        {isHuman && (
-          <button className="btn ghost" onClick={() => act(() => api.handback(conversation.id))}>
-            Give back to bot
-          </button>
-        )}
-        {isPending && (
-          <>
-            <button className="btn ghost" onClick={() => act(() => api.rejectHandoff(conversation.id))}>
-              Reject
-            </button>
-            <button className="btn" onClick={() => act(() => api.acceptHandoff(conversation.id))}>
-              Accept
-            </button>
-          </>
-        )}
-        {!isHuman && !isPending && (
-          <button className="btn" onClick={() => act(() => api.takeover(conversation.id))}>
-            Take over
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span
+            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${
+              win.open
+                ? 'bg-green-50 text-green-700 border-green-200'
+                : 'bg-gray-100 text-gray-500 border-gray-200'
+            }`}
+          >
+            <Clock size={11} />
+            {win.label}
+          </span>
+          {isHuman && (
+            <Button variant="secondary" size="sm"
+              onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
+              Give back to AI
+            </Button>
+          )}
+          {isPending && (
+            <>
+              <Button variant="secondary" size="sm"
+                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected')}>
+                Reject
+              </Button>
+              <Button variant="primary" size="sm"
+                onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted')}>
+                Accept
+              </Button>
+            </>
+          )}
+          {!isHuman && !isPending && (
+            <Button variant="secondary" size="sm"
+              onClick={() => act(() => api.takeover(conversation.id), 'You have taken over this conversation')}>
+              Take over
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* Handoff banner */}
       {isPending && conversation.handoff_reason && (
-        <div className="pending-banner">Waiting on a human: {conversation.handoff_reason}</div>
+        <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border-b border-amber-200 flex-shrink-0">
+          <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-amber-900">Waiting for a team member</div>
+            <div className="text-xs text-amber-700 mt-0.5">{conversation.handoff_reason}</div>
+            <div className="flex gap-2 mt-3">
+              <Button variant="primary" size="sm"
+                onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted').then(() => onChanged())}>
+                Accept
+              </Button>
+              <Button variant="ghost" size="sm"
+                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected, AI taking over').then(() => onChanged())}>
+                Reject
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
-      <div className="messages">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 chat-bg flex flex-col gap-1" role="log" aria-live="polite">
         {groups.map((g) => (
           <React.Fragment key={g.label}>
-            <div className="day">{g.label}</div>
+            {/* Day divider */}
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-black/10" />
+              <span className="text-xs text-gray-500 bg-white/80 px-3 py-1 rounded-full font-medium shadow-xs">
+                {g.label}
+              </span>
+              <div className="flex-1 h-px bg-black/10" />
+            </div>
             {g.items.map((m) => (
-              <div key={m.id} className={`bubble ${m.direction}`}>
-                {m.direction === 'inbound' && m.type !== 'text' && !m.body ? (
-                  <InboundMedia message={m} />
-                ) : (
-                  m.body || mediaLabel(m.type)
-                )}
-                <span className="meta">
-                  {shortTime(m.created_at)}
-                  {m.direction === 'outbound' && <Ticks status={m.status} />}
-                </span>
+              <div
+                key={m.id}
+                className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} mb-1`}
+              >
+                <div
+                  className={`
+                    relative max-w-[72%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-xs
+                    ${m.direction === 'outbound'
+                      ? 'text-white rounded-br-sm'
+                      : 'bg-white text-gray-900 rounded-bl-sm border border-black/5'}
+                  `}
+                  style={m.direction === 'outbound' ? { background: 'var(--accent)' } : {}}
+                >
+                  {m.direction === 'inbound' && m.type !== 'text' && !m.body
+                    ? <InboundMedia message={m} />
+                    : m.body || mediaLabel(m.type)
+                  }
+                  <span className={`flex items-center justify-end gap-1 text-[11px] mt-1.5 ${m.direction === 'outbound' ? 'text-white/60' : 'text-gray-400'}`}>
+                    {shortTime(m.created_at)}
+                    {m.direction === 'outbound' && <Ticks status={m.status} />}
+                  </span>
+                </div>
               </div>
             ))}
           </React.Fragment>
@@ -285,13 +559,35 @@ function Chat({ thread, templates, onSync, onChanged }) {
         <div ref={endRef} />
       </div>
 
-      {error && <p className="error" style={{ padding: '4px 16px' }}>{error}</p>}
+      {/* Composer */}
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white">
+        {/* Library / Template panels */}
+        {showLibrary && (
+          <LibraryPanel
+            conversationId={conversation.id}
+            onClose={() => setShowLibrary(false)}
+            onSent={async () => { setShowLibrary(false); await onChanged(); }}
+          />
+        )}
+        {showTemplates && (
+          <TemplatePanel
+            conversationId={conversation.id}
+            templates={templates}
+            onSync={onSync}
+            onClose={() => setShowTemplates(false)}
+            onSent={async () => { setShowTemplates(false); await onChanged(); }}
+          />
+        )}
 
-      <div className="composer">
-        {windowOpen ? (
-          <div className="row">
-            <label className="attach" title="Attach a photo or document">
-              📎
+        {/* Composer input row */}
+        {conversation.window_open ? (
+          <div className="flex items-center gap-2 px-4 py-3">
+            {/* File attach */}
+            <label
+              className="flex items-center justify-center w-9 h-9 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
+              title="Attach a photo or document"
+            >
+              <Paperclip size={17} />
               <input
                 type="file"
                 hidden
@@ -301,139 +597,175 @@ function Chat({ thread, templates, onSync, onChanged }) {
                   if (file) act(async () => {
                     const asset = await api.uploadMedia(file);
                     await api.sendMedia(conversation.id, asset.id, text.trim() || undefined);
-                  });
+                  }, 'File sent');
                 }}
               />
             </label>
-            <button className="attach" title="Send from media library" onClick={() => setLibraryOpen((v) => !v)}>
-              🗂️
+            {/* Library */}
+            <button
+              className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              title="Send from media library"
+              onClick={() => { setShowLibrary((v) => !v); setShowTemplates(false); }}
+              aria-pressed={showLibrary}
+            >
+              <Library size={17} />
             </button>
+            {/* Template toggle */}
+            <button
+              className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              title="Send a template"
+              onClick={() => { setShowTemplates((v) => !v); setShowLibrary(false); }}
+              aria-pressed={showTemplates}
+            >
+              <FileText size={17} />
+            </button>
+            {/* Text input */}
             <input
-              className="msg"
-              placeholder="Type a message"
+              className="flex-1 h-10 bg-gray-100 rounded-xl px-4 text-sm outline-none placeholder:text-gray-400 border border-transparent focus:border-gray-300 focus:bg-white transition-colors"
+              placeholder="Type a message…"
               value={text}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && text.trim() && act(() => api.send(conversation.id, text.trim()))}
+              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
+              aria-label="Message"
             />
+            {/* Send */}
             <button
-              className="send"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
+              style={{ background: 'var(--accent)' }}
               disabled={!text.trim()}
-              onClick={() => act(() => api.send(conversation.id, text.trim()))}
-              title="Send"
+              onClick={send}
+              aria-label="Send message"
             >
-              ➤
+              <Send size={16} />
             </button>
           </div>
         ) : (
-          <p className="locked">
-            This chat is outside the 24 hour window, so free messages are not allowed. You can send an approved
-            template below.
-          </p>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <Clock size={13} className="text-gray-400 flex-shrink-0" />
+              <span>The 24h messaging window is closed. You can only send approved templates.</span>
+            </div>
+            <button
+              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              onClick={() => setShowTemplates((v) => !v)}
+            >
+              <FileText size={14} />
+              Templates
+              <ChevronDown size={13} className={`transition-transform ${showTemplates ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
         )}
-        {libraryOpen && (
-          <LibraryPanel
-            conversationId={conversation.id}
-            onSent={async () => {
-              setLibraryOpen(false);
-              await onChanged();
-            }}
-          />
-        )}
-        <TemplatePanel
-          conversationId={conversation.id}
-          templates={templates}
-          onSync={onSync}
-          onSent={onChanged}
-        />
       </div>
 
       <Watermark />
-    </>
+    </div>
   );
 }
 
-function LibraryPanel({ conversationId, onSent }) {
-  const [topics, setTopics] = useState([]);
+// Library Panel
+function LibraryPanel({ conversationId, onClose, onSent }) {
+  const [topics, setTopics]   = useState([]);
   const [topicId, setTopicId] = useState(null);
-  const [media, setMedia] = useState([]);
-  const [error, setError] = useState('');
+  const [media, setMedia]     = useState([]);
+  const toast                  = useToast();
 
   useEffect(() => {
     api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
   }, []);
-
   useEffect(() => {
     api.media(topicId).then((d) => setMedia(d.media || [])).catch(() => {});
   }, [topicId]);
 
   const send = async (assetId) => {
-    setError('');
     try {
       await api.sendMedia(conversationId, assetId);
+      toast.success('File sent');
       await onSent();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   };
 
   return (
-    <div className="template-panel">
-      <div className="template-bar">
-        <select value={topicId ?? ''} onChange={(e) => setTopicId(e.target.value ? Number(e.target.value) : null)}>
+    <div className="border-b border-gray-200 bg-gray-50">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+          <Library size={15} className="text-gray-500" />
+          Media Library
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded">
+          <X size={15} />
+        </button>
+      </div>
+      {/* Topic filter */}
+      <div className="px-4 py-2.5 border-b border-gray-200">
+        <select
+          className="w-full h-8 px-2.5 text-sm bg-white border border-gray-200 rounded-md outline-none focus:border-gray-400"
+          value={topicId ?? ''}
+          onChange={(e) => setTopicId(e.target.value ? Number(e.target.value) : null)}
+        >
           <option value="">All topics</option>
-          {topics.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
+          {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </div>
-      {media.map((m) => (
-        <div key={m.id} className="list-row">
-          <div>
-            <strong>{m.filename}</strong> <span className="tag bot">{m.kind}</span>
-            {m.description && <div className="muted">{m.description}</div>}
+      {/* Media list */}
+      <div className="max-h-48 overflow-y-auto">
+        {media.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-8 text-sm text-gray-400 gap-2">
+            <ImageIcon size={20} className="text-gray-300" />
+            No files in this library yet.
           </div>
-          <button className="btn" onClick={() => send(m.id)}>Send</button>
-        </div>
-      ))}
-      {media.length === 0 && <p className="locked">No files in this library yet.</p>}
-      {error && <p className="error">{error}</p>}
+        )}
+        {media.map((m) => (
+          <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0 hover:bg-white transition-colors">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center flex-shrink-0">
+                <ImageIcon size={14} className="text-gray-500" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-800 truncate">{m.filename}</div>
+                {m.description && <div className="text-xs text-gray-400 truncate">{m.description}</div>}
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => send(m.id)}>Send</Button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function TemplatePanel({ conversationId, templates, onSync, onSent }) {
-  const [name, setName] = useState('');
+// Template Panel
+function TemplatePanel({ conversationId, templates, onSync, onClose, onSent }) {
+  const [name, setName]     = useState('');
   const [params, setParams] = useState([]);
-  const [error, setError] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const toast = useToast();
 
   const selected = templates.find((t) => t.name === name);
-  const count = templateParamCount(selected?.body);
+  const count    = templateParamCount(selected?.body);
 
-  useEffect(() => {
-    setParams(Array(count).fill(''));
-  }, [name, count]);
+  useEffect(() => setParams(Array(count).fill('')), [name, count]);
 
   const send = async () => {
-    setError('');
     try {
       await api.sendTemplate(conversationId, name, params);
       setName('');
+      toast.success('Template sent');
       await onSent();
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     }
   };
 
   const sync = async () => {
     setSyncing(true);
-    setError('');
     try {
       await onSync();
+      toast.success('Templates synced from Meta');
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message);
     } finally {
       setSyncing(false);
     }
@@ -444,48 +776,76 @@ function TemplatePanel({ conversationId, templates, onSync, onSent }) {
     : '';
 
   return (
-    <div className="template-panel">
-      <div className="template-bar">
-        <select value={name} onChange={(e) => setName(e.target.value)}>
-          <option value="">Send an approved template...</option>
-          {templates.map((t) => (
-            <option key={t.name} value={t.name}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <button className="btn ghost" onClick={sync} disabled={syncing}>
-          {syncing ? 'Syncing...' : 'Sync'}
-        </button>
+    <div className="border-b border-gray-200 bg-gray-50">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+          <FileText size={15} className="text-gray-500" />
+          Send a Template
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={sync} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Sync from Meta'}
+          </Button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded">
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
-      {count > 0 &&
-        Array.from({ length: count }).map((_, i) => (
-          <input
-            key={i}
-            className="param"
-            placeholder={`Value for {{${i + 1}}}`}
-            value={params[i] || ''}
-            onChange={(e) => {
-              const next = [...params];
-              next[i] = e.target.value;
-              setParams(next);
-            }}
-          />
-        ))}
+      <div className="px-4 py-3 flex flex-col gap-3">
+        {/* Template selector */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Template</label>
+          <select
+            className="w-full h-9 px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-gray-400"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          >
+            <option value="">Select a template…</option>
+            {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+          </select>
+          {templates.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1.5">No approved templates yet. Click "Sync from Meta" to pull them in.</p>
+          )}
+        </div>
 
-      {preview && <div className="template-preview">{preview}</div>}
+        {/* Param inputs */}
+        {count > 0 && (
+          <div className="flex flex-col gap-2">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Fill in variables</label>
+            {Array.from({ length: count }).map((_, i) => (
+              <input
+                key={i}
+                className="w-full h-9 px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-gray-400 placeholder:text-gray-400"
+                placeholder={`Value for {{${i + 1}}}`}
+                value={params[i] || ''}
+                onChange={(e) => { const next = [...params]; next[i] = e.target.value; setParams(next); }}
+              />
+            ))}
+          </div>
+        )}
 
-      {name && (
-        <button className="btn" onClick={send}>
-          Send template
-        </button>
-      )}
+        {/* Preview */}
+        {preview && (
+          <div className="bg-white border border-gray-200 rounded-lg p-3">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Preview</div>
+            <div className="text-sm text-gray-700 italic leading-relaxed">{preview}</div>
+          </div>
+        )}
 
-      {templates.length === 0 && (
-        <p className="locked">No approved templates yet. Click Sync to pull them from Meta.</p>
-      )}
-      {error && <p className="error">{error}</p>}
+        {/* Send button */}
+        {name && (
+          <button
+            className="w-full h-10 flex items-center justify-center gap-2 text-sm font-semibold text-white rounded-lg transition-all disabled:opacity-50"
+            style={{ background: 'var(--accent)' }}
+            onClick={send}
+          >
+            <Send size={14} />
+            Send Template
+          </button>
+        )}
+      </div>
     </div>
   );
 }

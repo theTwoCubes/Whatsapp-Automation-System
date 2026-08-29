@@ -1,0 +1,119 @@
+/* ─────────────────────────────────────────────
+   Design Tokens  —  WhatsApp Automation Console
+   ───────────────────────────────────────────── */
+
+:root {
+  /* Brand accent — overridden at runtime by brand.js */
+  --accent:           #00a884;
+  --accent-hover:     #009070;
+  --accent-dim:       rgba(0, 168, 132, 0.09);
+  --accent-dim-hover: rgba(0, 168, 132, 0.15);
+  --accent-text:      #007a61;
+
+  /* Neutral gray scale */
+  --gray-50:  #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-150: #eceef1;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+
+  /* Surface colors */
+  --surface-page:    #f3f4f6;
+  --surface-panel:   #ffffff;
+  --surface-raised:  #ffffff;
+  --surface-sunken:  #f9fafb;
+
+  /* Text */
+  --text-primary:   var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted:     var(--gray-400);
+  --text-disabled:  var(--gray-300);
+  --text-inverse:   #ffffff;
+
+  /* Borders */
+  --border:       var(--gray-200);
+  --border-strong: var(--gray-300);
+
+  /* Conversation state colors — fixed, not brand-dependent */
+  --state-bot:        #16a34a;
+  --state-bot-bg:     #f0fdf4;
+  --state-bot-border: #bbf7d0;
+  --state-bot-text:   #15803d;
+
+  --state-pending:        #d97706;
+  --state-pending-bg:     #fffbeb;
+  --state-pending-border: #fde68a;
+  --state-pending-text:   #b45309;
+
+  --state-human:        #2563eb;
+  --state-human-bg:     #eff6ff;
+  --state-human-border: #bfdbfe;
+  --state-human-text:   #1d4ed8;
+
+  /* Feedback colors */
+  --error:        #dc2626;
+  --error-bg:     #fef2f2;
+  --error-border: #fecaca;
+
+  --success:        #16a34a;
+  --success-bg:     #f0fdf4;
+  --success-border: #bbf7d0;
+
+  --warning:        #d97706;
+  --warning-bg:     #fffbeb;
+  --warning-border: #fde68a;
+
+  /* Typography */
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Font sizes */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   15px;
+  --text-lg:   17px;
+  --text-xl:   20px;
+  --text-2xl:  24px;
+
+  /* Spacing */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
+
+  /* Shadows — subtle, not decorative */
+  --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 8px -2px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.10), 0 4px 8px -2px rgba(0,0,0,0.06);
+  --shadow-xl: 0 20px 40px -8px rgba(0,0,0,0.12), 0 8px 16px -4px rgba(0,0,0,0.08);
+
+  /* Layout dimensions */
+  --sidebar-w:      224px;
+  --chat-list-w:    320px;
+  --context-w:      272px;
+  --header-h:       56px;
+
+  /* Transition */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+}

@@ -1,0 +1,122 @@
+import React, { useContext } from 'react';
+import {
+  MessageSquare, LayoutDashboard, Brain, Mail, Settings, Users, LogOut,
+} from 'lucide-react';
+import { BrandContext } from '../../brand.js';
+import Avatar from '../ui/Avatar.jsx';
+
+const NAV = [
+  { key: 'conversations', label: 'Conversations', icon: MessageSquare },
+  { section: 'Admin' },
+  { key: 'dashboard', label: 'Dashboard',    icon: LayoutDashboard },
+  { key: 'knowledge',  label: 'AI Knowledge', icon: Brain },
+  { key: 'followups',  label: 'Follow-ups',   icon: Mail },
+  { key: 'setup',      label: 'Setup',        icon: Settings },
+  { key: 'team',       label: 'Team & Access', icon: Users },
+];
+
+export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, agentEmail }) {
+  const brand     = useContext(BrandContext);
+  const brandName = brand?.name || 'Console';
+  const initials  = brandName.slice(0, 2).toUpperCase();
+
+  return (
+    <aside
+      className="w-[224px] flex-shrink-0 flex flex-col bg-white border-r border-gray-200 overflow-hidden"
+      aria-label="Main navigation"
+    >
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 px-4 h-14 border-b border-gray-200 flex-shrink-0">
+        <img
+          src="/logo.png"
+          alt={brandName}
+          className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+            e.currentTarget.nextSibling.style.display = 'flex';
+          }}
+        />
+        {/* Fallback initials block (hidden if logo loads) */}
+        <div
+          className="w-8 h-8 rounded-lg items-center justify-center text-white font-bold text-sm flex-shrink-0 hidden"
+          style={{ background: 'var(--accent)', display: 'none' }}
+        >
+          {initials}
+        </div>
+        <span className="font-semibold text-sm text-gray-900 truncate">{brandName}</span>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 flex flex-col gap-0.5 px-2">
+        {NAV.map((item, idx) => {
+          // Section label
+          if (item.section !== undefined && !item.key) {
+            return (
+              <div
+                key={`s-${idx}`}
+                className="px-2 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400"
+              >
+                {item.section}
+              </div>
+            );
+          }
+
+          const Icon     = item.icon;
+          const isActive = view === item.key;
+
+          return (
+            <button
+              key={item.key}
+              onClick={() => onNavigate(item.key)}
+              aria-current={isActive ? 'page' : undefined}
+              className={`
+                relative flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium
+                transition-colors duration-100 text-left
+                ${isActive
+                  ? 'bg-[var(--accent-dim)] text-[var(--accent-text)] font-semibold'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}
+              `}
+            >
+              {/* Active indicator bar */}
+              {isActive && (
+                <span
+                  className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm"
+                  style={{ background: 'var(--accent)' }}
+                />
+              )}
+              <Icon size={15} className="flex-shrink-0" />
+              <span className="flex-1 truncate">{item.label}</span>
+              {item.key === 'conversations' && pendingCount > 0 && (
+                <span
+                  className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-white text-[10px] font-bold px-1"
+                  style={{ background: 'var(--accent)' }}
+                  aria-label={`${pendingCount} waiting`}
+                >
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Footer */}
+      <div className="flex items-center gap-2 px-3 py-3 border-t border-gray-200 flex-shrink-0">
+        <Avatar name={agentEmail} waId={agentEmail} size="sm" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium text-gray-700 truncate">
+            {agentEmail || 'Agent'}
+          </div>
+        </div>
+        <button
+          onClick={onLogout}
+          title="Sign out"
+          aria-label="Sign out"
+          className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors p-1 rounded"
+        >
+          <LogOut size={15} />
+        </button>
+      </div>
+    </aside>
+  );
+}

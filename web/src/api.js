@@ -10,6 +10,17 @@ export function clearToken() {
   localStorage.removeItem(tokenKey);
 }
 
+export function getAgentEmail() {
+  try {
+    const token = getToken();
+    if (!token) return null;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.email || null;
+  } catch {
+    return null;
+  }
+}
+
 async function req(path, opts = {}) {
   const token = getToken();
   const res = await fetch(`/api${path}`, {
