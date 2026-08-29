@@ -5,7 +5,7 @@ import { InputField } from '../../components/ui/Field.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import {
-  AdminPage, Card, CardHeader, CardBody,
+  AdminPage, Section, Card, CardHeader, CardBody,
   FormStack, FormActions, TabPills,
 } from './Dashboard.jsx';
 
@@ -52,12 +52,12 @@ function BusinessProfile() {
   );
 
   return (
-    <Card>
-      <CardHeader title="WhatsApp business profile" />
-      <CardBody>
-        <p className="text-base text-gray-600 leading-relaxed mb-5">
-          Customers see this when they open your business profile inside WhatsApp. Changes go straight to Meta.
-        </p>
+    <Section
+      title="WhatsApp business profile"
+      subtitle="Customers see this when they open your business profile inside WhatsApp. Changes go straight to Meta."
+    >
+      <Card>
+        <CardBody>
         <FormStack>
           <InputField label="About" helper="A short tagline shown under your business name."
             placeholder="e.g. Helping brands stand out with great design."
@@ -78,7 +78,8 @@ function BusinessProfile() {
           </FormActions>
         </FormStack>
       </CardBody>
-    </Card>
+      </Card>
+    </Section>
   );
 }
 
@@ -124,13 +125,13 @@ function AIBehaviour() {
   });
 
   return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <CardHeader title="How the AI describes your business" />
-        <CardBody>
-          <p className="text-base text-gray-600 leading-relaxed mb-5">
-            The AI pulls from these when a lead asks who you are or what you do.
-          </p>
+    <div className="flex flex-col gap-8">
+      <Section
+        title="How the AI describes your business"
+        subtitle="The AI pulls from these when a lead asks who you are or what you do."
+      >
+        <Card>
+          <CardBody>
           <FormStack>
             <InputField label="Business name"
               helper="The name the AI uses when it refers to you in a chat."
@@ -145,15 +146,16 @@ function AIBehaviour() {
               placeholder="Friendly and professional. Warm but concise. No slang."
               {...bind('business_tone')} />
           </FormStack>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      </Section>
 
-      <Card>
-        <CardHeader title="What the AI says at key moments" />
-        <CardBody>
-          <p className="text-base text-gray-600 leading-relaxed mb-5">
-            Written for you in your voice, sent verbatim in these three situations. Edit the wording to match your brand.
-          </p>
+      <Section
+        title="What the AI says at key moments"
+        subtitle="Written for you in your voice, sent verbatim in these three situations. Edit the wording to match your brand."
+      >
+        <Card>
+          <CardBody>
           <FormStack>
             <InputField label="When the AI is stuck" textarea
               helper="Used if the AI has nothing useful to say and is not handing off yet."
@@ -168,15 +170,16 @@ function AIBehaviour() {
               placeholder="Thanks for sending that over! Someone will take a look and reply soon."
               {...bind('attachment_message')} />
           </FormStack>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      </Section>
 
-      <Card>
-        <CardHeader title="When the AI takes back over" />
-        <CardBody>
-          <p className="text-base text-gray-600 leading-relaxed mb-5">
-            If a teammate goes quiet on a chat, the AI can quietly resume so the lead is not left waiting.
-          </p>
+      <Section
+        title="When the AI takes back over"
+        subtitle="If a teammate goes quiet on a chat, the AI can quietly resume so the lead is not left waiting."
+      >
+        <Card>
+          <CardBody>
           <FormStack>
             <InputField label="Hand the chat back to the AI after"
               helper="Minutes of silence from your teammate. Set 0 to keep it with the team until they hand it back themselves."
@@ -188,6 +191,7 @@ function AIBehaviour() {
           </FormStack>
         </CardBody>
       </Card>
+      </Section>
 
       <div className="flex items-center justify-end">
         <Button variant="primary" size="sm" onClick={save}>Save settings</Button>

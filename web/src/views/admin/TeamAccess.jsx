@@ -33,8 +33,8 @@ function PanelHeader({ icon: Icon, title, subtitle, right }) {
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="text-lg font-semibold text-gray-900 truncate">{title}</div>
-        {subtitle && <div className="text-sm text-gray-500 mt-0.5">{subtitle}</div>}
+        <div className="text-xl font-semibold text-gray-900 truncate">{title}</div>
+        {subtitle && <div className="text-base text-gray-500 mt-1">{subtitle}</div>}
       </div>
       {right && <div className="flex-shrink-0">{right}</div>}
     </div>

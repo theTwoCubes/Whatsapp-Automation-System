@@ -135,12 +135,11 @@ function Proposals({ reloadKey, onChange }) {
 
   return (
     <Section>
-      <div className="flex items-center gap-2 mb-2">
-        <Lightbulb size={16} className="text-amber-500" />
-        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Suggestions to review</span>
+      <div className="flex items-center gap-3 mb-1.5">
+        <div className="text-xl font-semibold text-gray-900">Suggestions to review</div>
         <Badge variant="warning">{proposals.length}</Badge>
       </div>
-      <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+      <p className="text-base text-gray-500 mb-4 leading-relaxed max-w-2xl">
         The AI spotted these gaps and conflicts in recent chats. Approve to add them, or dismiss.
       </p>
       <Card>
