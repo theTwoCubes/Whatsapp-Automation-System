@@ -439,18 +439,20 @@ export function registerApi(app, deps) {
     const name = (req.body?.name ?? '').trim();
     const slug = (req.body?.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     const description = (req.body?.description ?? '').trim() || null;
+    const keywords = (req.body?.keywords ?? '').trim() || null;
     if (!name || !slug) return reply.code(400).send({ error: 'name and slug are required' });
-    const topic = await upsertTopic(pool, { slug, name, description });
+    const topic = await upsertTopic(pool, { slug, name, description, keywords });
     await audit(req, 'topic added', slug);
     return { topic };
   });
 
   app.put('/api/topics/:id', { preHandler: auth, schema: idParams }, async (req) => {
-    await updateTopic(pool, req.params.id, {
-      name: req.body?.name,
-      description: req.body?.description,
-      active: req.body?.active,
-    });
+    const fields = {};
+    if (req.body && 'name' in req.body) fields.name = req.body.name;
+    if (req.body && 'description' in req.body) fields.description = req.body.description ?? null;
+    if (req.body && 'keywords' in req.body) fields.keywords = req.body.keywords ?? null;
+    if (req.body && 'active' in req.body) fields.active = req.body.active;
+    await updateTopic(pool, req.params.id, fields);
     await audit(req, 'topic updated', `topic ${req.params.id}`);
     return { ok: true };
   });

@@ -5,10 +5,13 @@ import {
   scheduleDrips,
   cancelDrips,
   getConversationState,
+  getActivePackIds,
+  addActivePackIds,
   wasMediaSentRecently,
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { retrieveMedia } from '../knowledge/media.js';
+import { keywordPacks } from '../knowledge/packs.js';
 import { handToPending } from '../handoff.js';
 import { getSettings } from '../settings.js';
 import { createBatcher } from './batcher.js';
@@ -150,16 +153,29 @@ async function respondToLead(deps, conversationId, items) {
     return;
   }
 
-  // AI reply. The model is given the base answers plus the pack for the
-  // service this lead came in through, and must either answer from them or
-  // ask for a person. Any failure, including no api key, falls back to a
-  // canned message so the lead always gets something.
+  // AI reply. The bot is given the base pack, the lead's own service pack, any
+  // packs the conversation has previously pulled in, and any pack whose name or
+  // keywords match the text of this message. It can also ask for one more pack
+  // by name from the catalog, in which case we pull it in and call back once.
+  const packs = await assemblePacks(pool, conversationId, topicId, text);
   let decision;
   try {
     decision = await buildReply(pool, ai, settings, conversationId, {
-      topicId,
+      packs,
       faqBudgetTokens: config.faqBudgetTokens,
     });
+    // The model asked for extra packs. Add them, mark them sticky for the rest
+    // of the conversation, and call back once with pack requests disabled so a
+    // stubborn model can never loop asking for pack after pack.
+    if (decision?.requestedPackIds?.length) {
+      log.info({ conversationId, packs: decision.requestedPackIds }, 'ai requested more packs');
+      await addActivePackIds(pool, conversationId, decision.requestedPackIds);
+      decision = await buildReply(pool, ai, settings, conversationId, {
+        packs: [...packs, ...decision.requestedPackIds],
+        faqBudgetTokens: config.faqBudgetTokens,
+        allowPackRequests: false,
+      });
+    }
   } catch (err) {
     log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');
   }
@@ -179,6 +195,37 @@ async function respondToLead(deps, conversationId, items) {
 
   // The lead is active, so reset the follow up schedule from now.
   await scheduleDrips(pool, conversationId, settings.dripSteps);
+}
+
+// The packs going into this reply: base is always there, the lead's own
+// campaign pack if any, anything the conversation has already pulled in, and
+// anything whose name or keywords match the current message. Duplicates are
+// collapsed later by the context builder, so ordering just controls which
+// entries survive if the budget is exceeded: campaign pack first, then
+// sticky picks in the order they were added, then keyword matches on this
+// turn last.
+async function assemblePacks(pool, conversationId, campaignTopicId, text) {
+  const packs = ['base'];
+  const seen = new Set();
+  const add = (id) => {
+    const key = String(id);
+    if (id != null && !seen.has(key)) {
+      seen.add(key);
+      packs.push(Number(id));
+    }
+  };
+
+  if (campaignTopicId) add(campaignTopicId);
+
+  const sticky = await getActivePackIds(pool, conversationId);
+  for (const id of sticky) add(id);
+
+  const excluded = [...seen];
+  const keyword = await keywordPacks(pool, text, excluded);
+  for (const id of keyword) add(id);
+  if (keyword.length > 0) await addActivePackIds(pool, conversationId, keyword);
+
+  return packs;
 }
 
 // Looks for a media asset closely matching what the lead asked about and

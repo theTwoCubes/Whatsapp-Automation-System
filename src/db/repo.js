@@ -95,6 +95,28 @@ export async function getConversationState(pool, conversationId) {
   return res.rows[0]?.state ?? null;
 }
 
+// Packs the conversation has pulled in on top of the campaign's own pack.
+export async function getActivePackIds(pool, conversationId) {
+  const res = await pool.query('select active_pack_ids from conversations where id = $1', [conversationId]);
+  return (res.rows[0]?.active_pack_ids ?? []).map((id) => Number(id));
+}
+
+// Adds pack ids to the sticky set for this conversation, keeping the order
+// they came in and ignoring anything already there. Done in a single update
+// so two concurrent replies cannot lose each other's additions.
+export async function addActivePackIds(pool, conversationId, ids) {
+  if (!ids || ids.length === 0) return;
+  await pool.query(
+    `update conversations set
+       active_pack_ids = (
+         select coalesce(array_agg(distinct x order by x), '{}')
+         from unnest(active_pack_ids || $2::bigint[]) as x
+       )
+     where id = $1`,
+    [conversationId, ids],
+  );
+}
+
 export async function updateStatus(pool, s) {
   await pool.query('update messages set status = $2 where wa_message_id = $1', [s.waMessageId, s.status]);
 }

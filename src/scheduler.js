@@ -1,4 +1,4 @@
-import { claimDueDrips, markDrip, recordOutbound, conversationsToResume } from './db/repo.js';
+import { claimDueDrips, markDrip, recordOutbound, conversationsToResume, getActivePackIds } from './db/repo.js';
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
 import { getSettings } from './settings.js';
@@ -65,9 +65,17 @@ export async function runAutoResume(deps) {
 
       let decision;
       try {
+        // Reuse whatever packs the conversation already had, plus the
+        // campaign's own if any. Auto resume has no new message to run
+        // keyword matching against, so this is what the last live turn had.
+        const sticky = await getActivePackIds(pool, row.id);
+        const packs = ['base'];
+        if (row.topic_id) packs.push(Number(row.topic_id));
+        for (const id of sticky) if (!packs.includes(id)) packs.push(id);
         decision = await buildReply(pool, ai, settings, row.id, {
-          topicId: row.topic_id ?? null,
+          packs,
           faqBudgetTokens: config.faqBudgetTokens,
+          allowPackRequests: false,
         });
       } catch {
         // fall back below

@@ -93,7 +93,7 @@ test('the prompt carries the pack answers and the rule against inventing figures
 
   const id = await conversation();
   const ai = new SpyAi();
-  await buildReply(pool, ai, testConfig, id, { topicId: logo.id });
+  await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
 
   const system = ai.lastMessages[0].content;
   assert.match(system, /20000 rupees plus GST/, 'the answer itself is in the prompt');
@@ -124,4 +124,72 @@ test('with no answers written yet the bot is told to hand everything over', asyn
   const ai = new SpyAi();
   await buildReply(pool, ai, testConfig, id, {});
   assert.match(ai.lastMessages[0].content, /There are no approved answers yet/);
+});
+
+test('the catalog of other packs the model can ask for is in the prompt', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', description: 'Print and digital posters' });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
+  await createFaq(pool, { topicId: poster.id, question: 'Turnaround?', answer: '3 days.' });
+
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
+
+  const system = ai.lastMessages[0].content;
+  assert.match(system, new RegExp(`Pack ${poster.id}: Poster`));
+  assert.match(system, /need_packs/);
+  assert.doesNotMatch(system, new RegExp(`Pack ${logo.id}: Logo Design`), 'a pack already in the reply is not offered again');
+});
+
+test('a need_packs response returns the requested ids for the caller to include', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
+  await createFaq(pool, { topicId: poster.id, question: 'Turnaround?', answer: '3 days.' });
+
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [Number(poster.id)] }));
+  const decision = await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
+
+  assert.equal(decision.handoff, false);
+  assert.equal(decision.reply, '');
+  assert.deepEqual(decision.requestedPackIds, [Number(poster.id)]);
+});
+
+test('a request for a pack the catalog does not offer is treated as a handoff, not obeyed', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
+
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [99999] }));
+  const decision = await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
+
+  assert.equal(decision.handoff, true, 'a pack id we did not offer is a handoff, not a retry');
+  assert.deepEqual(decision.requestedPackIds, []);
+});
+
+test('with pack requests disabled the model is told there are only two shapes', async () => {
+  await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, { packs: ['base'], allowPackRequests: false });
+
+  const system = ai.lastMessages[0].content;
+  assert.doesNotMatch(system, /need_packs/);
+  assert.match(system, /"action": "answer"/);
+  assert.match(system, /"action": "handoff"/);
+});
+
+test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
+
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [Number(logo.id)] }));
+  const decision = await buildReply(pool, ai, testConfig, id, {
+    packs: ['base'],
+    allowPackRequests: false,
+  });
+  assert.equal(decision.handoff, true, 'no catalog to draw from, so it cannot request anything');
 });

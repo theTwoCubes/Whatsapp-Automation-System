@@ -364,6 +364,7 @@ function FaqPane({ pack, onChange }) {
 
   return (
     <div className="form">
+      {pack !== 'base' && <PackSettings topicId={pack} onChanged={onChange} />}
       <div className="muted">{rows.length} answer{rows.length === 1 ? '' : 's'} in this pack.</div>
 
       {rows.map((f, i) => (
@@ -398,6 +399,63 @@ function FaqPane({ pack, onChange }) {
         <textarea placeholder="Paste Q: A: pairs or paragraphs" value={raw} onChange={(e) => setRaw(e.target.value)} rows={8} />
         <button className="btn" onClick={importText} disabled={!raw.trim()}>Split and add</button>
         {importMsg && <span className="muted">{importMsg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function PackSettings({ topicId, onChanged }) {
+  // Words that will pull this pack in without asking the model, plus a one
+  // line description shown to the model when it decides whether to ask.
+  const [topic, setTopic] = useState(null);
+  const [form, setForm] = useState({ description: '', keywords: '' });
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api.topics().then((d) => {
+      const t = (d.topics || []).find((x) => String(x.id) === String(topicId));
+      if (t) {
+        setTopic(t);
+        setForm({ description: t.description || '', keywords: t.keywords || '' });
+      }
+    }).catch(() => {});
+  }, [topicId]);
+
+  const save = async () => {
+    setMsg('Saving...');
+    try {
+      await api.updateTopic(topicId, {
+        description: form.description.trim() || null,
+        keywords: form.keywords.trim() || null,
+      });
+      setMsg('Saved.');
+      onChanged?.();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+
+  if (!topic) return null;
+  return (
+    <div className="add-box">
+      <strong>How this pack gets pulled in</strong>
+      <p className="muted">
+        This pack always goes in when the lead came through the "{topic.name}" campaign. It also goes in when their
+        message mentions any of the keywords below, so add the words customers actually use for this service.
+      </p>
+      <input
+        placeholder="Keywords, comma separated (e.g. logo, branding, identity)"
+        value={form.keywords}
+        onChange={(e) => setForm({ ...form, keywords: e.target.value })}
+      />
+      <input
+        placeholder="One line description shown to the assistant, so it knows what this pack covers"
+        value={form.description}
+        onChange={(e) => setForm({ ...form, description: e.target.value })}
+      />
+      <div className="form-actions">
+        <button className="btn" onClick={save}>Save</button>
+        {msg && <span className="muted">{msg}</span>}
       </div>
     </div>
   );
@@ -499,11 +557,17 @@ function AddTopic({ onCancel, onCreated }) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
+  const [keywords, setKeywords] = useState('');
   const [msg, setMsg] = useState('');
   const submit = async () => {
     setMsg('');
     try {
-      const res = await api.addTopic(name.trim(), slug.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'), description.trim());
+      const res = await api.addTopic({
+        name: name.trim(),
+        slug: slug.trim() || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        description: description.trim(),
+        keywords: keywords.trim(),
+      });
       onCreated(res.topic);
     } catch (e) {
       setMsg(e.message);
@@ -511,10 +575,11 @@ function AddTopic({ onCancel, onCreated }) {
   };
   return (
     <div className="add-box">
-      <strong>Create a topic</strong>
+      <strong>Create a pack</strong>
       <input placeholder="Name, e.g. Logo Design" value={name} onChange={(e) => setName(e.target.value)} />
       <input placeholder="Slug (auto if blank)" value={slug} onChange={(e) => setSlug(e.target.value)} />
-      <input placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <input placeholder="Short description shown to the assistant so it knows what this pack covers" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <input placeholder="Keywords that should pull this pack in, comma separated (e.g. logo, branding, identity)" value={keywords} onChange={(e) => setKeywords(e.target.value)} />
       <div className="form-actions">
         <button className="btn" onClick={submit} disabled={!name.trim()}>Create</button>
         <button className="btn ghost" onClick={onCancel}>Cancel</button>

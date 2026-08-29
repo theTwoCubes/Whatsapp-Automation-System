@@ -62,8 +62,7 @@ export const api = {
   faqVersions: (id) => req(`/faqs/${id}/versions`),
   rollbackFaq: (versionId) => req(`/faqs/versions/${versionId}/rollback`, { method: 'POST' }),
   topics: () => req('/topics'),
-  addTopic: (name, slug, description) =>
-    req('/topics', { method: 'POST', body: JSON.stringify({ name, slug, description }) }),
+  addTopic: (body) => req('/topics', { method: 'POST', body: JSON.stringify(body) }),
   updateTopic: (id, body) => req(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   agents: () => req('/agents'),
   addAgent: (email, name, password) =>

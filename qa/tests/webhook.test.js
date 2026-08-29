@@ -138,6 +138,62 @@ test('status callbacks update the stored message status', async () => {
   assert.equal(row.rows[0].status, 'read');
 });
 
+test('the model asking for another pack pulls it in and answers on the second call', async () => {
+  const { upsertTopic } = await import('../../src/knowledge/topics.js');
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  // No keywords, so only the model can pull this pack in.
+  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
+  await createFaq(pool, { topicId: poster.id, question: 'Poster price?', answer: 'From 3000 rupees.' });
+  await createFaq(pool, { question: 'Hours?', answer: 'Monday to Saturday.' });
+
+  // First call asks for the poster pack, second call answers from it.
+  const replies = [
+    JSON.stringify({ action: 'need_packs', pack_ids: [Number(poster.id)] }),
+    JSON.stringify({ action: 'answer', reply: 'Posters start from 3000 rupees.' }),
+  ];
+  const ai = { enabled: true, calls: 0, async complete() { const r = replies[this.calls]; this.calls += 1; return r; } };
+
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PKR1', body: 'hi, do you also do print stuff' }), d);
+
+  assert.equal(ai.calls, 2, 'exactly one extra round trip');
+  assert.equal(d.meta.sends.length, 1);
+  assert.equal(d.meta.sends[0].body, 'Posters start from 3000 rupees.');
+
+  const conv = await pool.query('select active_pack_ids from conversations limit 1');
+  assert.deepEqual(conv.rows[0].active_pack_ids.map(Number), [Number(poster.id)], 'the pack is sticky for the next turn');
+});
+
+test('a matching keyword pulls a pack in with no extra ai call', async () => {
+  const { upsertTopic } = await import('../../src/knowledge/topics.js');
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', keywords: 'poster' });
+  await createFaq(pool, { topicId: poster.id, question: 'Poster price?', answer: 'From 3000 rupees.' });
+
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.KW1', body: 'what does a poster cost?' }), d);
+
+  assert.equal(d.ai.calls, 1, 'no extra call needed, the keyword already pulled the pack in');
+  const conv = await pool.query('select active_pack_ids from conversations limit 1');
+  assert.deepEqual(conv.rows[0].active_pack_ids.map(Number), [Number(poster.id)], 'the keyword match is sticky');
+});
+
+test('a pack pulled in once stays for the next turn without being renegotiated', async () => {
+  const { upsertTopic } = await import('../../src/knowledge/topics.js');
+  const { createFaq } = await import('../../src/knowledge/faqs.js');
+  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', keywords: 'poster' });
+  await createFaq(pool, { topicId: poster.id, question: 'Poster price?', answer: 'From 3000 rupees.' });
+
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.S1', body: 'what does a poster cost?' }), d);
+  // The next inbound has no keyword hit, but the sticky pack should still be in.
+  const spy = { enabled: true, calls: 0, async complete(msgs) { this.lastSystem = msgs[0].content; this.calls += 1; return JSON.stringify({ action: 'answer', reply: 'ok' }); } };
+  const d2 = deps({ ai: spy });
+  await processWebhook(inboundText({ id: 'wamid.S2', body: 'and how long does that take?' }), d2);
+
+  assert.match(spy.lastSystem, /Poster price\?/, 'the sticky pack survives into the next turn');
+});
+
 test('non text messages are stored and hand off to a human instead of being dropped', async () => {
   const d = deps();
   await processWebhook(inboundImage({ id: 'wamid.I1' }), d);
