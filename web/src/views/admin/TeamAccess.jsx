@@ -387,14 +387,26 @@ function actionAccent(action) {
 
 function AuditLog() {
   const [data, setData] = useState(null);
+  const [dateFilter, setDateFilter] = useState('');
   useEffect(() => { api.audit().then(setData).catch(() => {}); }, []);
 
   const entries = data?.audit || [];
 
+  const filteredEntries = useMemo(() => {
+    if (!dateFilter) return entries;
+    return entries.filter(e => {
+      // Compare local date string YYYY-MM-DD
+      const d = new Date(e.created_at);
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      const localISOTime = (new Date(d - tzOffset)).toISOString().slice(0, -1);
+      return localISOTime.split('T')[0] === dateFilter;
+    });
+  }, [entries, dateFilter]);
+
   const grouped = useMemo(() => {
     const groups = [];
     let current = null;
-    for (const e of entries) {
+    for (const e of filteredEntries) {
       const label = dayLabel(e.created_at);
       if (!current || current.label !== label) {
         current = { label, items: [] };
@@ -403,76 +415,82 @@ function AuditLog() {
       current.items.push(e);
     }
     return groups;
-  }, [entries]);
+  }, [filteredEntries]);
 
   return (
     <Panel>
       <PanelHeader
         icon={History}
         title="Audit log"
-        subtitle={entries.length === 0
+        subtitle={filteredEntries.length === 0
           ? 'Console activity will show up here.'
-          : `${entries.length} recent ${entries.length === 1 ? 'entry' : 'entries'}.`}
+          : `${filteredEntries.length} recent ${filteredEntries.length === 1 ? 'entry' : 'entries'}.`}
+        right={
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="field-input h-10 px-3 text-sm"
+          />
+        }
       />
-      {!data && (
-        <div className="px-6 py-6 flex flex-col gap-4">
-          <Skeleton height={18} width="80%" />
-          <Skeleton height={18} width="70%" />
-          <Skeleton height={18} width="75%" />
-        </div>
-      )}
-      {data && entries.length === 0 && (
-        <EmptyPanel
-          icon={History}
-          title="Nothing to show yet"
-          hint="Actions like taking over a chat, adding a team member, or sending a template will appear here."
-        />
-      )}
-      {data && grouped.map((g) => (
-        <div key={g.label}>
-          <div className="px-6 py-3 bg-gray-50/70 border-t border-b border-gray-100 text-xs font-bold uppercase tracking-widest text-gray-500">
-            {g.label}
+      <div className="max-h-[500px] overflow-y-auto">
+        {!data && (
+          <div className="px-6 py-6 flex flex-col gap-4">
+            <Skeleton height={18} width="80%" />
+            <Skeleton height={18} width="70%" />
+            <Skeleton height={18} width="75%" />
           </div>
-          {g.items.map((a) => {
-            const accent = actionAccent(a.action);
-            return (
-              <div
-                key={a.id}
-                className="flex items-start gap-4 px-6 py-4 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
-              >
-                <span
-                  className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: accent.fg }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-base font-semibold text-gray-900">{a.action}</span>
-                    {a.target && (
-                      <span className="text-sm text-gray-500 truncate">{a.target}</span>
-                    )}
-                  </div>
-                  <div className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-1.5">
-                    <span
-                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                      style={{ background: accent.bg, color: accent.fg }}
-                    >
-                      {a.actor || 'system'}
-                    </span>
-                    <span className="text-gray-400">·</span>
-                    <span>{new Date(a.created_at).toLocaleString()}</span>
-                    {a.detail && (
-                      <>
-                        <span className="text-gray-400">·</span>
-                        <span className="truncate">{a.detail}</span>
-                      </>
-                    )}
+        )}
+        {data && filteredEntries.length === 0 && (
+          <EmptyPanel
+            icon={History}
+            title="Nothing to show"
+            hint="No activity matches your filters, or nothing has happened yet."
+          />
+        )}
+        {data && grouped.map((g) => (
+          <div key={g.label}>
+            <div className="sticky top-0 z-10 px-6 py-3.5 bg-gray-50/90 backdrop-blur-sm border-t border-b border-gray-100 text-sm font-bold uppercase tracking-widest text-gray-500">
+              {g.label}
+            </div>
+            {g.items.map((a) => {
+              const accent = actionAccent(a.action);
+              return (
+                <div
+                  key={a.id}
+                  className="flex flex-col px-6 py-5 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-lg font-bold text-gray-900 capitalize">{a.action}</span>
+                      {a.target && (
+                        <span className="text-base text-gray-500 truncate">{a.target}</span>
+                      )}
+                    </div>
+                    <div className="text-base text-gray-500 mt-2 flex flex-wrap items-center gap-2">
+                      <span
+                        className="text-sm font-semibold px-2.5 py-1 rounded-full"
+                        style={{ background: accent.bg, color: accent.fg }}
+                      >
+                        {a.actor || 'system'}
+                      </span>
+                      <span className="text-gray-400">·</span>
+                      <span>{new Date(a.created_at).toLocaleString()}</span>
+                      {a.detail && (
+                        <>
+                          <span className="text-gray-400">·</span>
+                          <span className="truncate">{a.detail}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </Panel>
   );
 }
