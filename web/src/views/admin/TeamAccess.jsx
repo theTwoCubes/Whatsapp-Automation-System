@@ -492,8 +492,8 @@ export default function TeamAccess() {
       title="Team & Access"
       subtitle="Manage sign-in access, your brand look, and the record of what happened."
     >
-      <div className="flex items-start gap-8">
-        <aside className="w-[260px] flex-shrink-0 sticky top-0">
+      <div className="flex flex-col md:flex-row items-start gap-6 md:gap-8">
+        <aside className="w-full md:w-[260px] flex-shrink-0 md:sticky top-0">
           <div className="mb-4 px-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
             <Shield size={13} />
             Settings

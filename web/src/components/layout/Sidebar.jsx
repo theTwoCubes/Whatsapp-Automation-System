@@ -15,16 +15,30 @@ const NAV = [
   { key: 'team',       label: 'Team & Access', icon: Users },
 ];
 
-export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, agentEmail }) {
+export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, agentEmail, mobileOpen, onCloseMobile }) {
   const brand     = useContext(BrandContext);
   const brandName = brand?.name || 'Console';
   const initials  = brandName.slice(0, 2).toUpperCase();
 
   return (
-    <aside
-      className="w-[280px] flex-shrink-0 flex flex-col bg-white border-r border-gray-200 overflow-hidden"
-      aria-label="Main navigation"
-    >
+    <>
+      {/* Mobile Backdrop */}
+      {mobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-40 md:hidden" 
+          onClick={onCloseMobile} 
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 md:relative md:flex
+          w-[280px] flex-shrink-0 flex-col bg-white border-r border-gray-200 overflow-hidden
+          transition-transform duration-200 ease-out
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+        aria-label="Main navigation"
+      >
       {/* Brand */}
       <div className="flex items-center gap-3.5 px-6 h-[72px] border-b border-gray-200 flex-shrink-0">
         <img
@@ -118,5 +132,6 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
         </button>
       </div>
     </aside>
+    </>
   );
 }

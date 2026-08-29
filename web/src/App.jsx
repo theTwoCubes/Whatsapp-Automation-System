@@ -6,6 +6,7 @@ import Sidebar from './components/layout/Sidebar.jsx';
 import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
+import { Menu } from 'lucide-react';
 
 // Color helpers for white-label brand theming
 function hexToRgb(hex) {
@@ -37,6 +38,7 @@ export default function App() {
     accentColor: '#00a884',
   });
   const [conversations, setConversations] = useState([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Load branding on mount
   useEffect(() => {
@@ -91,21 +93,37 @@ export default function App() {
   return (
     <BrandContext.Provider value={brand}>
       <ToastProvider>
-        <div className="flex h-full overflow-hidden bg-white">
+        <div className="flex h-full overflow-hidden bg-white relative w-full">
           <Sidebar
             view={view}
-            onNavigate={setView}
+            onNavigate={(v) => { setView(v); setMobileMenuOpen(false); }}
             onLogout={logout}
             pendingCount={pendingCount}
             agentEmail={getAgentEmail()}
+            mobileOpen={mobileMenuOpen}
+            onCloseMobile={() => setMobileMenuOpen(false)}
           />
-          <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page">
-            {view === 'conversations' && (
-              <Console onConversationsChange={setConversations} />
-            )}
-            {isAdmin && (
-              <Admin activeTab={view} onNavigate={setView} />
-            )}
+          <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page w-full relative">
+            {/* Mobile Top Bar */}
+            <div className="md:hidden flex items-center justify-between px-4 h-14 bg-white border-b border-gray-200 flex-shrink-0 z-20 shadow-sm relative">
+              <div className="font-bold text-lg text-gray-900 truncate">{brand.name || 'Console'}</div>
+              <button 
+                className="p-2 -mr-2 text-gray-600 hover:text-gray-900 transition-colors"
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+              {view === 'conversations' && (
+                <Console onConversationsChange={setConversations} />
+              )}
+              {isAdmin && (
+                <Admin activeTab={view} onNavigate={(v) => { setView(v); setMobileMenuOpen(false); }} />
+              )}
+            </div>
           </main>
         </div>
       </ToastProvider>

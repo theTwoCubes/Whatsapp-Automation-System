@@ -205,7 +205,7 @@ function ContradictionProposal({ proposal, onChanged }) {
           {proposal.topic_name || 'Base'}{proposal.reason ? ` · ${proposal.reason}` : ''}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {[
           { label: 'Answer A', q: proposal.faq_a_question, a: proposal.faq_a_answer },
           { label: 'Answer B', q: proposal.faq_b_question, a: proposal.faq_b_answer },

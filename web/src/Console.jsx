@@ -257,10 +257,14 @@ export default function Console({ onConversationsChange }) {
   ];
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-1 min-h-0 overflow-hidden relative w-full">
 
       {/* Chat List */}
-      <div className="w-[440px] flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+      <div className={`
+        flex-shrink-0 flex-col border-r border-gray-200 bg-white overflow-hidden
+        w-full md:w-[440px]
+        ${selected ? 'hidden md:flex' : 'flex'}
+      `}>
 
         {/* Search bar */}
         <div className="flex-shrink-0 px-4 py-4 border-b border-gray-200">
@@ -335,7 +339,7 @@ export default function Console({ onConversationsChange }) {
       </div>
 
       {/* Thread */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white">
+      <div className={`flex-1 flex-col min-h-0 overflow-hidden bg-white ${!selected ? 'hidden md:flex' : 'flex'}`}>
         {thread
           ? <ChatThread
               thread={thread}
@@ -344,6 +348,7 @@ export default function Console({ onConversationsChange }) {
               onChanged={() => { loadThread(selected); loadList(true); }}
               showContext={showContext}
               onToggleContext={() => setShowContext(v => !v)}
+              onBack={() => setSelected(null)}
             />
           : <EmptyChat />
         }
@@ -352,10 +357,10 @@ export default function Console({ onConversationsChange }) {
       {/* Context Panel wrapper for animation */}
       <div
         className={`transition-[width,border] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex-shrink-0 bg-white overflow-hidden ${
-          showContext && thread ? 'w-[360px] border-l border-gray-200' : 'w-0 border-l-0 border-transparent'
+          showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-y-0 right-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
         }`}
       >
-        <div className="w-[360px] h-full flex flex-col">
+        <div className="w-full md:w-[360px] h-full flex flex-col">
           {thread && (
             <ContextPanel
               thread={thread}
@@ -491,7 +496,13 @@ function ContextPanel({ thread, onChanged }) {
       aria-label="Conversation details"
     >
       {/* Contact header */}
-      <div className="flex items-center gap-4 px-6 py-6 border-b border-gray-100">
+      <div className="flex items-center gap-4 px-6 py-6 border-b border-gray-100 relative">
+        <button 
+          className="md:hidden absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-700"
+          onClick={onCloseContext}
+        >
+          <X size={18} />
+        </button>
         <Avatar name={displayName({ waId: c.wa_id, name: c.name })} waId={c.wa_id} size="xl" />
         <div className="min-w-0">
           <EditableName
@@ -572,7 +583,7 @@ function ContextRow({ label, children }) {
 }
 
 // Chat Thread
-function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext }) {
+function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext, onBack }) {
   const { conversation, messages } = thread;
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
@@ -610,7 +621,16 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
     <div className="flex flex-col flex-1 min-h-0">
 
       {/* Thread header */}
-      <div className="flex items-center gap-3 px-5 h-[72px] border-b border-gray-200 flex-shrink-0 bg-white">
+      <div className="flex items-center gap-2 md:gap-3 px-3 md:px-5 h-[72px] border-b border-gray-200 flex-shrink-0 bg-white">
+        {onBack && (
+          <button 
+            className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-900"
+            onClick={onBack}
+            aria-label="Back to conversations"
+          >
+            <ChevronDown size={22} className="rotate-90" />
+          </button>
+        )}
         <Avatar
           name={displayName({ waId: conversation.wa_id, name: conversation.name })}
           waId={conversation.wa_id}
@@ -629,17 +649,17 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
 
           {isHuman && (
-            <Button variant="secondary" size="lg"
+            <Button variant="secondary" size="lg" className="hidden sm:flex"
               onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
               Give back to AI
             </Button>
           )}
           {isPending && (
             <>
-              <Button variant="secondary" size="lg"
+              <Button variant="secondary" size="lg" className="hidden sm:flex"
                 onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected')}>
                 Reject
               </Button>

@@ -6,13 +6,13 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 // Shared admin layout primitives
 export function AdminPage({ title, subtitle, actions, children }) {
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-8 py-8">
-      <div className="flex items-start justify-between gap-4 mb-8">
+    <div className="w-full max-w-[1400px] mx-auto px-4 py-6 md:px-8 md:py-8">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900 tracking-tight">{title}</h1>
-          {subtitle && <p className="text-lg text-gray-500 mt-2 max-w-2xl leading-relaxed">{subtitle}</p>}
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">{title}</h1>
+          {subtitle && <p className="text-base md:text-lg text-gray-500 mt-2 max-w-2xl leading-relaxed">{subtitle}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto">{actions}</div>}
       </div>
       {children}
     </div>
@@ -163,7 +163,7 @@ export default function Dashboard() {
 
       {/* Conversation stats */}
       <Section title="Conversations">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {!o
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={i} />)
             : <>
@@ -178,7 +178,7 @@ export default function Dashboard() {
 
       {/* Message volume */}
       <Section title="Message volume">
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {!o
             ? Array.from({ length: 3 }).map((_, i) => <SkeletonStat key={i} />)
             : <>
