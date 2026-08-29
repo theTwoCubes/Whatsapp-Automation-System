@@ -79,14 +79,14 @@ export function Divider() {
 
 export function TabPills({ tabs, active, onChange }) {
   return (
-    <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+    <div className="flex gap-1.5 mb-6 bg-gray-100 p-1.5 rounded-lg w-fit">
       {tabs.map(({ key, label }) => (
         <button
           key={key}
           onClick={() => onChange(key)}
-          className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-100 ${
+          className={`px-5 py-2 rounded-md text-base font-medium transition-all duration-100 ${
             active === key
-              ? 'bg-white text-gray-900 shadow-xs'
+              ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-500 hover:text-gray-700'
           }`}
         >
@@ -115,11 +115,11 @@ export function EmptyState({ message }) {
 // StatCard
 function StatCard({ num, label, sub }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <div className="text-5xl font-extrabold text-gray-900 tracking-tight mb-2">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="text-4xl font-extrabold text-gray-900 tracking-tight mb-1.5">
         {num ?? '—'}
       </div>
-      <div className="text-lg font-medium text-gray-600">{label}</div>
+      <div className="text-base font-medium text-gray-700">{label}</div>
       {sub && <div className="text-sm text-gray-400 mt-1">{sub}</div>}
     </div>
   );

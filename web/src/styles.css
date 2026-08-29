@@ -63,7 +63,7 @@
 
   /* Input base style (reused on many forms) */
   .field-input {
-    @apply w-full h-9 px-3 text-sm text-gray-900 bg-white border border-gray-200 rounded-md outline-none transition-colors duration-100;
+    @apply w-full h-10 px-4 text-base text-gray-900 bg-white border border-gray-200 rounded-md outline-none transition-colors duration-100;
     @apply focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-dim)];
     @apply placeholder:text-gray-400;
   }
@@ -73,7 +73,7 @@
   }
 
   .field-textarea {
-    @apply w-full px-3 py-2 text-sm text-gray-900 bg-white border border-gray-200 rounded-md outline-none transition-colors duration-100 resize-y;
+    @apply w-full px-4 py-3 text-base text-gray-900 bg-white border border-gray-200 rounded-md outline-none transition-colors duration-100 resize-y;
     @apply focus:border-[var(--accent)];
     @apply placeholder:text-gray-400;
     min-height: 80px;

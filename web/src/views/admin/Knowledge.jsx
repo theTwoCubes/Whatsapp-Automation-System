@@ -866,23 +866,23 @@ export default function Knowledge() {
       {tab === 'answers' && (
         <>
           {/* Pack tabs */}
-          <div className="flex gap-1.5 flex-wrap mb-5 items-center">
+          <div className="flex gap-2 flex-wrap mb-6 items-center">
             {packs.map((p) => (
               <button
                 key={p.slug}
                 onClick={() => { setPack(p.topic_id ?? 'base'); setSearch(''); }}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors border ${
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors border ${
                   String(pack) === String(p.topic_id ?? 'base')
                     ? 'bg-[var(--accent-dim)] text-[var(--accent-text)] border-[var(--accent-dim)]'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 {p.name}
-                <span className="text-[10px] opacity-60">{p.faq_count}</span>
+                <span className="text-[12px] opacity-60">{p.faq_count}</span>
               </button>
             ))}
             <button
-              className="px-3 py-1.5 rounded-md text-[12px] font-medium text-[var(--accent-text)] border border-dashed border-gray-300 hover:border-[var(--accent)] transition-colors"
+              className="px-4 py-2 rounded-md text-sm font-medium text-[var(--accent-text)] border border-dashed border-gray-300 hover:border-[var(--accent)] transition-colors"
               onClick={() => setAddTopicOpen(true)}
             >
               + New pack
@@ -890,10 +890,10 @@ export default function Knowledge() {
           </div>
 
           {/* Search */}
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 mb-5">
-            <Search size={14} className="text-gray-400 flex-shrink-0" />
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-4 py-3 mb-6">
+            <Search size={16} className="text-gray-400 flex-shrink-0" />
             <input
-              className="flex-1 text-sm outline-none placeholder:text-gray-400 bg-transparent"
+              className="flex-1 text-base outline-none placeholder:text-gray-400 bg-transparent"
               placeholder="Search across all packs…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
