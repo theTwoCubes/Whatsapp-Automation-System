@@ -1,6 +1,4 @@
-/* ─────────────────────────────────────────────
-   Design Tokens  —  WhatsApp Automation Console
-   ───────────────────────────────────────────── */
+/* Core brand tokens */
 
 :root {
   /* Brand accent — overridden at runtime by brand.js */

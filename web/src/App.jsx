@@ -7,7 +7,7 @@ import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
 
-// ─── Color helpers for white-label brand theming ───────────────
+// Color helpers for white-label brand theming
 function hexToRgb(hex) {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;

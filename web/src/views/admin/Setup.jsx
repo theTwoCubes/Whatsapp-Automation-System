@@ -5,11 +5,11 @@ import { InputField } from '../../components/ui/Field.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import {
-  AdminPage, Section, Card, CardHeader, CardBody,
-  FormStack, FormActions, Divider, TabPills,
+  AdminPage, Card, CardHeader, CardBody,
+  FormStack, FormActions, TabPills,
 } from './Dashboard.jsx';
 
-// ─── Business Profile ──────────────────────────────────────────
+// Business Profile
 function BusinessProfile() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
@@ -55,8 +55,8 @@ function BusinessProfile() {
     <Card>
       <CardHeader title="WhatsApp business profile" />
       <CardBody>
-        <p className="text-sm text-gray-500 leading-relaxed mb-4">
-          This information is shown to customers on WhatsApp when they view your business profile. Changes go directly to Meta.
+        <p className="text-base text-gray-600 leading-relaxed mb-5">
+          Customers see this when they open your business profile inside WhatsApp. Changes go straight to Meta.
         </p>
         <FormStack>
           <InputField label="About" helper="A short tagline shown under your business name."
@@ -74,7 +74,7 @@ function BusinessProfile() {
             placeholder="https://yourbusiness.com, https://instagram.com/yourbusiness"
             value={form.websites} onChange={(e) => setForm({ ...form, websites: e.target.value })} />
           <FormActions>
-            <Button variant="primary" size="md" onClick={save}>Save profile</Button>
+            <Button variant="primary" size="sm" onClick={save}>Save profile</Button>
           </FormActions>
         </FormStack>
       </CardBody>
@@ -82,7 +82,7 @@ function BusinessProfile() {
   );
 }
 
-// ─── AI Behaviour ──────────────────────────────────────────────
+// AI Behaviour
 function AIBehaviour() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
@@ -118,89 +118,96 @@ function AIBehaviour() {
     </FormStack>
   );
 
+  const bind = (key) => ({
+    value: form[key] ?? '',
+    onChange: (e) => setForm({ ...form, [key]: e.target.value }),
+  });
+
   return (
-    <Card>
-      <CardHeader title="How the AI talks and behaves" />
-      <CardBody>
-        <FormStack>
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-gray-500">Your business</p>
-          <InputField label="Business name"
-            helper="The name the AI uses to refer to your business in conversations."
-            placeholder="Acme Studio"
-            value={form.business_name || ''}
-            onChange={(e) => setForm({ ...form, business_name: e.target.value })} />
-          <InputField label="About the business" textarea
-            helper="A brief description of what your business does. The AI uses this when a lead asks general questions."
-            placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."
-            value={form.business_about || ''}
-            onChange={(e) => setForm({ ...form, business_about: e.target.value })} />
-          <InputField label="Tone of voice"
-            helper="How you want the AI to write. Keep it short — one or two words or a sentence."
-            placeholder="Friendly and professional. Warm but concise. No slang."
-            value={form.business_tone || ''}
-            onChange={(e) => setForm({ ...form, business_tone: e.target.value })} />
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader title="How the AI describes your business" />
+        <CardBody>
+          <p className="text-base text-gray-600 leading-relaxed mb-5">
+            The AI pulls from these when a lead asks who you are or what you do.
+          </p>
+          <FormStack>
+            <InputField label="Business name"
+              helper="The name the AI uses when it refers to you in a chat."
+              placeholder="Acme Studio"
+              {...bind('business_name')} />
+            <InputField label="About the business" textarea
+              helper="A short description the AI can lean on for general questions."
+              placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."
+              {...bind('business_about')} />
+            <InputField label="Tone of voice"
+              helper="A line or two on how you want the AI to sound."
+              placeholder="Friendly and professional. Warm but concise. No slang."
+              {...bind('business_tone')} />
+          </FormStack>
+        </CardBody>
+      </Card>
 
-          <Divider />
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-gray-500">Automatic messages</p>
+      <Card>
+        <CardHeader title="What the AI says at key moments" />
+        <CardBody>
+          <p className="text-base text-gray-600 leading-relaxed mb-5">
+            Written for you in your voice, sent verbatim in these three situations. Edit the wording to match your brand.
+          </p>
+          <FormStack>
+            <InputField label="When the AI is stuck" textarea
+              helper="Used if the AI has nothing useful to say and is not handing off yet."
+              placeholder="That's a great question — let me check with the team and get right back to you."
+              {...bind('fallback_message')} />
+            <InputField label="When passing the chat to a person" textarea
+              helper="Sent right before a real teammate takes over."
+              placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
+              {...bind('handoff_message')} />
+            <InputField label="When a customer sends a file" textarea
+              helper="Photos, documents and voice notes always go to a person — this is the acknowledgement."
+              placeholder="Thanks for sending that over! Someone will take a look and reply soon."
+              {...bind('attachment_message')} />
+          </FormStack>
+        </CardBody>
+      </Card>
 
-          <InputField label="Fallback message" textarea
-            helper="Sent when the AI has no relevant answer and does not hand off."
-            placeholder="That's a great question — I'll need to check with the team and get back to you shortly."
-            value={form.fallback_message || ''}
-            onChange={(e) => setForm({ ...form, fallback_message: e.target.value })} />
-          <InputField label="Handoff message" textarea
-            helper="Sent when the AI passes a conversation to a team member."
-            placeholder="A member of our team will be with you shortly. Thanks for your patience!"
-            value={form.handoff_message || ''}
-            onChange={(e) => setForm({ ...form, handoff_message: e.target.value })} />
-          <InputField label="Attachment message" textarea
-            helper="Sent when a customer sends a photo or file that the AI cannot process."
-            placeholder="Thanks for sending that over! A team member will take a look and get back to you."
-            value={form.attachment_message || ''}
-            onChange={(e) => setForm({ ...form, attachment_message: e.target.value })} />
-
-          <Divider />
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-gray-500">Automation</p>
-
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>
-              Auto-resume after (minutes)
-            </label>
-            <input
-              className="field-input"
-              style={{ maxWidth: 160 }}
+      <Card>
+        <CardHeader title="When the AI takes back over" />
+        <CardBody>
+          <p className="text-base text-gray-600 leading-relaxed mb-5">
+            If a teammate goes quiet on a chat, the AI can quietly resume so the lead is not left waiting.
+          </p>
+          <FormStack>
+            <InputField label="Hand the chat back to the AI after"
+              helper="Minutes of silence from your teammate. Set 0 to keep it with the team until they hand it back themselves."
               type="number"
               min={0}
-              placeholder="0 to disable"
-              value={form.resume_minutes ?? ''}
-              onChange={(e) => setForm({ ...form, resume_minutes: e.target.value })}
-            />
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              If a conversation has been with a human agent for this many minutes without any reply, the AI takes back over automatically. Set to 0 to disable.
-            </p>
-          </div>
+              placeholder="0 to keep it with the team"
+              style={{ maxWidth: 200 }}
+              {...bind('resume_minutes')} />
+          </FormStack>
+        </CardBody>
+      </Card>
 
-          <FormActions>
-            <Button variant="primary" size="md" onClick={save}>Save settings</Button>
-          </FormActions>
-        </FormStack>
-      </CardBody>
-    </Card>
+      <div className="flex items-center justify-end">
+        <Button variant="primary" size="sm" onClick={save}>Save settings</Button>
+      </div>
+    </div>
   );
 }
 
-// ─── Setup Page ────────────────────────────────────────────────
+// Setup Page
 export default function Setup() {
   const [section, setSection] = useState('ai');
 
   return (
     <AdminPage
       title="Setup"
-      subtitle="Configure how the AI talks, your WhatsApp business profile, and automation behaviour."
+      subtitle="Tune the AI's voice, your WhatsApp business profile, and when the AI should step in."
     >
       <TabPills
         tabs={[
-          { key: 'ai',      label: 'AI behaviour' },
+          { key: 'ai',      label: 'AI voice & rules' },
           { key: 'profile', label: 'WhatsApp profile' },
         ]}
         active={section}

@@ -280,7 +280,21 @@ export async function getConversationById(pool, id) {
 
 export async function getConversationMessages(pool, id, limit = 200) {
   const res = await pool.query(
-    `select id, direction, type, body, status, created_at
+    `select id, direction, type, body, status, created_at,
+            coalesce(
+              raw->'document'->>'filename',
+              raw->'image'->>'filename',
+              raw->'video'->>'filename',
+              raw->'audio'->>'filename'
+            ) as media_filename,
+            coalesce(
+              raw->'document'->>'mime_type',
+              raw->'image'->>'mime_type',
+              raw->'video'->>'mime_type',
+              raw->'audio'->>'mime_type',
+              raw->'voice'->>'mime_type',
+              raw->'sticker'->>'mime_type'
+            ) as media_mime
      from messages where conversation_id = $1
      order by created_at, id limit $2`,
     [id, limit],
@@ -434,9 +448,21 @@ export async function overview(pool) {
        (select count(*) from conversations where state = 'human') as human_chats,
        (select count(*) from conversations where state = 'pending') as pending_chats,
        (select count(*) from messages where direction = 'inbound') as inbound,
-       (select count(*) from messages where direction = 'outbound') as outbound`,
+       (select count(*) from messages where direction = 'outbound') as outbound`
   );
-  return r.rows[0];
+
+  const leadsHistory = await pool.query(
+    `select to_char(first_seen_at, 'YYYY-MM-DD') as date, count(*)::int as count
+     from contacts
+     where first_seen_at >= now() - interval '30 days'
+     group by date
+     order by date asc`
+  );
+
+  return {
+    ...r.rows[0],
+    leads_per_day: leadsHistory.rows,
+  };
 }
 
 export async function addMediaAsset(pool, a) {

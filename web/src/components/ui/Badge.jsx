@@ -2,20 +2,20 @@ import React from 'react';
 
 // variant → [bg, text, border] Tailwind classes
 const variantMap = {
-  bot:     'bg-green-50  text-green-700  border border-green-200',
-  pending: 'bg-amber-50  text-amber-700  border border-amber-200',
-  human:   'bg-blue-50   text-blue-700   border border-blue-200',
-  neutral: 'bg-gray-100  text-gray-600   border border-gray-200',
-  success: 'bg-green-50  text-green-700  border border-green-200',
-  error:   'bg-red-50    text-red-600    border border-red-200',
-  warning: 'bg-amber-50  text-amber-700  border border-amber-200',
+  bot:     'text-gray-800',
+  pending: 'text-amber-600',
+  human:   'text-gray-800',
+  neutral: 'text-gray-600',
+  success: 'text-gray-800',
+  error:   'text-red-600',
+  warning: 'text-amber-600',
 };
 
 export default function Badge({ variant = 'neutral', children, className = '', ...props }) {
   const cls = variantMap[variant] || variantMap.neutral;
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold leading-4 ${cls} ${className}`}
+      className={`inline-flex items-center text-sm font-semibold leading-4 ${cls} ${className}`}
       {...props}
     >
       {children}

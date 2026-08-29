@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Global base overrides ─────────────────────── */
+/* Global base overrides */
 @layer base {
   html, body, #root {
     height: 100%;
@@ -46,7 +46,7 @@
   }
 }
 
-/* ─── Custom component utilities ────────────────── */
+/* Custom component utilities */
 @layer utilities {
   /* Skeleton shimmer — needs backgroundImage + animation together */
   .skeleton-shimmer {

@@ -2,6 +2,7 @@ import React from 'react';
 import { avatarColor, initials } from '../../lib.js';
 
 const sizeMap = {
+  xl: 'w-14 h-14 text-xl',
   lg: 'w-10 h-10 text-[15px]',
   md: 'w-[34px] h-[34px] text-[13px]',
   sm: 'w-7 h-7 text-[11px]',

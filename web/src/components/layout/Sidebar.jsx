@@ -22,15 +22,15 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
 
   return (
     <aside
-      className="w-[224px] flex-shrink-0 flex flex-col bg-white border-r border-gray-200 overflow-hidden"
+      className="w-[280px] flex-shrink-0 flex flex-col bg-white border-r border-gray-200 overflow-hidden"
       aria-label="Main navigation"
     >
       {/* Brand */}
-      <div className="flex items-center gap-2.5 px-4 h-14 border-b border-gray-200 flex-shrink-0">
+      <div className="flex items-center gap-3.5 px-6 h-[72px] border-b border-gray-200 flex-shrink-0">
         <img
           src="/logo.png"
           alt={brandName}
-          className="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+          className="w-12 h-12 rounded-lg object-cover flex-shrink-0 shadow-sm"
           onError={(e) => {
             e.currentTarget.style.display = 'none';
             e.currentTarget.nextSibling.style.display = 'flex';
@@ -38,23 +38,23 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
         />
         {/* Fallback initials block (hidden if logo loads) */}
         <div
-          className="w-8 h-8 rounded-lg items-center justify-center text-white font-bold text-sm flex-shrink-0 hidden"
+          className="w-12 h-12 rounded-lg items-center justify-center text-white font-bold text-lg flex-shrink-0 hidden shadow-sm"
           style={{ background: 'var(--accent)', display: 'none' }}
         >
           {initials}
         </div>
-        <span className="font-semibold text-sm text-gray-900 truncate">{brandName}</span>
+        <span className="font-bold text-lg text-gray-900 truncate">{brandName}</span>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 flex flex-col gap-0.5 px-2">
+      <nav className="flex-1 overflow-y-auto py-4 flex flex-col gap-1 px-3">
         {NAV.map((item, idx) => {
           // Section label
           if (item.section !== undefined && !item.key) {
             return (
               <div
                 key={`s-${idx}`}
-                className="px-2 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400"
+                className="px-3 pt-5 pb-2 text-xs font-bold uppercase tracking-widest text-gray-400"
               >
                 {item.section}
               </div>
@@ -70,7 +70,7 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
               onClick={() => onNavigate(item.key)}
               aria-current={isActive ? 'page' : undefined}
               className={`
-                relative flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium
+                relative flex items-center gap-3 w-full px-4 py-3 rounded-xl text-base font-medium
                 transition-colors duration-100 text-left
                 ${isActive
                   ? 'bg-[var(--accent-dim)] text-[var(--accent-text)] font-semibold'
@@ -80,11 +80,11 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
               {/* Active indicator bar */}
               {isActive && (
                 <span
-                  className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-sm"
+                  className="absolute left-0 top-2 bottom-2 w-1 rounded-r-sm"
                   style={{ background: 'var(--accent)' }}
                 />
               )}
-              <Icon size={15} className="flex-shrink-0" />
+              <Icon size={18} className="flex-shrink-0" />
               <span className="flex-1 truncate">{item.label}</span>
               {item.key === 'conversations' && pendingCount > 0 && (
                 <span
@@ -101,10 +101,10 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
       </nav>
 
       {/* Footer */}
-      <div className="flex items-center gap-2 px-3 py-3 border-t border-gray-200 flex-shrink-0">
-        <Avatar name={agentEmail} waId={agentEmail} size="sm" />
+      <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-200 flex-shrink-0">
+        <Avatar name={agentEmail} waId={agentEmail} size="md" />
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium text-gray-700 truncate">
+          <div className="text-sm font-semibold text-gray-700 truncate">
             {agentEmail || 'Agent'}
           </div>
         </div>
@@ -112,9 +112,9 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
           onClick={onLogout}
           title="Sign out"
           aria-label="Sign out"
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors p-1 rounded"
+          className="flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors p-2 rounded-lg"
         >
-          <LogOut size={15} />
+          <LogOut size={18} />
         </button>
       </div>
     </aside>

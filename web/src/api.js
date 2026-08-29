@@ -83,6 +83,7 @@ export const api = {
   topics: () => req('/topics'),
   addTopic: (body) => req('/topics', { method: 'POST', body: JSON.stringify(body) }),
   updateTopic: (id, body) => req(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteTopic: (id) => req(`/topics/${id}`, { method: 'DELETE' }),
   agents: () => req('/agents'),
   addAgent: (email, name, password) =>
     req('/agents', { method: 'POST', body: JSON.stringify({ email, name, password }) }),

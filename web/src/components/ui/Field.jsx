@@ -2,19 +2,19 @@ import React from 'react';
 
 export default function Field({ label, helper, error, children, required }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       {label && (
-        <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>
+        <label className="text-base font-medium text-gray-800">
           {label}
           {required && <span className="text-red-500 ml-0.5">*</span>}
         </label>
       )}
       {children}
       {helper && !error && (
-        <p className="text-[11px] text-gray-400 leading-relaxed">{helper}</p>
+        <p className="text-sm text-gray-500 leading-relaxed">{helper}</p>
       )}
       {error && (
-        <p className="text-[11px] text-red-500 leading-relaxed">{error}</p>
+        <p className="text-sm text-red-500 leading-relaxed">{error}</p>
       )}
     </div>
   );

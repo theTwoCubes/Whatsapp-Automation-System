@@ -1,9 +1,5 @@
-// Coalesces rapid fire messages from the same conversation into one AI call.
-// Each caller enqueues its own message and awaits the same promise; whichever
-// call ends up holding the last item in the flushed batch is the one
-// responsible for actually replying, the rest just return quietly since their
-// message is already recorded. In process only, single instance is fine for
-// now, same reasoning as the drip scheduler.
+// Batches rapid messages from the same conversation into a single AI call.
+// The last call in the batch replies; others return quietly.
 export function createBatcher({ debounceMs, maxWaitMs }) {
   const batches = new Map();
 

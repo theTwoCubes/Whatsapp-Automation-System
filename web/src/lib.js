@@ -1,5 +1,53 @@
 // Small view helpers for the console.
 
+import { useEffect, useState } from 'react';
+
+// Local nicknames for phone numbers. The backend never sees these, they live in
+// the browser only. Keyed by wa_id so a number gets the same label across every
+// place it shows up in the UI.
+const aliasKey = (waId) => `wa_alias:${waId}`;
+const aliasEvent = 'wa-alias-changed';
+
+export function getAlias(waId) {
+  if (!waId) return null;
+  try { return localStorage.getItem(aliasKey(waId)) || null; } catch { return null; }
+}
+
+export function setAlias(waId, name) {
+  if (!waId) return;
+  const trimmed = (name || '').trim();
+  try {
+    if (trimmed) localStorage.setItem(aliasKey(waId), trimmed);
+    else localStorage.removeItem(aliasKey(waId));
+  } catch { /* storage disabled */ }
+  window.dispatchEvent(new CustomEvent(aliasEvent, { detail: { waId, name: trimmed || null } }));
+}
+
+// Reactive lookup for one number, so any component listing conversations
+// re-renders when a nickname changes elsewhere.
+export function useAlias(waId) {
+  const [alias, setState] = useState(() => getAlias(waId));
+  useEffect(() => {
+    setState(getAlias(waId));
+    const onChange = (e) => {
+      if (!e.detail || e.detail.waId === waId) setState(getAlias(waId));
+    };
+    window.addEventListener(aliasEvent, onChange);
+    window.addEventListener('storage', onChange);
+    return () => {
+      window.removeEventListener(aliasEvent, onChange);
+      window.removeEventListener('storage', onChange);
+    };
+  }, [waId]);
+  return alias;
+}
+
+// The name to actually show for a contact. Alias wins over whatever WhatsApp
+// gave us, and the wa_id is the last resort so a row is never blank.
+export function displayName({ waId, name } = {}) {
+  return getAlias(waId) || name || waId || '';
+}
+
 const avatarColors = ['#0083c0', '#00a884', '#7f66ff', '#d9772b', '#c0392b', '#2a7d6f', '#b2417a'];
 
 export function initials(name, fallback) {

@@ -64,3 +64,27 @@ export async function updateTopic(pool, id, fields) {
     ],
   );
 }
+
+// Removes a pack. Its answers are moved into the common pack (topic_id = null)
+// so nothing the client wrote is lost, then the topic row is deleted. Campaigns
+// that pointed at this topic are unlinked. Runs in one transaction so a partial
+// failure cannot leave the pack half-gone.
+export async function deleteTopic(pool, id) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const moved = await client.query(
+      'update faqs set topic_id = null where topic_id = $1 returning id',
+      [id],
+    );
+    await client.query('update campaigns set topic_id = null where topic_id = $1', [id]);
+    await client.query('delete from topics where id = $1', [id]);
+    await client.query('commit');
+    return { movedFaqs: moved.rowCount };
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}

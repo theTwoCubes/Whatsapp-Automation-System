@@ -12,7 +12,7 @@ import {
   FormStack, FormActions, Divider, EmptyState,
 } from './Dashboard.jsx';
 
-// ─── Templates ─────────────────────────────────────────────────
+// Templates
 function Templates() {
   const [data, setData]         = useState(null);
   const [name, setName]         = useState('');
@@ -46,12 +46,12 @@ function Templates() {
 
   return (
     <Section
-      title="Approved templates"
-      subtitle="Templates are pre-approved messages you can send outside the 24-hour window. They must be approved by Meta before they appear here."
+      title="Approved messages"
+      subtitle="Ready-to-send messages that WhatsApp lets you use after 24 hours of silence. Meta must approve each one before it can be sent."
     >
       <div className="flex items-center justify-end mb-3">
         <Button variant="secondary" size="sm" onClick={sync} disabled={syncing}>
-          <RefreshCw size={13} /> {syncing ? 'Syncing…' : 'Sync from Meta'}
+          <RefreshCw size={14} /> {syncing ? 'Syncing…' : 'Sync from Meta'}
         </Button>
       </div>
 
@@ -65,9 +65,9 @@ function Templates() {
             <div key={t.name} className="flex items-start gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-gray-800">{t.name}</div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-2 mt-1.5">
                   <Badge variant="neutral">{t.category || 'utility'}</Badge>
-                  {t.body && <span className="text-xs text-gray-400 italic truncate">{t.body}</span>}
+                  {t.body && <span className="text-sm text-gray-500 italic truncate">{t.body}</span>}
                 </div>
               </div>
             </div>
@@ -76,7 +76,7 @@ function Templates() {
       )}
 
       <Card>
-        <CardHeader title="Create a new template" />
+        <CardHeader title="Write a new message" />
         <CardBody>
           <FormStack>
             <p className="text-sm text-gray-500 leading-relaxed">
@@ -84,38 +84,36 @@ function Templates() {
               <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">{'{{1}}'}</code>
               ,{' '}
               <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">{'{{2}}'}</code>
-              {' '}for values you fill in when sending. Meta will review and approve it before it can be used.
+              {' '}wherever you want to slot in a name or detail at send time. Meta will review before it goes live.
             </p>
             <InputField
-              label="Template name"
-              helper="Lowercase with underscores only."
-              placeholder="e.g. follow_up_day3"
+              label="Short name for this message"
+              helper="Lowercase with underscores. This is how you pick the message later."
+              placeholder="e.g. gentle_reminder"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>
-                Category
-              </label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-base font-medium text-gray-800">Kind</label>
               <select
                 className="field-input"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >
-                <option value="UTILITY">Utility — service updates, follow-ups</option>
-                <option value="MARKETING">Marketing — promotions, offers</option>
+                <option value="UTILITY">Service update or follow-up</option>
+                <option value="MARKETING">Promotion or offer</option>
               </select>
             </div>
             <InputField
-              label="Message body"
+              label="What the message says"
               textarea
-              placeholder={`Hi {{1}}, thanks for getting in touch with us. We'd love to follow up — are you still interested?`}
+              placeholder={`Hi {{1}}, thanks for reaching out earlier. Are you still keen to move ahead?`}
               value={body}
               onChange={(e) => setBody(e.target.value)}
             />
             <FormActions>
               <Button variant="primary" size="sm" onClick={create} disabled={!name.trim() || !body.trim()}>
-                Submit for approval
+                Send to Meta for approval
               </Button>
             </FormActions>
           </FormStack>
@@ -125,7 +123,7 @@ function Templates() {
   );
 }
 
-// ─── Drip Follow-ups ────────────────────────────────────────────
+// Drip Follow-ups
 function DripFollowups() {
   const [settings, setSettings] = useState(null);
   const [steps, setSteps]       = useState([]);
@@ -158,44 +156,45 @@ function DripFollowups() {
 
   return (
     <Section
-      title="Automated follow-up messages"
-      subtitle="After the AI replies to a lead, it schedules these messages automatically. Each one uses a pre-approved template sent at the specified number of days after the last activity. The schedule resets every time a lead replies."
+      title="Chase quiet leads automatically"
+      subtitle="When a lead goes silent, we send these messages one by one on the days you choose. The clock resets the moment the lead replies, so no one gets chased twice."
     >
       <Card>
         <CardBody>
           <FormStack>
             {steps.length === 0 && (
-              <p className="text-sm text-gray-400">No follow-up steps configured. Add one below.</p>
+              <p className="text-sm text-gray-500">No follow-ups set up yet. Add one below.</p>
             )}
             {steps.map((s, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
                   style={{ background: 'var(--accent)' }}
                 >
                   {i + 1}
                 </div>
                 <input
                   className="field-input flex-1"
-                  placeholder="Template name (e.g. drip_day3)"
+                  placeholder="Pick a message you created above"
                   value={s.template}
                   onChange={(e) => updateStep(i, 'template', e.target.value)}
                 />
+                <span className="text-sm text-gray-500 whitespace-nowrap">after</span>
                 <input
                   className="field-input"
                   style={{ width: 72 }}
                   type="number"
                   min={1}
-                  placeholder="Days"
+                  placeholder="3"
                   value={s.days}
                   onChange={(e) => updateStep(i, 'days', e.target.value)}
-                  title="Days after the last reply"
+                  title="Days of silence"
                 />
-                <span className="text-xs text-gray-400 whitespace-nowrap">days after last reply</span>
+                <span className="text-sm text-gray-500 whitespace-nowrap">days of silence</span>
                 <button
                   onClick={() => removeStep(i)}
-                  className="text-red-400 hover:text-red-600 transition-colors p-1 rounded flex-shrink-0"
-                  title="Remove step"
+                  className="text-red-400 hover:text-red-600 transition-colors p-1.5 rounded flex-shrink-0"
+                  title="Remove"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -203,9 +202,9 @@ function DripFollowups() {
             ))}
             <FormActions>
               <Button variant="ghost" size="sm" onClick={addStep}>
-                <Plus size={14} /> Add step
+                <Plus size={14} /> Add another
               </Button>
-              <Button variant="primary" size="sm" onClick={save}>Save schedule</Button>
+              <Button variant="primary" size="sm" onClick={save}>Save</Button>
             </FormActions>
           </FormStack>
         </CardBody>
@@ -214,12 +213,12 @@ function DripFollowups() {
   );
 }
 
-// ─── Followups Page ────────────────────────────────────────────
+// Followups Page
 export default function Followups() {
   return (
     <AdminPage
       title="Follow-ups"
-      subtitle="Manage the templates used for re-engagement and configure the automated follow-up schedule."
+      subtitle="Nudge quiet leads back into a conversation. Set the messages you want sent and the days they should go out."
     >
       <Templates />
       <Divider />

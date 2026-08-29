@@ -8,7 +8,7 @@ import {
 } from '../knowledge/refinement.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
-import { listTopics, upsertTopic, updateTopic } from '../knowledge/topics.js';
+import { listTopics, upsertTopic, updateTopic, deleteTopic } from '../knowledge/topics.js';
 import { ingestText } from '../knowledge/ingestion.js';
 import {
   listFaqs,
@@ -533,6 +533,12 @@ export function registerApi(app, deps) {
     await updateTopic(pool, req.params.id, fields);
     await audit(req, 'topic updated', `topic ${req.params.id}`);
     return { ok: true };
+  });
+
+  app.delete('/api/topics/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    const result = await deleteTopic(pool, req.params.id);
+    await audit(req, 'pack deleted', `topic ${req.params.id}`);
+    return { ok: true, movedFaqs: result.movedFaqs };
   });
 
   // Runs the refinement pass on demand instead of waiting for the weekly

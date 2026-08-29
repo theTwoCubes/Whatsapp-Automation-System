@@ -5,10 +5,14 @@ import {
   Search, Paperclip, Library, Send, Clock, AlertCircle,
   CheckCheck, Check, ChevronRight, X, MessageSquare,
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
+  Download, Film, Mic, Pencil,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
-import { shortTime, groupByDay, templateParamCount } from './lib.js';
+import {
+  shortTime, groupByDay, templateParamCount,
+  useAlias, setAlias, displayName,
+} from './lib.js';
 import Avatar from './components/ui/Avatar.jsx';
 import { StateBadge } from './components/ui/Badge.jsx';
 import Button from './components/ui/Button.jsx';
@@ -31,30 +35,117 @@ function windowLabel(conv) {
     : { label: 'Window closed',   open: false };
 }
 
-function mediaLabel(type) {
-  const map = { image: '📷 Photo', document: '📄 Document', video: '🎥 Video', audio: '🎤 Voice' };
-  return map[type] || `[${type}]`;
+// A WhatsApp style attachment card. The file lives on Meta and stays there
+// until the agent hits Download, so nothing is written to the VPS disk. The
+// blurred gradient is just a placeholder that mimics WhatsApp's low quality
+// preview, since we do not have a real thumbnail to show.
+function mediaKindLabel(type) {
+  const map = { image: 'Photo', document: 'Document', video: 'Video', audio: 'Voice note' };
+  return map[type] || 'File';
 }
 
-// Inbound Media
-function InboundMedia({ message }) {
-  const [url, setUrl]       = useState(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let obj;
-    api.mediaObjectUrl(message.id)
-      .then((u) => { obj = u; setUrl(u); })
-      .catch(() => setFailed(true));
-    return () => obj && URL.revokeObjectURL(obj);
-  }, [message.id]);
-  if (failed) return <span>{mediaLabel(message.type)}</span>;
-  if (!url)   return <span>{mediaLabel(message.type)}…</span>;
-  if (message.type === 'image')
-    return <img className="max-w-[240px] rounded-lg" src={url} alt="Shared media" />;
+function mediaKindIcon(type, size = 22) {
+  if (type === 'image') return <ImageIcon size={size} className="text-white" />;
+  if (type === 'video') return <Film size={size} className="text-white" />;
+  if (type === 'audio' || type === 'voice') return <Mic size={size} className="text-white" />;
+  return <FileText size={size} className="text-white" />;
+}
+
+function prettyBytes(n) {
+  if (!n && n !== 0) return null;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function guessFilename(message) {
+  if (message.media_filename) return message.media_filename;
+  const kind = mediaKindLabel(message.type).toLowerCase();
+  const ext = (message.media_mime || '').split('/')[1] || '';
+  const stamp = new Date(message.created_at || Date.now()).toISOString().slice(0, 16).replace(/[:T-]/g, '');
+  return ext ? `${kind}-${stamp}.${ext}` : `${kind}-${stamp}`;
+}
+
+function InboundAttachment({ message }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState(null);
+  const [size, setSize] = useState(null);
+  const outbound = message.direction === 'outbound';
+
+  const download = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const url = await api.mediaObjectUrl(message.id);
+      const filename = guessFilename(message);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        setSize(blob.size);
+      } catch { /* size is decorative */ }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setError(err.message || 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const filename = guessFilename(message);
+  const subtitle = [mediaKindLabel(message.type), prettyBytes(size), message.media_mime]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <a className="underline" href={url} target="_blank" rel="noreferrer">
-      {mediaLabel(message.type)} — open
-    </a>
+    <div className={`w-[280px] rounded-xl overflow-hidden ${outbound ? 'bg-white/10' : 'bg-black/5'}`}>
+      {/* Blurry decorative preview strip */}
+      <div className="relative h-24 overflow-hidden">
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(135deg, #d9e5df 0%, #9fbdb1 45%, #6f8f83 100%)',
+            filter: 'blur(14px)',
+            transform: 'scale(1.2)',
+          }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center">
+            {mediaKindIcon(message.type)}
+          </div>
+        </div>
+      </div>
+
+      <div className={`flex items-center gap-3 px-3 py-2.5 ${outbound ? 'text-white' : 'text-gray-800'}`}>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold truncate" title={filename}>{filename}</div>
+          <div className={`text-xs truncate ${outbound ? 'text-white/70' : 'text-gray-500'}`}>
+            {error || subtitle}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={download}
+          disabled={downloading}
+          className={`
+            flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0 transition-colors
+            ${outbound
+              ? 'bg-white/20 hover:bg-white/30 text-white'
+              : 'bg-gray-800 hover:bg-black text-white'}
+            disabled:opacity-60
+          `}
+          title="Download to your computer"
+          aria-label="Download attachment"
+        >
+          <Download size={16} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -93,6 +184,7 @@ export default function Console({ onConversationsChange }) {
   const [query, setQuery]                 = useState('');
   const [filter, setFilter]               = useState('all');
   const [loading, setLoading]             = useState(true);
+  const [showContext, setShowContext]     = useState(false);
   const selectedRef                        = useRef(null);
   const toast                              = useToast();
 
@@ -168,14 +260,14 @@ export default function Console({ onConversationsChange }) {
     <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* Chat List */}
-      <div className="w-[320px] flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
+      <div className="w-[440px] flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-hidden">
 
         {/* Search bar */}
-        <div className="flex-shrink-0 px-3 py-3 border-b border-gray-200">
-          <div className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-            <Search size={14} className="text-gray-400 flex-shrink-0" />
+        <div className="flex-shrink-0 px-4 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-2.5 bg-gray-100 rounded-lg px-4 py-2.5">
+            <Search size={18} className="text-gray-400 flex-shrink-0" />
             <input
-              className="flex-1 text-sm outline-none placeholder:text-gray-400 bg-transparent text-gray-900"
+              className="flex-1 text-base outline-none placeholder:text-gray-400 bg-transparent text-gray-900"
               placeholder="Search conversations…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -183,14 +275,14 @@ export default function Console({ onConversationsChange }) {
             />
             {query && (
               <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-600">
-                <X size={13} />
+                <X size={16} />
               </button>
             )}
           </div>
         </div>
 
         {/* Filter tabs */}
-        <div className="flex flex-shrink-0 border-b border-gray-100 px-3 gap-1" role="tablist">
+        <div className="flex flex-shrink-0 border-b border-gray-100 px-4 gap-2" role="tablist">
           {FILTERS.map(({ key, label }) => (
             <button
               key={key}
@@ -198,7 +290,7 @@ export default function Console({ onConversationsChange }) {
               aria-selected={filter === key}
               onClick={() => setFilter(key)}
               className={`
-                relative flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors duration-100
+                relative flex items-center gap-1.5 px-4 py-3 text-base font-medium transition-colors duration-100
                 ${filter === key
                   ? 'text-gray-900'
                   : 'text-gray-400 hover:text-gray-600'}
@@ -231,34 +323,12 @@ export default function Console({ onConversationsChange }) {
           {!loading && filtered.map((c) => {
             const isActive = String(selected) === String(c.id);
             return (
-              <button
+              <ConversationRow
                 key={c.id}
-                role="listitem"
-                onClick={() => setSelected(c.id)}
-                aria-current={isActive ? 'true' : undefined}
-                className={`
-                  w-full flex gap-3 px-4 py-3.5 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
-                  ${isActive
-                    ? 'bg-gray-100'
-                    : c.state === 'pending'
-                      ? 'bg-amber-50/50 hover:bg-amber-50'
-                      : 'hover:bg-gray-50'}
-                `}
-              >
-                <Avatar name={c.name} waId={c.wa_id} size="lg" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <span className="text-sm font-semibold text-gray-900 truncate">{c.name || c.wa_id}</span>
-                    <span className="text-xs text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-gray-500 truncate">{c.last_message || 'No messages yet'}</span>
-                    {c.state === 'pending' && (
-                      <span className="w-2 h-2 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
-                    )}
-                  </div>
-                </div>
-              </button>
+                conversation={c}
+                isActive={isActive}
+                onSelect={() => setSelected(c.id)}
+              />
             );
           })}
         </div>
@@ -272,19 +342,110 @@ export default function Console({ onConversationsChange }) {
               templates={templates}
               onSync={syncTemplates}
               onChanged={() => { loadThread(selected); loadList(true); }}
+              showContext={showContext}
+              onToggleContext={() => setShowContext(v => !v)}
             />
           : <EmptyChat />
         }
       </div>
 
-      {/* Context Panel */}
-      {thread && (
-        <ContextPanel
-          thread={thread}
-          onChanged={() => { loadThread(selected); loadList(true); }}
-        />
-      )}
+      {/* Context Panel wrapper for animation */}
+      <div
+        className={`transition-[width,border] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex-shrink-0 bg-white overflow-hidden ${
+          showContext && thread ? 'w-[360px] border-l border-gray-200' : 'w-0 border-l-0 border-transparent'
+        }`}
+      >
+        <div className="w-[360px] h-full flex flex-col">
+          {thread && (
+            <ContextPanel
+              thread={thread}
+              onChanged={() => { loadThread(selected); loadList(true); }}
+            />
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ConversationRow({ conversation: c, isActive, onSelect }) {
+  const alias = useAlias(c.wa_id);
+  const name = alias || c.name || c.wa_id;
+  return (
+    <button
+      role="listitem"
+      onClick={onSelect}
+      aria-current={isActive ? 'true' : undefined}
+      className={`
+        w-full flex items-center gap-4 px-5 py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
+        ${isActive
+          ? 'bg-gray-100'
+          : c.state === 'pending'
+            ? 'bg-amber-50/50 hover:bg-amber-50'
+            : 'hover:bg-gray-50'}
+      `}
+    >
+      <Avatar name={name} waId={c.wa_id} size="xl" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <span className="text-lg font-bold text-gray-900 truncate">{name}</span>
+          <span className="text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-base text-gray-500 truncate">{c.last_message || 'No messages yet'}</span>
+          {c.state === 'pending' && (
+            <span className="w-2 h-2 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// Inline nickname editor. Frontend only — never touches the backend. Clicking
+// the pencil turns the name into an input; Enter or blur commits, Escape or
+// clearing the field wipes the alias.
+function EditableName({ waId, fallback, className }) {
+  const alias = useAlias(waId);
+  const current = alias || fallback || waId || '';
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(current);
+  useEffect(() => { if (!editing) setDraft(current); }, [current, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft.trim() === (current || '').trim()) return;
+    setAlias(waId, draft);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className={`${className || ''} bg-transparent border-b border-gray-300 outline-none min-w-0`}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          if (e.key === 'Escape') { setDraft(current); setEditing(false); }
+        }}
+      />
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1.5 min-w-0 group ${className || ''}`}>
+      <span className="truncate">{current}</span>
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-gray-400 hover:text-gray-600 opacity-60 hover:opacity-100 transition-opacity"
+        title={alias ? 'Rename this contact' : 'Give this contact a nickname'}
+        aria-label="Rename contact"
+      >
+        <Pencil size={13} />
+      </button>
+    </span>
   );
 }
 
@@ -326,29 +487,33 @@ function ContextPanel({ thread, onChanged }) {
 
   return (
     <aside
-      className="w-[280px] flex-shrink-0 flex flex-col border-l border-gray-200 bg-white overflow-y-auto"
+      className="flex-1 flex flex-col bg-white overflow-y-auto"
       aria-label="Conversation details"
     >
       {/* Contact header */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-gray-100">
-        <Avatar name={c.name} waId={c.wa_id} size="lg" />
+      <div className="flex items-center gap-4 px-6 py-6 border-b border-gray-100">
+        <Avatar name={displayName({ waId: c.wa_id, name: c.name })} waId={c.wa_id} size="xl" />
         <div className="min-w-0">
-          <div className="text-sm font-bold text-gray-900 truncate">{c.name || c.wa_id}</div>
-          <div className="text-xs text-gray-400 mt-0.5">{c.wa_id}</div>
+          <EditableName
+            waId={c.wa_id}
+            fallback={c.name}
+            className="text-xl font-bold text-gray-900"
+          />
+          <div className="text-sm text-gray-400 mt-1">{c.wa_id}</div>
         </div>
       </div>
 
       {/* Meta section */}
-      <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
-        <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Details</div>
+      <div className="px-6 py-5 border-b border-gray-100 flex flex-col gap-3">
+        <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Details</div>
         <ContextRow label="Status"><StateBadge state={c.state} /></ContextRow>
-        {c.assignee && <ContextRow label="Agent"><span className="text-gray-700">{c.assignee}</span></ContextRow>}
+        {c.assignee && <ContextRow label="Agent"><span className="text-sm font-medium text-gray-700">{c.assignee}</span></ContextRow>}
         <ContextRow label="24h window">
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.window_open ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+          <span className={`text-sm font-medium ${c.window_open ? 'text-gray-900' : 'text-gray-500'}`}>
             {c.window_open ? 'Open' : 'Closed'}
           </span>
         </ContextRow>
-        <ContextRow label="Started"><span className="text-gray-700">{daysSince(c.created_at)}</span></ContextRow>
+        <ContextRow label="Started"><span className="text-sm font-medium text-gray-700">{daysSince(c.created_at)}</span></ContextRow>
         {c.handoff_reason && (
           <div className="flex flex-col gap-1 bg-amber-50 rounded-lg px-3 py-2">
             <span className="text-xs font-semibold text-amber-700">Reason flagged</span>
@@ -359,35 +524,35 @@ function ContextPanel({ thread, onChanged }) {
 
       {/* Source */}
       {(c.topic_name || c.campaign_id) && (
-        <div className="px-5 py-4 border-b border-gray-100 flex flex-col gap-3">
-          <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Source</div>
-          <ContextRow label="Campaign"><span className="text-gray-700">{c.topic_name || `#${c.campaign_id}`}</span></ContextRow>
+        <div className="px-6 py-5 border-b border-gray-100 flex flex-col gap-3">
+          <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Source</div>
+          <ContextRow label="Campaign"><span className="text-sm font-medium text-gray-700">{c.topic_name || `#${c.campaign_id}`}</span></ContextRow>
         </div>
       )}
 
       {/* Actions */}
-      <div className="px-5 py-4 flex flex-col gap-2">
-        <div className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actions</div>
+      <div className="px-6 py-5 flex flex-col gap-2">
+        <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Actions</div>
         {isHuman && (
-          <Button variant="secondary" size="sm" className="w-full justify-center"
+          <Button variant="secondary" size="lg" className="w-full justify-center"
             onClick={() => act(() => api.handback(c.id), 'Returned to AI')}>
             Give back to AI
           </Button>
         )}
         {isPending && (
           <>
-            <Button variant="primary" size="sm" className="w-full justify-center"
+            <Button variant="primary" size="lg" className="w-full justify-center"
               onClick={() => act(() => api.acceptHandoff(c.id), 'Conversation accepted')}>
               Accept conversation
             </Button>
-            <Button variant="secondary" size="sm" className="w-full justify-center"
+            <Button variant="secondary" size="lg" className="w-full justify-center"
               onClick={() => act(() => api.rejectHandoff(c.id), 'Rejected, AI taking over')}>
               Reject
             </Button>
           </>
         )}
         {isBot && (
-          <Button variant="secondary" size="sm" className="w-full justify-center"
+          <Button variant="secondary" size="lg" className="w-full justify-center"
             onClick={() => act(() => api.takeover(c.id), 'You have taken over this conversation')}>
             Take over
           </Button>
@@ -407,7 +572,7 @@ function ContextRow({ label, children }) {
 }
 
 // Chat Thread
-function ChatThread({ thread, templates, onSync, onChanged }) {
+function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext }) {
   const { conversation, messages } = thread;
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
@@ -445,54 +610,59 @@ function ChatThread({ thread, templates, onSync, onChanged }) {
     <div className="flex flex-col flex-1 min-h-0">
 
       {/* Thread header */}
-      <div className="flex items-center gap-3 px-5 h-[60px] border-b border-gray-200 flex-shrink-0 bg-white">
-        <Avatar name={conversation.name} waId={conversation.wa_id} size="md" />
+      <div className="flex items-center gap-3 px-5 h-[72px] border-b border-gray-200 flex-shrink-0 bg-white">
+        <Avatar
+          name={displayName({ waId: conversation.wa_id, name: conversation.name })}
+          waId={conversation.wa_id}
+          size="lg"
+        />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-gray-900 truncate">
-            {conversation.name || conversation.wa_id}
-          </div>
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <EditableName
+            waId={conversation.wa_id}
+            fallback={conversation.name}
+            className="text-base font-bold text-gray-900"
+          />
+          <div className="flex items-center gap-1.5 text-sm text-gray-400 mt-0.5">
             <span>{conversation.wa_id}</span>
             {conversation.assignee && (
-              <><ChevronRight size={11} /><span>with {conversation.assignee}</span></>
+              <><ChevronRight size={13} /><span>with {conversation.assignee}</span></>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span
-            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${
-              win.open
-                ? 'bg-green-50 text-green-700 border-green-200'
-                : 'bg-gray-100 text-gray-500 border-gray-200'
-            }`}
-          >
-            <Clock size={11} />
-            {win.label}
-          </span>
+        <div className="flex items-center gap-3 flex-shrink-0">
+
           {isHuman && (
-            <Button variant="secondary" size="sm"
+            <Button variant="secondary" size="lg"
               onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
               Give back to AI
             </Button>
           )}
           {isPending && (
             <>
-              <Button variant="secondary" size="sm"
+              <Button variant="secondary" size="lg"
                 onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected')}>
                 Reject
               </Button>
-              <Button variant="primary" size="sm"
+              <Button variant="primary" size="lg"
                 onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted')}>
                 Accept
               </Button>
             </>
           )}
           {!isHuman && !isPending && (
-            <Button variant="secondary" size="sm"
+            <Button variant="secondary" size="lg"
               onClick={() => act(() => api.takeover(conversation.id), 'You have taken over this conversation')}>
               Take over
             </Button>
           )}
+          <div className="w-px h-8 bg-gray-200 mx-1" />
+          <button
+            onClick={onToggleContext}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            title="Toggle Details"
+          >
+            <LayoutList size={18} />
+          </button>
         </div>
       </div>
 
@@ -536,18 +706,22 @@ function ChatThread({ thread, templates, onSync, onChanged }) {
               >
                 <div
                   className={`
-                    relative max-w-[72%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-xs
+                    relative max-w-[72%] px-5 py-3 rounded-2xl text-lg leading-relaxed shadow-xs
                     ${m.direction === 'outbound'
-                      ? 'text-white rounded-br-sm'
+                      ? 'bg-gray-800 text-white rounded-br-sm'
                       : 'bg-white text-gray-900 rounded-bl-sm border border-black/5'}
                   `}
-                  style={m.direction === 'outbound' ? { background: 'var(--accent)' } : {}}
                 >
-                  {m.direction === 'inbound' && m.type !== 'text' && !m.body
-                    ? <InboundMedia message={m} />
-                    : m.body || mediaLabel(m.type)
+                  {m.type !== 'text'
+                    ? (
+                      <div className="flex flex-col gap-1.5">
+                        <InboundAttachment message={m} />
+                        {m.body && <div className="pt-0.5">{m.body}</div>}
+                      </div>
+                    )
+                    : m.body
                   }
-                  <span className={`flex items-center justify-end gap-1 text-[11px] mt-1.5 ${m.direction === 'outbound' ? 'text-white/60' : 'text-gray-400'}`}>
+                  <span className={`flex items-center justify-end gap-1 text-xs font-semibold mt-1.5 ${m.direction === 'outbound' ? 'text-white/60' : 'text-gray-500'}`}>
                     {shortTime(m.created_at)}
                     {m.direction === 'outbound' && <Ticks status={m.status} />}
                   </span>
@@ -581,13 +755,13 @@ function ChatThread({ thread, templates, onSync, onChanged }) {
 
         {/* Composer input row */}
         {conversation.window_open ? (
-          <div className="flex items-center gap-2 px-4 py-3">
+          <div className="flex items-center gap-3 px-5 py-4">
             {/* File attach */}
             <label
-              className="flex items-center justify-center w-9 h-9 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
+              className="flex items-center justify-center w-11 h-11 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
               title="Attach a photo or document"
             >
-              <Paperclip size={17} />
+              <Paperclip size={20} />
               <input
                 type="file"
                 hidden
@@ -603,25 +777,25 @@ function ChatThread({ thread, templates, onSync, onChanged }) {
             </label>
             {/* Library */}
             <button
-              className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`flex items-center justify-center w-11 h-11 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send from media library"
               onClick={() => { setShowLibrary((v) => !v); setShowTemplates(false); }}
               aria-pressed={showLibrary}
             >
-              <Library size={17} />
+              <Library size={20} />
             </button>
             {/* Template toggle */}
             <button
-              className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`flex items-center justify-center w-11 h-11 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send a template"
               onClick={() => { setShowTemplates((v) => !v); setShowLibrary(false); }}
               aria-pressed={showTemplates}
             >
-              <FileText size={17} />
+              <FileText size={20} />
             </button>
             {/* Text input */}
             <input
-              className="flex-1 h-10 bg-gray-100 rounded-xl px-4 text-sm outline-none placeholder:text-gray-400 border border-transparent focus:border-gray-300 focus:bg-white transition-colors"
+              className="flex-1 h-12 bg-gray-100 rounded-xl px-5 text-base outline-none placeholder:text-gray-400 border border-transparent focus:border-gray-300 focus:bg-white transition-colors"
               placeholder="Type a message…"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -630,13 +804,13 @@ function ChatThread({ thread, templates, onSync, onChanged }) {
             />
             {/* Send */}
             <button
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
               style={{ background: 'var(--accent)' }}
               disabled={!text.trim()}
               onClick={send}
               aria-label="Send message"
             >
-              <Send size={16} />
+              <Send size={18} />
             </button>
           </div>
         ) : (

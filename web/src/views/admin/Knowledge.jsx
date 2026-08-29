@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react';
+import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2 } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
 import { InputField } from '../../components/ui/Field.jsx';
@@ -12,7 +12,7 @@ import {
   FormStack, FormActions, EmptyState, TabPills,
 } from './Dashboard.jsx';
 
-// ─── Simulator Drawer ───────────────────────────────────────────
+// Simulator Drawer
 function SimulatorDrawer({ packs, onClose }) {
   const [text, setText]           = useState('');
   const [topicId, setTopicId]     = useState('');
@@ -36,11 +36,11 @@ function SimulatorDrawer({ packs, onClose }) {
   return (
     <Drawer title="Test the AI" onClose={onClose}>
       <FormStack>
-        <p className="text-sm text-gray-500 leading-relaxed">
+        <p className="text-sm text-gray-500 leading-relaxed mb-4">
           Type a message as if a customer sent it. The AI will respond exactly as it would in a live chat. Nothing is sent to any real conversation.
         </p>
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Customer message</label>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-base font-medium text-gray-800">Customer message</label>
           <textarea
             className="field-textarea"
             placeholder="e.g. How much does a logo cost?"
@@ -50,25 +50,27 @@ function SimulatorDrawer({ packs, onClose }) {
           />
         </div>
         {servicePacks.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Pretend they came through (optional)</label>
-            <select className="field-input" value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+          <div className="flex flex-col gap-1.5 mt-1">
+            <label className="text-base font-medium text-gray-800">Pretend they came through (optional)</label>
+            <select className="field-input h-10 px-3 text-sm" value={topicId} onChange={(e) => setTopicId(e.target.value)}>
               <option value="">No specific campaign</option>
               {servicePacks.map((p) => <option key={p.topic_id} value={p.topic_id}>{p.name}</option>)}
             </select>
-            <p className="text-[11px] text-gray-400">This biases the AI toward that service's answers.</p>
+            <p className="text-sm text-gray-500">Biases the AI toward that service's answers.</p>
           </div>
         )}
-        <Button variant="primary" size="md" onClick={run} disabled={!text.trim() || busy}>
-          {busy ? 'Running…' : 'Run test'}
-        </Button>
+        <div className="mt-1">
+          <Button variant="primary" size="sm" onClick={run} disabled={!text.trim() || busy}>
+            {busy ? 'Running…' : 'Run test'}
+          </Button>
+        </div>
 
         {result && (
           <div className="border border-gray-200 rounded-lg overflow-hidden mt-2">
             {/* Info bar */}
             <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
               <BookOpen size={14} className="text-gray-400" />
-              <span className="text-[11px] text-gray-400">
+              <span className="text-xs text-gray-500">
                 Packs: {result.packsIncluded.map((p) => packNames.get(String(p)) || `#${p}`).join(', ')} · {result.faqCount} answer{result.faqCount !== 1 ? 's' : ''} · ~{result.contextTokens} tokens
                 {result.droppedForBudget > 0 && ` (${result.droppedForBudget} dropped for length)`}
               </span>
@@ -96,13 +98,13 @@ function SimulatorDrawer({ packs, onClose }) {
               <div className="mt-3">
                 <button
                   onClick={() => setContextOpen((v) => !v)}
-                  className="flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:text-[var(--accent)] transition-colors"
+                  className="flex items-center gap-1 text-sm text-[var(--accent-text)] hover:text-[var(--accent)] transition-colors"
                 >
                   {contextOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   {contextOpen ? 'Hide full prompt' : 'Show full prompt sent to AI'}
                 </button>
                 {contextOpen && (
-                  <pre className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-[11px] text-gray-600 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                  <pre className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">
                     {result.context || '(empty)'}
                   </pre>
                 )}
@@ -115,7 +117,7 @@ function SimulatorDrawer({ packs, onClose }) {
   );
 }
 
-// ─── Proposals ─────────────────────────────────────────────────
+// Proposals
 function Proposals({ reloadKey, onChange }) {
   const [data, setData] = useState(null);
   const toast = useToast();
@@ -135,11 +137,11 @@ function Proposals({ reloadKey, onChange }) {
     <Section>
       <div className="flex items-center gap-2 mb-2">
         <Lightbulb size={16} className="text-amber-500" />
-        <span className="text-xs font-bold uppercase tracking-[0.07em] text-gray-500">AI suggestions to review</span>
+        <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Suggestions to review</span>
         <Badge variant="warning">{proposals.length}</Badge>
       </div>
       <p className="text-sm text-gray-500 mb-4 leading-relaxed">
-        The AI found these gaps and conflicts while reviewing recent conversations. Review each one and approve or dismiss it.
+        The AI spotted these gaps and conflicts in recent chats. Approve to add them, or dismiss.
       </p>
       <Card>
         {gaps.map((p)    => <GapProposal key={p.id} proposal={p} onChanged={onChange} />)}
@@ -171,7 +173,7 @@ function GapProposal({ proposal, onChanged }) {
     <div className="flex flex-col gap-3 px-4 py-4 border-b border-gray-100 last:border-0">
       <div>
         <Badge variant="warning">Gap — question the AI couldn't answer</Badge>
-        <div className="text-[11px] text-gray-400 mt-1">
+        <div className="text-xs text-gray-500 mt-1">
           {proposal.topic_name || 'Base'}{proposal.reason ? ` · ${proposal.reason}` : ''}
           {proposal.sample_conversation_ids?.length > 0 && ` · seen in ${proposal.sample_conversation_ids.length} chat${proposal.sample_conversation_ids.length === 1 ? '' : 's'}`}
         </div>
@@ -199,7 +201,7 @@ function ContradictionProposal({ proposal, onChanged }) {
     <div className="flex flex-col gap-3 px-4 py-4 border-b border-gray-100 last:border-0">
       <div>
         <Badge variant="warning">Conflict — two answers disagree</Badge>
-        <div className="text-[11px] text-gray-400 mt-1">
+        <div className="text-xs text-gray-500 mt-1">
           {proposal.topic_name || 'Base'}{proposal.reason ? ` · ${proposal.reason}` : ''}
         </div>
       </div>
@@ -209,7 +211,7 @@ function ContradictionProposal({ proposal, onChanged }) {
           { label: 'Answer B', q: proposal.faq_b_question, a: proposal.faq_b_answer },
         ].map(({ label, q, a }) => (
           <div key={label} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="text-[10px] text-gray-400 mb-1">{label}</div>
+            <div className="text-xs text-gray-500 mb-1">{label}</div>
             <div className="text-sm font-semibold text-gray-800">{q}</div>
             <div className="text-xs text-gray-500 mt-1">{a}</div>
           </div>
@@ -222,7 +224,7 @@ function ContradictionProposal({ proposal, onChanged }) {
   );
 }
 
-// ─── FAQ Row ───────────────────────────────────────────────────
+// FAQ Row
 function FaqRow({ faq, first, last, onMove, onChanged }) {
   const [editing, setEditing]           = useState(false);
   const [expanded, setExpanded]         = useState(false);
@@ -256,9 +258,9 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
   const restore = async (vId) => { await api.rollbackFaq(vId); setHistory(null); toast.success('Restored to previous version'); onChanged(); };
 
   if (editing) return (
-    <div className="px-4 py-4 border-b border-gray-100 last:border-0 flex flex-col gap-3">
-      <input className="field-input" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} placeholder="Question" />
-      <textarea className="field-textarea" value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={4} placeholder="Answer" />
+    <div className="px-6 py-5 border-b border-gray-100 last:border-0 flex flex-col gap-4">
+      <input className="field-input h-10 px-3 text-sm" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} placeholder="Question" />
+      <textarea className="field-textarea text-sm" value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={4} placeholder="Answer" />
       <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
         <input type="checkbox" className="rounded" checked={form.verbatim} onChange={(e) => setForm({ ...form, verbatim: e.target.checked })} />
         Quote this answer word-for-word (use for exact prices or timelines)
@@ -267,13 +269,13 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
         <input type="checkbox" className="rounded" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} />
         Always include, even if the knowledge base needs to be trimmed
       </label>
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Attach a file (optional)</label>
-        <select className="field-input" value={form.mediaAssetId ?? ''} onChange={(e) => setForm({ ...form, mediaAssetId: e.target.value ? Number(e.target.value) : null })}>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-base font-medium text-gray-800">Attach a file (optional)</label>
+        <select className="field-input h-10 px-3 text-sm" value={form.mediaAssetId ?? ''} onChange={(e) => setForm({ ...form, mediaAssetId: e.target.value ? Number(e.target.value) : null })}>
           <option value="">No file</option>
           {(media || []).map((m) => <option key={m.id} value={m.id}>{m.filename}{m.description ? ` — ${m.description}` : ''}</option>)}
         </select>
-        <p className="text-[11px] text-gray-400">The AI will send this file when it uses this answer and the customer asked about what it shows.</p>
+        <p className="text-sm text-gray-400">The AI will send this file when it uses this answer and the customer asked about what it shows.</p>
       </div>
       <FormActions>
         <Button variant="primary" size="sm" onClick={save}>Save</Button>
@@ -286,29 +288,29 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
     <div className="border-b border-gray-100 last:border-0">
       {/* Row head */}
       <div
-        className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="flex items-start gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-medium text-gray-800">{faq.question}</span>
-            {faq.verbatim       && <Badge variant="neutral" className="text-[10px]">word-for-word</Badge>}
-            {faq.pinned         && <Badge variant="neutral" className="text-[10px]">always included</Badge>}
-            {faq.media_asset_id && <Badge variant="success" className="text-[10px]">has file</Badge>}
-            {!faq.active        && <Badge variant="warning" className="text-[10px]">awaiting review</Badge>}
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-base font-bold text-gray-800">{faq.question}</span>
+            {faq.verbatim       && <Badge variant="neutral" className="text-xs">word-for-word</Badge>}
+            {faq.pinned         && <Badge variant="neutral" className="text-xs">always included</Badge>}
+            {faq.media_asset_id && <Badge variant="success" className="text-xs">has file</Badge>}
+            {!faq.active        && <Badge variant="warning" className="text-xs">awaiting review</Badge>}
           </div>
-          {!expanded && <div className="text-xs text-gray-400 mt-0.5 truncate">{faq.answer}</div>}
+          {!expanded && <div className="text-sm text-gray-500 truncate">{faq.answer}</div>}
         </div>
         {/* Actions — stop propagation so click doesn't toggle row */}
-        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-[13px]" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
-          <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-[13px]" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
+        <div className="flex items-center gap-2 flex-shrink-0 mt-0.5" onClick={(e) => e.stopPropagation()}>
+          <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
+          <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
           {!faq.active && <Button variant="primary" size="sm" onClick={approve}>Approve</Button>}
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
           {!deleteConfirm
             ? <Button variant="danger-ghost" size="sm" onClick={() => setDeleteConfirm(true)}>Delete</Button>
             : (
-              <span className="flex items-center gap-1 text-xs text-gray-500">
+              <span className="flex items-center gap-2 text-sm text-gray-500">
                 Delete?
                 <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
                 <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(false)}>No</Button>
@@ -319,17 +321,17 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
       </div>
       {/* Expanded */}
       {expanded && (
-        <div className="px-4 pb-4 text-sm text-gray-600 leading-relaxed bg-gray-50/50">
+        <div className="px-6 pb-4 text-sm text-gray-700 leading-relaxed bg-gray-50/50">
           <p className="mb-3">{faq.answer}</p>
           {history && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
               {history.length === 0
-                ? <div className="p-3 text-xs text-gray-400">No previous versions.</div>
+                ? <div className="p-4 text-sm text-gray-400">No previous versions.</div>
                 : history.map((v) => (
-                  <div key={v.id} className="flex items-start gap-3 px-4 py-3 border-b border-gray-100 last:border-0">
+                  <div key={v.id} className="flex items-start gap-4 px-5 py-4 border-b border-gray-100 last:border-0">
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] text-gray-400">{new Date(v.created_at).toLocaleString()} by {v.actor || 'system'}</div>
-                      <div className="text-xs text-gray-600 mt-1">{v.answer}</div>
+                      <div className="text-xs font-semibold text-gray-500">{new Date(v.created_at).toLocaleString()} by {v.actor || 'system'}</div>
+                      <div className="text-sm text-gray-700 mt-1">{v.answer}</div>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => restore(v.id)}>Restore</Button>
                   </div>
@@ -338,7 +340,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
             </div>
           )}
           <button
-            className="text-[11px] text-[var(--accent-text)] hover:text-[var(--accent)] transition-colors"
+            className="text-xs font-semibold text-[var(--accent-text)] hover:text-[var(--accent)] transition-colors"
             onClick={toggleHistory}
           >
             {history ? 'Hide history' : 'View history'}
@@ -349,10 +351,12 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
   );
 }
 
-// ─── Pack Settings ─────────────────────────────────────────────
-function PackSettings({ topicId, onChanged }) {
+// Pack Settings
+function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   const [topic, setTopic] = useState(null);
   const [form, setForm]   = useState({ description: '', keywords: '' });
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -365,38 +369,95 @@ function PackSettings({ topicId, onChanged }) {
   const save = async () => {
     try {
       await api.updateTopic(topicId, { description: form.description.trim() || null, keywords: form.keywords.trim() || null });
-      toast.success('Pack settings saved');
+      toast.success('Saved');
       onChanged?.();
     } catch (e) { toast.error(e.message); }
   };
 
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await api.deleteTopic(topicId);
+      setConfirmDelete(false);
+      toast.success(res.movedFaqs
+        ? `"${topic.name}" deleted · ${res.movedFaqs} answer${res.movedFaqs === 1 ? '' : 's'} moved to Common`
+        : `"${topic.name}" deleted`);
+      onDeleted?.();
+    } catch (e) { toast.error(e.message); }
+    finally { setDeleting(false); }
+  };
+
   if (!topic) return null;
   return (
-    <Card className="mb-4">
-      <CardHeader title={`Pack settings — ${topic.name}`} />
-      <CardBody>
-        <FormStack>
-          <InputField label="Keywords"
-            helper="When a customer's message contains any of these words, this pack is automatically included."
-            placeholder="logo, branding, identity, redesign"
-            value={form.keywords}
-            onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
-          <InputField label="Description for the AI"
-            helper="One sentence shown to the AI so it knows what this pack covers and when to ask for it."
-            placeholder="Logo and brand identity design services"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          <FormActions>
-            <Button variant="primary" size="sm" onClick={save}>Save</Button>
-          </FormActions>
-        </FormStack>
-      </CardBody>
-    </Card>
+    <>
+      <Card className="mb-4">
+        <CardHeader title={`Pack settings — ${topic.name}`}>
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded"
+            title="Delete this pack"
+          >
+            <Trash2 size={14} /> Delete pack
+          </button>
+        </CardHeader>
+        <CardBody>
+          <FormStack>
+            <InputField label="Trigger words"
+              helper="If a customer's message contains any of these words, this pack is used automatically."
+              placeholder="logo, branding, identity, redesign"
+              value={form.keywords}
+              onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
+            <InputField label="What this pack covers"
+              helper="One line, plain English. The AI reads this to know when the pack is relevant."
+              placeholder="Logo and brand identity design services"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <FormActions>
+              <Button variant="primary" size="sm" onClick={save}>Save</Button>
+            </FormActions>
+          </FormStack>
+        </CardBody>
+      </Card>
+
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40"
+          onClick={() => !deleting && setConfirmDelete(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-gray-100">
+              <div className="text-base font-semibold text-gray-900">Delete "{topic.name}"?</div>
+            </div>
+            <div className="px-5 py-5 text-sm text-gray-600 leading-relaxed">
+              {faqCount > 0 ? (
+                <>
+                  This pack has <b>{faqCount} answer{faqCount === 1 ? '' : 's'}</b>. They will move into your Common pack so nothing gets lost. Any campaign linked to this pack will lose its link.
+                </>
+              ) : (
+                <>The pack is empty. Any campaign linked to it will lose its link.</>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/70">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)} disabled={deleting}>Cancel</Button>
+              <Button variant="danger" size="sm" onClick={doDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete pack'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
-// ─── FAQ Pane ──────────────────────────────────────────────────
-function FaqPane({ pack, onChange }) {
+// FAQ Pane
+function FaqPane({ pack, faqCount, onDeleted, onChange }) {
   const [data, setData]           = useState(null);
   const [question, setQuestion]   = useState('');
   const [answer, setAnswer]       = useState('');
@@ -446,7 +507,9 @@ function FaqPane({ pack, onChange }) {
 
   return (
     <div>
-      {pack !== 'base' && <PackSettings topicId={pack} onChanged={onChange} />}
+      {pack !== 'base' && (
+        <PackSettings topicId={pack} faqCount={faqCount} onDeleted={onDeleted} onChanged={onChange} />
+      )}
 
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm text-gray-400">{rows.length} answer{rows.length !== 1 ? 's' : ''}</span>
@@ -512,7 +575,7 @@ function FaqPane({ pack, onChange }) {
   );
 }
 
-// ─── Search Results ────────────────────────────────────────────
+// Search Results
 function FaqSearchResults({ query, onChange }) {
   const [data, setData] = useState(null);
   useEffect(() => { api.searchFaqs(query).then(setData).catch(() => {}); }, [query]);
@@ -535,7 +598,7 @@ function FaqSearchResults({ query, onChange }) {
   );
 }
 
-// ─── Media Pane ────────────────────────────────────────────────
+// Media Pane
 function MediaPane({ topics }) {
   const [topicId, setTopicId]         = useState(null);
   const [data, setData]               = useState(null);
@@ -597,7 +660,7 @@ function MediaPane({ topics }) {
           <FormStack>
             <input type="file" className="text-sm text-gray-600" onChange={(e) => setFile(e.target.files?.[0] || null)} />
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Topic</label>
+              <label className="text-base font-medium text-gray-800">Topic</label>
               <select className="field-input" value={uploadTopicId} onChange={(e) => setUploadTopicId(e.target.value)}>
                 <option value="">No topic</option>
                 {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -654,35 +717,64 @@ function MediaPane({ topics }) {
   );
 }
 
-// ─── Add Topic Inline ─────────────────────────────────────────
-function AddTopicInline({ onCancel, onCreate }) {
-  const [name, setName]             = useState('');
+// A small dialog that appears over the page so the "+ New pack" click has an
+// immediate, visible response instead of expanding a form far below the fold.
+function AddPackModal({ onCancel, onCreate }) {
+  const [name, setName]               = useState('');
   const [description, setDescription] = useState('');
-  const [keywords, setKeywords]     = useState('');
+  const [keywords, setKeywords]       = useState('');
+  const [saving, setSaving]           = useState(false);
   const toast = useToast();
 
   const submit = async () => {
+    setSaving(true);
     try { await onCreate(name.trim(), '', description.trim(), keywords.trim()); }
-    catch (e) { toast.error(e.message); }
+    catch (e) { toast.error(e.message); setSaving(false); }
   };
 
   return (
-    <Card className="mt-4 p-4">
-      <FormStack>
-        <div className="text-xs font-bold uppercase tracking-[0.07em] text-gray-500">Create a new service pack</div>
-        <InputField label="Pack name" placeholder="e.g. Logo Design" value={name} onChange={(e) => setName(e.target.value)} required />
-        <InputField label="Keywords" helper="Words that pull this pack in automatically when a customer mentions them." placeholder="logo, branding, identity" value={keywords} onChange={(e) => setKeywords(e.target.value)} />
-        <InputField label="Description for the AI" helper="One sentence so the AI knows what this pack covers." placeholder="Logo and brand identity design services" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <FormActions>
-          <Button variant="primary" size="sm" onClick={submit} disabled={!name.trim()}>Create pack</Button>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40"
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-gray-100">
+          <div className="text-base font-semibold text-gray-900">New service pack</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            A pack groups answers for one service or campaign.
+          </div>
+        </div>
+        <div className="px-5 py-5">
+          <FormStack>
+            <InputField label="Pack name" placeholder="e.g. Logo Design"
+              value={name} onChange={(e) => setName(e.target.value)} required />
+            <InputField label="Trigger words"
+              helper="If a customer mentions any of these words, this pack is used automatically."
+              placeholder="logo, branding, identity"
+              value={keywords} onChange={(e) => setKeywords(e.target.value)} />
+            <InputField label="What this pack covers"
+              helper="One line, plain English. The AI reads this to know when the pack is relevant."
+              placeholder="Logo and brand identity design services"
+              value={description} onChange={(e) => setDescription(e.target.value)} />
+          </FormStack>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/70">
           <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-        </FormActions>
-      </FormStack>
-    </Card>
+          <Button variant="primary" size="sm" onClick={submit} disabled={!name.trim() || saving}>
+            {saving ? 'Creating…' : 'Create pack'}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-// ─── Knowledge Page ────────────────────────────────────────────
+// Knowledge Page
 export default function Knowledge() {
   const [packs, setPacks]           = useState([]);
   const [pack, setPack]             = useState('base');
@@ -695,9 +787,12 @@ export default function Knowledge() {
   const [topics, setTopics]         = useState([]);
   const toast = useToast();
 
-  const reloadPacks = useCallback(() => {
-    api.packs().then((d) => setPacks(d.packs || [])).catch(() => {});
-    api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
+  const reloadPacks = useCallback(async () => {
+    try {
+      const [p, t] = await Promise.all([api.packs(), api.topics()]);
+      setPacks(p.packs || []);
+      setTopics(t.topics || []);
+    } catch { /* transient, next reload will retry */ }
   }, []);
 
   useEffect(() => { reloadPacks(); }, [reloadPacks, reloadKey]);
@@ -727,17 +822,23 @@ export default function Knowledge() {
   };
 
   const createTopic = async (name, slug, description, keywords) => {
-    const res = await api.addTopic({ name, slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '_'), description, keywords });
+    const res = await api.addTopic({
+      name,
+      slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+      description,
+      keywords,
+    });
     setAddTopicOpen(false);
-    setReloadKey((k) => k + 1);
+    await reloadPacks();
     setPack(res.topic.id);
-    toast.success('Pack created');
+    setReloadKey((k) => k + 1);
+    toast.success(`Created "${res.topic.name}"`);
   };
 
   return (
     <AdminPage
-      title="AI Knowledge"
-      subtitle="Everything your AI knows. The base pack goes into every conversation. Service packs go in when a lead came through a linked campaign or mentions relevant keywords."
+      title="Answers your AI uses"
+      subtitle="The common pack is used in every chat. Service packs kick in when a lead came through a campaign or mentions matching keywords."
       actions={
         <>
           <Button variant="ghost" size="sm" onClick={doExport}>Export</Button>
@@ -805,11 +906,17 @@ export default function Knowledge() {
 
           {search.trim()
             ? <FaqSearchResults query={search.trim()} onChange={() => setReloadKey((k) => k + 1)} />
-            : <FaqPane key={`${pack}-${reloadKey}`} pack={pack} onChange={() => setReloadKey((k) => k + 1)} />
+            : <FaqPane
+                key={`${pack}-${reloadKey}`}
+                pack={pack}
+                faqCount={packs.find((p) => String(p.topic_id ?? 'base') === String(pack))?.faq_count ?? 0}
+                onDeleted={async () => { await reloadPacks(); setPack('base'); setReloadKey((k) => k + 1); }}
+                onChange={() => setReloadKey((k) => k + 1)}
+              />
           }
 
           {addTopicOpen && (
-            <AddTopicInline onCancel={() => setAddTopicOpen(false)} onCreate={createTopic} />
+            <AddPackModal onCancel={() => setAddTopicOpen(false)} onCreate={createTopic} />
           )}
         </>
       )}
