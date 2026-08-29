@@ -59,6 +59,14 @@ export const api = {
   ingestKnowledge: (text, scope = 'base', topicId = null) =>
     req('/knowledge/ingest', { method: 'POST', body: JSON.stringify({ text, scope, topicId }) }),
   runLearning: () => req('/knowledge/learn', { method: 'POST' }),
+  packs: () => req('/packs'),
+  faqs: (pack = 'all') => req(`/faqs?pack=${encodeURIComponent(pack)}`),
+  addFaq: (body) => req('/faqs', { method: 'POST', body: JSON.stringify(body) }),
+  updateFaq: (id, body) => req(`/faqs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteFaq: (id) => req(`/faqs/${id}`, { method: 'DELETE' }),
+  reorderFaqs: (ids) => req('/faqs/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
+  faqVersions: (id) => req(`/faqs/${id}/versions`),
+  rollbackFaq: (versionId) => req(`/faqs/versions/${versionId}/rollback`, { method: 'POST' }),
   topics: () => req('/topics'),
   addTopic: (name, slug, description) =>
     req('/topics', { method: 'POST', body: JSON.stringify({ name, slug, description }) }),

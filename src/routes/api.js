@@ -14,6 +14,16 @@ import {
 import { addKnowledgeUnit } from '../knowledge/writer.js';
 import { ingestText } from '../knowledge/ingestion.js';
 import {
+  listFaqs,
+  createFaq,
+  updateFaq,
+  deleteFaq,
+  reorderFaqs,
+  listFaqVersions,
+  rollbackFaq,
+  listPacks,
+} from '../knowledge/faqs.js';
+import {
   getAgentByEmail,
   listConversations,
   getConversationById,
@@ -337,6 +347,92 @@ export function registerApi(app, deps) {
     try {
       await meta.updateBusinessProfile(fields);
       return { profile: await meta.getBusinessProfile() };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // FAQs. A pack is a topic, plus the base pack every conversation gets.
+  // pack=all, pack=base, or pack=<topic id>.
+  app.get('/api/packs', { preHandler: auth }, async () => ({ packs: await listPacks(pool) }));
+
+  app.get('/api/faqs', { preHandler: auth }, async (req) => {
+    const raw = (req.query?.pack ?? 'all').trim();
+    const pack = raw === 'all' || raw === 'base' ? raw : Number(raw);
+    if (typeof pack === 'number' && !Number.isInteger(pack)) {
+      return { faqs: [] };
+    }
+    return { faqs: await listFaqs(pool, { pack }) };
+  });
+
+  app.post('/api/faqs', { preHandler: auth }, async (req, reply) => {
+    try {
+      const faq = await createFaq(
+        pool,
+        {
+          topicId: req.body?.topicId ? Number(req.body.topicId) : null,
+          question: req.body?.question,
+          answer: req.body?.answer,
+          verbatim: req.body?.verbatim,
+          pinned: req.body?.pinned,
+          mediaAssetId: req.body?.mediaAssetId ? Number(req.body.mediaAssetId) : null,
+        },
+        req.user.email,
+      );
+      await audit(req, 'faq added', `faq ${faq.id}`, faq.question);
+      return { faq };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.put('/api/faqs/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const fields = {};
+    for (const key of ['question', 'answer', 'verbatim', 'pinned', 'active']) {
+      if (req.body && key in req.body) fields[key] = req.body[key];
+    }
+    // These two are nullable on purpose, so an explicit null has to be able to
+    // clear them rather than being read as "not supplied".
+    if (req.body && 'mediaAssetId' in req.body) {
+      fields.mediaAssetId = req.body.mediaAssetId ? Number(req.body.mediaAssetId) : null;
+    }
+    if (req.body && 'topicId' in req.body) {
+      fields.topicId = req.body.topicId ? Number(req.body.topicId) : null;
+    }
+
+    try {
+      const faq = await updateFaq(pool, req.params.id, fields, req.user.email);
+      if (!faq) return reply.code(404).send({ error: 'not found' });
+      await audit(req, 'faq updated', `faq ${req.params.id}`, Object.keys(fields).join(', '));
+      return { faq };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.delete('/api/faqs/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    await deleteFaq(pool, req.params.id);
+    await audit(req, 'faq deleted', `faq ${req.params.id}`);
+    return { ok: true };
+  });
+
+  app.post('/api/faqs/reorder', { preHandler: auth }, async (req, reply) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+    if (ids.length === 0) return reply.code(400).send({ error: 'ids are required' });
+    await reorderFaqs(pool, ids);
+    await audit(req, 'faqs reordered', null, `${ids.length} entries`);
+    return { ok: true };
+  });
+
+  app.get('/api/faqs/:id/versions', { preHandler: auth, schema: idParams }, async (req) => ({
+    versions: await listFaqVersions(pool, req.params.id),
+  }));
+
+  app.post('/api/faqs/versions/:id/rollback', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    try {
+      const faq = await rollbackFaq(pool, req.params.id, req.user.email);
+      await audit(req, 'faq rolled back', `faq ${faq.id}`, `to version ${req.params.id}`);
+      return { faq };
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }

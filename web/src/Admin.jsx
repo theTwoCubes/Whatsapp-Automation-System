@@ -6,6 +6,7 @@ const tabs = [
   ['overview', 'Overview'],
   ['campaigns', 'Campaigns'],
   ['profile', 'Business profile'],
+  ['faqs', 'FAQs'],
   ['knowledge', 'Knowledge base'],
   ['media', 'Media'],
   ['templates', 'Templates'],
@@ -41,6 +42,7 @@ export default function Admin({ onBack, onLogout }) {
           {tab === 'overview' && <Overview />}
           {tab === 'campaigns' && <Campaigns />}
           {tab === 'profile' && <Profile />}
+          {tab === 'faqs' && <Faqs />}
           {tab === 'knowledge' && <Knowledge />}
           {tab === 'media' && <Media />}
           {tab === 'templates' && <Templates />}
@@ -216,6 +218,206 @@ function Profile() {
       <div className="form-actions">
         <button className="btn" onClick={save}>Save profile</button>
         {msg && <span className="muted">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function Faqs() {
+  // The bot is given whole packs verbatim, so this list is literally what it
+  // knows. Order matters, since that is the order it reads them in.
+  const [packs, setPacks] = useState([]);
+  const [pack, setPack] = useState('base');
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const reloadPacks = () => {
+    api.packs().then((d) => setPacks(d.packs || [])).catch(() => {});
+  };
+  useEffect(reloadPacks, [reloadKey]);
+
+  return (
+    <div>
+      <p className="muted">
+        Every answer the bot can give is written here. The base pack goes into every conversation. A service pack
+        goes in when the lead came through that campaign, and the bot can pull in another one if the question calls
+        for it. Nothing is summarised or guessed at, so if an answer is wrong here it is wrong in the chat.
+      </p>
+
+      <div className="topic-tabs">
+        {packs.map((p) => (
+          <button
+            key={p.slug}
+            className={`topic-tab ${String(pack) === String(p.topic_id ?? 'base') ? 'active' : ''}`}
+            onClick={() => setPack(p.topic_id ?? 'base')}
+          >
+            {p.name} <span className="count">{p.faq_count}</span>
+          </button>
+        ))}
+      </div>
+
+      <FaqPane
+        key={`${pack}-${reloadKey}`}
+        pack={pack}
+        onChange={() => setReloadKey((k) => k + 1)}
+      />
+    </div>
+  );
+}
+
+function FaqPane({ pack, onChange }) {
+  const [data, error, reload] = useAsync(() => api.faqs(pack), [pack]);
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [verbatim, setVerbatim] = useState(false);
+  const [msg, setMsg] = useState('');
+  const rows = data?.faqs || [];
+
+  const refresh = () => {
+    reload();
+    onChange?.();
+  };
+
+  const add = async () => {
+    setMsg('');
+    try {
+      await api.addFaq({
+        topicId: pack === 'base' ? null : pack,
+        question: question.trim(),
+        answer: answer.trim(),
+        verbatim,
+      });
+      setQuestion('');
+      setAnswer('');
+      setVerbatim(false);
+      refresh();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+
+  const move = async (index, delta) => {
+    const next = [...rows];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    await api.reorderFaqs(next.map((r) => r.id));
+    refresh();
+  };
+
+  if (error) return <p className="error">{error}</p>;
+
+  return (
+    <div className="form">
+      <div className="muted">{rows.length} answer{rows.length === 1 ? '' : 's'} in this pack.</div>
+
+      {rows.map((f, i) => (
+        <FaqRow
+          key={f.id}
+          faq={f}
+          first={i === 0}
+          last={i === rows.length - 1}
+          onMove={(delta) => move(i, delta)}
+          onChanged={refresh}
+        />
+      ))}
+
+      <div className="add-box">
+        <strong>Add an answer</strong>
+        <input placeholder="Question a lead would ask, e.g. What does a logo cost?" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <textarea placeholder="The answer, written the way you want it said" value={answer} onChange={(e) => setAnswer(e.target.value)} />
+        <label className="check">
+          <input type="checkbox" checked={verbatim} onChange={(e) => setVerbatim(e.target.checked)} />
+          <span>Quote this answer word for word. Use it for prices, timelines and anything an approximation would get wrong.</span>
+        </label>
+        <button className="btn" onClick={add} disabled={!question.trim() || !answer.trim()}>Add answer</button>
+        {msg && <span className="error">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+function FaqRow({ faq, first, last, onMove, onChanged }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ question: faq.question, answer: faq.answer, verbatim: faq.verbatim, pinned: faq.pinned });
+  const [history, setHistory] = useState(null);
+  const [msg, setMsg] = useState('');
+
+  const save = async () => {
+    setMsg('');
+    try {
+      await api.updateFaq(faq.id, form);
+      setEditing(false);
+      onChanged();
+    } catch (e) {
+      setMsg(e.message);
+    }
+  };
+  const remove = async () => {
+    await api.deleteFaq(faq.id);
+    onChanged();
+  };
+  const toggleHistory = async () => {
+    if (history) return setHistory(null);
+    const d = await api.faqVersions(faq.id);
+    setHistory(d.versions || []);
+  };
+  const restore = async (versionId) => {
+    await api.rollbackFaq(versionId);
+    setHistory(null);
+    onChanged();
+  };
+
+  if (editing) {
+    return (
+      <div className="add-box">
+        <input value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} />
+        <textarea value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} />
+        <label className="check">
+          <input type="checkbox" checked={form.verbatim} onChange={(e) => setForm({ ...form, verbatim: e.target.checked })} />
+          <span>Quote word for word</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={form.pinned} onChange={(e) => setForm({ ...form, pinned: e.target.checked })} />
+          <span>Always include, even when trimming for length</span>
+        </label>
+        <div className="form-actions">
+          <button className="btn" onClick={save}>Save</button>
+          <button className="btn ghost" onClick={() => setEditing(false)}>Cancel</button>
+          {msg && <span className="error">{msg}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="list-row">
+      <div>
+        <strong>{faq.question}</strong>
+        {faq.verbatim && <span className="tag human">word for word</span>}
+        {faq.pinned && <span className="tag">always included</span>}
+        {!faq.active && <span className="tag">inactive</span>}
+        <div className="muted">{faq.answer}</div>
+        {history && (
+          <div className="history">
+            {history.map((v) => (
+              <div key={v.id} className="history-row">
+                <div className="muted">
+                  {new Date(v.created_at).toLocaleString()} by {v.actor || 'system'}
+                  <div>{v.answer}</div>
+                </div>
+                <button className="btn ghost" onClick={() => restore(v.id)}>Restore</button>
+              </div>
+            ))}
+            {history.length === 0 && <div className="muted">No history yet.</div>}
+          </div>
+        )}
+      </div>
+      <div className="form-actions">
+        <button className="icon-btn" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
+        <button className="icon-btn" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
+        <button className="btn ghost" onClick={toggleHistory}>History</button>
+        <button className="btn ghost" onClick={() => setEditing(true)}>Edit</button>
+        <button className="btn ghost danger" onClick={remove}>Delete</button>
       </div>
     </div>
   );

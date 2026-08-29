@@ -1,0 +1,132 @@
+import test, { before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  listFaqs,
+  getFaq,
+  createFaq,
+  updateFaq,
+  deleteFaq,
+  reorderFaqs,
+  listFaqVersions,
+  rollbackFaq,
+  listPacks,
+} from '../../src/knowledge/faqs.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
+import { setupPool, resetTables } from './support/harness.js';
+
+let pool;
+
+before(async () => {
+  pool = await setupPool();
+});
+after(async () => {
+  await pool?.end();
+});
+beforeEach(async () => {
+  await resetTables(pool);
+});
+
+test('a faq is created in a pack and listed under it', async () => {
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { topicId: topic.id, question: 'What does a logo cost?', answer: '20000 rupees plus GST.' }, 'a@b.com');
+  await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday, 10am to 7pm.' }, 'a@b.com');
+
+  const inPack = await listFaqs(pool, { pack: topic.id });
+  assert.equal(inPack.length, 1);
+  assert.equal(inPack[0].question, 'What does a logo cost?');
+
+  const base = await listFaqs(pool, { pack: 'base' });
+  assert.equal(base.length, 1, 'a faq with no topic lands in the base pack');
+  assert.equal(base[0].topic_id, null);
+
+  assert.equal((await listFaqs(pool, { pack: 'all' })).length, 2);
+});
+
+test('positions are assigned per pack so packs do not interleave', async () => {
+  const topic = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
+  const a = await createFaq(pool, { question: 'Base one', answer: 'x' });
+  const b = await createFaq(pool, { question: 'Base two', answer: 'y' });
+  const c = await createFaq(pool, { topicId: topic.id, question: 'Poster one', answer: 'z' });
+
+  assert.equal(a.position, 1);
+  assert.equal(b.position, 2);
+  assert.equal(c.position, 1, 'a new pack starts its own numbering');
+});
+
+test('reordering rewrites positions in the given order', async () => {
+  const a = await createFaq(pool, { question: 'First', answer: 'x' });
+  const b = await createFaq(pool, { question: 'Second', answer: 'y' });
+  const c = await createFaq(pool, { question: 'Third', answer: 'z' });
+
+  await reorderFaqs(pool, [c.id, a.id, b.id]);
+  const rows = await listFaqs(pool, { pack: 'base' });
+  assert.deepEqual(rows.map((r) => r.question), ['Third', 'First', 'Second']);
+});
+
+test('a partial update leaves the fields it was not given alone', async () => {
+  const faq = await createFaq(pool, { question: 'Price?', answer: '20000 rupees.', verbatim: true, pinned: true });
+  const updated = await updateFaq(pool, faq.id, { answer: '25000 rupees.' }, 'a@b.com');
+
+  assert.equal(updated.answer, '25000 rupees.');
+  assert.equal(updated.question, 'Price?', 'question untouched');
+  assert.equal(updated.verbatim, true, 'verbatim untouched');
+  assert.equal(updated.pinned, true, 'pinned untouched');
+});
+
+test('an explicit null clears the attachment rather than being ignored', async () => {
+  const assetId = (
+    await pool.query("insert into media_assets (kind, filename) values ('document', 'p.pdf') returning id")
+  ).rows[0].id;
+  const faq = await createFaq(pool, { question: 'Price?', answer: '20000.', mediaAssetId: assetId });
+  assert.equal(faq.media_asset_id, assetId);
+
+  const cleared = await updateFaq(pool, faq.id, { mediaAssetId: null });
+  assert.equal(cleared.media_asset_id, null, 'passing null detaches the file');
+
+  const untouched = await updateFaq(pool, faq.id, { answer: '21000.' });
+  assert.equal(untouched.media_asset_id, null, 'not passing it leaves it as it was');
+});
+
+test('every write is snapshotted and an earlier wording can be restored', async () => {
+  const faq = await createFaq(pool, { question: 'Price?', answer: '20000 rupees.' }, 'a@b.com');
+  await updateFaq(pool, faq.id, { answer: '25000 rupees.' }, 'b@b.com');
+
+  const versions = await listFaqVersions(pool, faq.id);
+  assert.equal(versions.length, 2, 'creation and the edit are both recorded');
+  assert.equal(versions[0].answer, '25000 rupees.', 'newest first');
+  assert.equal(versions[0].actor, 'b@b.com', 'the editor is recorded');
+
+  const original = versions[versions.length - 1];
+  const restored = await rollbackFaq(pool, original.id, 'c@b.com');
+  assert.equal(restored.answer, '20000 rupees.');
+
+  const after = await listFaqVersions(pool, faq.id);
+  assert.equal(after.length, 3, 'the rollback is itself part of the history');
+});
+
+test('deleting a faq takes its history with it', async () => {
+  const faq = await createFaq(pool, { question: 'Gone?', answer: 'yes' });
+  await deleteFaq(pool, faq.id);
+  assert.equal(await getFaq(pool, faq.id), null);
+  assert.equal((await listFaqVersions(pool, faq.id)).length, 0);
+});
+
+test('the pack list always leads with base and counts only active entries', async () => {
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { question: 'Base one', answer: 'x' });
+  await createFaq(pool, { topicId: topic.id, question: 'Logo one', answer: 'y' });
+  const inactive = await createFaq(pool, { topicId: topic.id, question: 'Logo two', answer: 'z' });
+  await updateFaq(pool, inactive.id, { active: false });
+
+  const packs = await listPacks(pool);
+  assert.equal(packs[0].slug, 'base');
+  assert.equal(packs[0].faq_count, 1);
+  const logo = packs.find((p) => p.slug === 'logo_design');
+  assert.equal(logo.faq_count, 1, 'the deactivated entry is not counted');
+});
+
+test('a faq needs both a question and an answer', async () => {
+  await assert.rejects(() => createFaq(pool, { question: '  ', answer: 'x' }), /question and answer/);
+  await assert.rejects(() => createFaq(pool, { question: 'x', answer: '' }), /question and answer/);
+});
