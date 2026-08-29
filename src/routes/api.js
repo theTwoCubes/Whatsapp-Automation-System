@@ -3,15 +3,7 @@ import { handToHuman, handToBot } from '../handoff.js';
 import { runWeeklyLearning } from '../knowledge/learning.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
-import {
-  listTopics,
-  upsertTopic,
-  updateTopic,
-  listKnowledgeByScope,
-  setKnowledgeActive,
-  deleteKnowledgeUnit,
-} from '../knowledge/topics.js';
-import { addKnowledgeUnit } from '../knowledge/writer.js';
+import { listTopics, upsertTopic, updateTopic } from '../knowledge/topics.js';
 import { ingestText } from '../knowledge/ingestion.js';
 import {
   listFaqs,
@@ -463,41 +455,12 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Knowledge listing per scope. scope=base or scope=topic&topicId=N.
-  app.get('/api/knowledge', { preHandler: auth }, async (req) => {
-    const scope = (req.query?.scope ?? 'base').trim();
-    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
-    return { knowledge: await listKnowledgeByScope(pool, { scope, topicId }) };
-  });
-
-  // Add a single knowledge unit, dedup gated. Body: { title, content, scope, topicId }.
-  app.post('/api/knowledge', { preHandler: auth }, async (req, reply) => {
-    const title = (req.body?.title ?? '').trim();
-    const content = (req.body?.content ?? '').trim();
-    const scope = (req.body?.scope ?? 'base').trim();
-    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
-    if (!title || !content) return reply.code(400).send({ error: 'title and content are required' });
-    if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
-    try {
-      const res = await addKnowledgeUnit(
-        pool,
-        deps.embeddings,
-        { title, content, scope, topicId, source: 'manual' },
-        { threshold: deps.config.dedupSimilarityThreshold },
-      );
-      await audit(req, res.added ? 'knowledge added' : 'knowledge duplicate skipped', title);
-      return res;
-    } catch (err) {
-      return reply.code(400).send({ error: err.message });
-    }
-  });
-
   // Runs a learning pass on demand instead of waiting for the weekly
-  // schedule, mainly so it can be tried out or checked without a week's wait.
-  // Anything it finds lands inactive under review, same as the scheduled run.
-  app.post('/api/knowledge/learn', { preHandler: auth }, async (req, reply) => {
+  // schedule. Anything it finds lands inactive for review, same as the
+  // scheduled run.
+  app.post('/api/faqs/learn', { preHandler: auth }, async (req, reply) => {
     try {
-      const res = await runWeeklyLearning(pool, deps.ai, deps.embeddings, deps.config);
+      const res = await runWeeklyLearning(pool, deps.ai);
       await audit(req, 'learning pass run', null, `added ${res.added}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
@@ -505,37 +468,19 @@ export function registerApi(app, deps) {
     }
   });
 
-  // Ingest raw text (an FAQ paste, a doc) into atomic deduped units.
-  app.post('/api/knowledge/ingest', { preHandler: auth }, async (req, reply) => {
+  // Bulk import: paste an FAQ document or raw notes and split it into entries
+  // in a pack. Duplicates are skipped by comparing the question text.
+  app.post('/api/faqs/import', { preHandler: auth }, async (req, reply) => {
     const text = (req.body?.text ?? '').trim();
-    const scope = (req.body?.scope ?? 'base').trim();
     const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     if (!text) return reply.code(400).send({ error: 'text is required' });
-    if (scope === 'topic' && !topicId) return reply.code(400).send({ error: 'topicId is required for scope=topic' });
     try {
-      const res = await ingestText(pool, deps.ai, deps.embeddings, text, {
-        scope,
-        topicId,
-        threshold: deps.config.dedupSimilarityThreshold,
-      });
-      await audit(req, 'knowledge ingested', scope === 'topic' ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
+      const res = await ingestText(pool, deps.ai, text, { topicId, actor: req.user.email });
+      await audit(req, 'faqs imported', topicId ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
-  });
-
-  app.put('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
-    if (typeof req.body?.active === 'boolean') {
-      await setKnowledgeActive(pool, req.params.id, req.body.active);
-    }
-    return { ok: true };
-  });
-
-  app.delete('/api/knowledge/:id', { preHandler: auth, schema: idParams }, async (req) => {
-    await deleteKnowledgeUnit(pool, req.params.id);
-    await audit(req, 'knowledge deleted', `unit ${req.params.id}`);
-    return { ok: true };
   });
 
   // Console agents.

@@ -41,7 +41,7 @@ test('a stalled human chat is resumed and the lead gets a reply', async () => {
   const resumed = await runAutoResume({
     pool,
     meta,
-    ai: new FakeAi('Sorry for the wait, how can I help?'),
+    ai: new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sorry for the wait, how can I help?' })),
     embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 15 },
     log: silentLog,
@@ -60,7 +60,7 @@ test('a recently handled human chat is left alone', async () => {
   const resumed = await runAutoResume({
     pool,
     meta,
-    ai: new FakeAi('hi'),
+    ai: new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' })),
     embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 15 },
     log: silentLog,
@@ -88,7 +88,7 @@ test('a pending handoff nobody accepted in time also resumes to the bot', async 
   const resumed = await runAutoResume({
     pool,
     meta,
-    ai: new FakeAi('Sorry for the wait, how can I help?'),
+    ai: new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sorry for the wait, how can I help?' })),
     embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 15 },
     log: silentLog,
@@ -107,7 +107,7 @@ test('auto resume does nothing when disabled', async () => {
   const resumed = await runAutoResume({
     pool,
     meta: new FakeMeta(),
-    ai: new FakeAi('hi'),
+    ai: new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' })),
     embeddings: new FakeEmbeddings(),
     config: { ...testConfig, resumeMinutes: 0 },
     log: silentLog,

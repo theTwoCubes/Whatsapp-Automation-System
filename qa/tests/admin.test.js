@@ -94,18 +94,26 @@ test('overview returns counts', async () => {
   await app.close();
 });
 
-test('knowledge base can be added, listed, updated and deleted', async () => {
+test('answers can be added, listed and deleted through the api', async () => {
   const app = await buildApp(new FakeMeta());
   const t = await token(app);
-  const add = await app.inject({ method: 'POST', url: '/api/knowledge', headers: auth(t), payload: { title: 'Pricing', content: 'from 5000' } });
-  const id = add.json().id;
+  const add = await app.inject({
+    method: 'POST',
+    url: '/api/faqs',
+    headers: auth(t),
+    payload: { question: 'What does it cost?', answer: 'From 5000 rupees.' },
+  });
+  const id = add.json().faq.id;
 
-  let list = await app.inject({ method: 'GET', url: '/api/knowledge', headers: auth(t) });
-  assert.equal(list.json().knowledge.length, 1);
+  let list = await app.inject({ method: 'GET', url: '/api/faqs?pack=base', headers: auth(t) });
+  assert.equal(list.json().faqs.length, 1);
 
-  await app.inject({ method: 'DELETE', url: `/api/knowledge/${id}`, headers: auth(t) });
-  list = await app.inject({ method: 'GET', url: '/api/knowledge', headers: auth(t) });
-  assert.equal(list.json().knowledge.length, 0);
+  const packs = await app.inject({ method: 'GET', url: '/api/packs', headers: auth(t) });
+  assert.equal(packs.json().packs[0].faq_count, 1, 'the base pack count reflects it');
+
+  await app.inject({ method: 'DELETE', url: `/api/faqs/${id}`, headers: auth(t) });
+  list = await app.inject({ method: 'GET', url: '/api/faqs?pack=base', headers: auth(t) });
+  assert.equal(list.json().faqs.length, 0);
   await app.close();
 });
 

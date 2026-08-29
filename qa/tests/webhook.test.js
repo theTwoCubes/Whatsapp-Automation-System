@@ -109,7 +109,7 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
 
 test('the ai can decide on its own to hand a chat to a human', async () => {
   const ai = new FakeAi(
-    JSON.stringify({ reply: 'Let me get a colleague to help with that.', handoff: true, reason: 'price negotiation' }),
+    JSON.stringify({ action: 'handoff', reply: 'Let me get a colleague to help with that.', reason: 'price negotiation' }),
   );
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.AI1', body: 'can you do 2000 instead of 5000?' }), d);
@@ -121,7 +121,7 @@ test('the ai can decide on its own to hand a chat to a human', async () => {
 });
 
 test('the reply is cleaned of ai style formatting before sending', async () => {
-  const ai = new FakeAi(JSON.stringify({ reply: 'Our logos are **great** and start at 5000 — really', handoff: false }));
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Our logos are **great** and start at 5000 — really' }));
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.AI2', body: 'tell me about logos' }), d);
 

@@ -1,4 +1,4 @@
-import { addKnowledgeUnit } from './writer.js';
+import { listFaqs, createFaq } from './faqs.js';
 
 // Weekly learning: scans conversation transcripts for general business facts
 // a team member stated that are not already in the knowledge base, and
@@ -26,7 +26,7 @@ async function setLearningCursor(pool, lastMessageId) {
 // Runs one learning pass. Best effort throughout: a failure on one
 // conversation's transcript does not stop the rest, and the cursor only
 // advances past messages that were actually looked at.
-export async function runWeeklyLearning(pool, ai, embeddings, config) {
+export async function runWeeklyLearning(pool, ai) {
   if (!ai?.enabled) return { conversationsScanned: 0, added: 0, skipped: 0 };
 
   const cursor = await getLearningCursor(pool);
@@ -64,27 +64,32 @@ export async function runWeeklyLearning(pool, ai, embeddings, config) {
       .join('\n')
       .slice(0, TRANSCRIPT_CHAR_LIMIT);
 
+    const existing = new Set(
+      (await listFaqs(pool, { pack: topicId ?? 'base' })).map((f) => normalise(f.question)),
+    );
+
     const facts = await extractBusinessFacts(ai, transcript);
     for (const f of facts.slice(0, MAX_FACTS_PER_CONVERSATION)) {
-      if (!f.title || !f.content) {
+      const question = (f.question || '').trim();
+      const answer = (f.answer || '').trim();
+      if (!question || !answer || existing.has(normalise(question))) {
         skipped += 1;
         continue;
       }
       try {
-        const res = await addKnowledgeUnit(
+        await createFaq(
           pool,
-          embeddings,
           {
-            title: f.title.slice(0, 200),
-            content: f.content,
-            scope: topicId ? 'topic' : 'base',
             topicId: topicId ?? null,
+            question: question.slice(0, 300),
+            answer,
             source: 'learned',
+            active: false,
           },
-          { active: false, threshold: config?.dedupSimilarityThreshold },
+          'weekly learning',
         );
-        if (res.added) added += 1;
-        else skipped += 1;
+        existing.add(normalise(question));
+        added += 1;
       } catch {
         skipped += 1;
       }
@@ -104,18 +109,29 @@ async function extractBusinessFacts(ai, transcript) {
         {
           role: 'system',
           content:
-            'This is a WhatsApp conversation between a lead and our team. Extract only general, reusable facts about the business, its services, pricing, or policies that the team stated, which are not already common sense. Ignore anything specific to this one lead: their name, personal situation, dates, or quantities specific to their order. If nothing general and reusable was said, return an empty list. Return JSON of the shape {"facts":[{"title":"short label","content":"one self contained fact"}]}. Do not invent anything not actually said in the conversation.',
+            'This is a WhatsApp conversation between a lead and our team. Extract only general, reusable questions and answers about the business, its services, pricing, or policies that the team stated, which are not already common sense. Ignore anything specific to this one lead: their name, personal situation, dates, or quantities specific to their order. If nothing general and reusable was said, return an empty list. Return JSON of the shape {"faqs":[{"question":"the question a customer would ask","answer":"the answer the team gave"}]}. Copy figures such as prices and timelines exactly as stated. Do not invent anything not actually said in the conversation.',
         },
         { role: 'user', content: transcript },
       ],
       { json: true },
     );
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed?.facts)) {
-      return parsed.facts.map((f) => ({ title: String(f.title || '').trim(), content: String(f.content || '').trim() }));
+    if (Array.isArray(parsed?.faqs)) {
+      return parsed.faqs.map((f) => ({
+        question: String(f.question || '').trim(),
+        answer: String(f.answer || '').trim(),
+      }));
     }
   } catch {
     // learning is best effort, skip this conversation's transcript on failure
   }
   return [];
+}
+
+function normalise(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

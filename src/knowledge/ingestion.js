@@ -1,59 +1,66 @@
-import { addKnowledgeUnit } from './writer.js';
+import { listFaqs, createFaq } from './faqs.js';
 
-// Turns raw text (an FAQ dump, a doc, a note) into atomic, deduped knowledge
-// units. If the AI client is available we use it to split the text into
-// individual facts. If it is not, we fall back to a heuristic that recognises
-// FAQ style Q: A: pairs and paragraph splits. Every unit goes through the
-// dedup gated writer, so nothing already stored gets duplicated.
+// Turns raw text (an FAQ dump, a doc, a note) into individual question and
+// answer pairs in a pack. If the AI client is available we use it to split the
+// text, otherwise a heuristic handles FAQ style Q: A: pairs and paragraphs.
 //
-// Returns { added, skipped, units } so the caller can report exactly what
-// happened. Never throws for individual unit failures, they are logged as skips.
+// Duplicates are caught by comparing normalised question text against what is
+// already in the pack. That is deliberately literal rather than similarity
+// based: the client can see exactly why something was skipped, and two
+// genuinely different questions never collapse into one.
+//
+// Returns { added, skipped, faqs } so the caller can report what happened.
+// Never throws for individual failures, they are counted as skips.
 
 const MAX_UNITS_PER_INGEST = 200;
 
-export async function ingestText(pool, ai, embeddings, raw, { scope, topicId = null, source = 'ingested', threshold } = {}) {
+export async function ingestText(pool, ai, raw, { topicId = null, source = 'ingested', actor = null } = {}) {
   const text = String(raw || '').trim();
-  if (!text) return { added: 0, skipped: 0, units: [] };
+  if (!text) return { added: 0, skipped: 0, faqs: [] };
 
-  const candidates = await extractCandidates(ai, text);
-  const capped = candidates.slice(0, MAX_UNITS_PER_INGEST);
+  const candidates = (await extractCandidates(ai, text)).slice(0, MAX_UNITS_PER_INGEST);
+
+  const existing = new Set(
+    (await listFaqs(pool, { pack: topicId ?? 'base' })).map((f) => normalise(f.question)),
+  );
 
   let added = 0;
   let skipped = 0;
-  const units = [];
-  for (const c of capped) {
-    if (!c.title || !c.content) {
+  const faqs = [];
+  for (const c of candidates) {
+    const question = (c.question || '').trim();
+    const answer = (c.answer || '').trim();
+    const key = normalise(question);
+    if (!question || !answer || existing.has(key)) {
       skipped += 1;
       continue;
     }
     try {
-      const res = await addKnowledgeUnit(
+      const faq = await createFaq(
         pool,
-        embeddings,
-        {
-          title: c.title.slice(0, 200),
-          content: c.content,
-          scope,
-          topicId,
-          source,
-        },
-        { threshold },
+        { topicId, question: question.slice(0, 300), answer, source },
+        actor,
       );
-      if (res.added) {
-        added += 1;
-        units.push({ id: res.id, title: c.title });
-      } else {
-        skipped += 1;
-      }
+      existing.add(key);
+      added += 1;
+      faqs.push({ id: faq.id, question: faq.question });
     } catch {
       skipped += 1;
     }
   }
-  return { added, skipped, units };
+  return { added, skipped, faqs };
 }
 
-// Ask the model to split the text into JSON facts. If the AI is not configured
-// or fails, use the heuristic splitter.
+function normalise(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Ask the model to split the text into question and answer pairs. If the AI is
+// not configured or fails, use the heuristic splitter.
 async function extractCandidates(ai, text) {
   if (ai?.enabled) {
     try {
@@ -62,15 +69,18 @@ async function extractCandidates(ai, text) {
           {
             role: 'system',
             content:
-              'You extract atomic knowledge facts from raw text. Return JSON of the shape {"facts":[{"title":"short label","content":"one self contained fact"}]}. Every distinct point in the input must appear as its own fact, no summarising, no losing detail. Merge only true near duplicates. Keep the wording clean and neutral. Do not invent anything not in the input.',
+              'You turn raw business text into a list of customer questions and the answers to them. Return JSON of the shape {"faqs":[{"question":"the question a customer would ask","answer":"the answer, in the words of the business"}]}. Every distinct point in the input must appear as its own entry, no summarising, no losing detail, and copy figures such as prices and timelines exactly as written. Merge only true near duplicates. Do not invent anything not in the input.',
           },
           { role: 'user', content: text.slice(0, 12000) },
         ],
         { json: true },
       );
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed?.facts) && parsed.facts.length > 0) {
-        return parsed.facts.map((f) => ({ title: String(f.title || '').trim(), content: String(f.content || '').trim() }));
+      if (Array.isArray(parsed?.faqs) && parsed.faqs.length > 0) {
+        return parsed.faqs.map((f) => ({
+          question: String(f.question || '').trim(),
+          answer: String(f.answer || '').trim(),
+        }));
       }
     } catch {
       // fall through
@@ -87,9 +97,9 @@ function heuristicSplit(text) {
   let answer = [];
   const flush = () => {
     if (question && answer.length) {
-      const title = question.replace(/^Q[:.]\s*/i, '').trim().slice(0, 120);
-      const content = answer.join(' ').replace(/^A[:.]\s*/i, '').trim();
-      if (title && content) out.push({ title, content });
+      const q = question.replace(/^Q[:.]\s*/i, '').trim().slice(0, 300);
+      const a = answer.join(' ').replace(/^A[:.]\s*/i, '').trim();
+      if (q && a) out.push({ question: q, answer: a });
     }
     question = null;
     answer = [];
@@ -115,5 +125,5 @@ function heuristicSplit(text) {
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter(Boolean)
-    .map((p) => ({ title: p.split(/[.!?]/)[0].slice(0, 120), content: p }));
+    .map((p) => ({ question: p.split(/[.!?]/)[0].slice(0, 300), answer: p }));
 }

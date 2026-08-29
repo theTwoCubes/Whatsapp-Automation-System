@@ -1,9 +1,10 @@
 import OpenAI from 'openai';
 
 // Text embedding client. Uses OpenAI text-embedding-3-small at 1536 dimensions,
-// which matches the vector column shape in the knowledge_base table. Switching
-// to a different model or dimension later means re-embedding every existing
-// knowledge unit since vector spaces from different models are not compatible.
+// which matches the vector column on media_assets. Answers are not embedded,
+// the model is handed whole packs as text, so this is only used to match a
+// media description to what a lead asked about. Switching model or dimension
+// later means re-embedding, since vector spaces are not compatible.
 
 const DEFAULT_MODEL = 'text-embedding-3-small';
 const DIMENSIONS = 1536;

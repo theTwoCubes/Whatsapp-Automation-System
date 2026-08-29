@@ -4,7 +4,7 @@
 export async function listTopics(pool) {
   const res = await pool.query(
     `select t.id, t.slug, t.name, t.description, t.active, t.created_at,
-            (select count(*) from knowledge_base k where k.topic_id = t.id and k.active) as knowledge_count
+            (select count(*) from faqs f where f.topic_id = t.id and f.active) as faq_count
      from topics t
      order by t.active desc, t.name`,
   );
@@ -44,26 +44,4 @@ export async function updateTopic(pool, id, fields) {
      where id = $1`,
     [id, fields.name ?? null, fields.description ?? null, fields.active ?? null],
   );
-}
-
-// Knowledge listed under a specific scope. topicId is required when scope is
-// topic and must be null when scope is base.
-export async function listKnowledgeByScope(pool, { scope, topicId = null }) {
-  const res = await pool.query(
-    `select id, title, content, source, active, created_at, updated_at
-     from knowledge_base
-     where scope = $1
-       and ((topic_id is null and $2::bigint is null) or topic_id = $2::bigint)
-     order by id desc`,
-    [scope, topicId],
-  );
-  return res.rows;
-}
-
-export async function setKnowledgeActive(pool, id, active) {
-  await pool.query('update knowledge_base set active = $2 where id = $1', [id, active]);
-}
-
-export async function deleteKnowledgeUnit(pool, id) {
-  await pool.query('delete from knowledge_base where id = $1', [id]);
 }

@@ -35,24 +35,26 @@ async function seedConversation(body) {
 
 test('a fact the team stated is queued for review, not activated', async () => {
   await seedConversation('Yes, we do rush delivery in 24 hours for an extra fee.');
-  const ai = new FakeAi(JSON.stringify({ facts: [{ title: 'Rush delivery', content: 'Rush delivery is available in 24 hours for an extra fee.' }] }));
+  const ai = new FakeAi(JSON.stringify({ faqs: [{ question: 'Do you offer rush delivery?', answer: 'Rush delivery is available in 24 hours for an extra fee.' }] }));
 
-  const result = await runWeeklyLearning(pool, ai, embeddings, testConfig);
+  const result = await runWeeklyLearning(pool, ai);
   assert.equal(result.added, 1);
 
-  const row = (await pool.query("select active, source from knowledge_base where title = 'Rush delivery'")).rows[0];
+  const row = (
+    await pool.query("select active, source from faqs where question = 'Do you offer rush delivery?'")
+  ).rows[0];
   assert.equal(row.active, false, 'not live until approved');
   assert.equal(row.source, 'learned');
 });
 
 test('the cursor advances so a second run does not rescan the same messages', async () => {
   await seedConversation('Yes, we do rush delivery in 24 hours for an extra fee.');
-  const ai = new FakeAi(JSON.stringify({ facts: [{ title: 'Rush delivery', content: 'Rush delivery is available in 24 hours for an extra fee.' }] }));
+  const ai = new FakeAi(JSON.stringify({ faqs: [{ question: 'Do you offer rush delivery?', answer: 'Rush delivery is available in 24 hours for an extra fee.' }] }));
 
-  const first = await runWeeklyLearning(pool, ai, embeddings, testConfig);
+  const first = await runWeeklyLearning(pool, ai);
   assert.equal(first.conversationsScanned, 1);
 
-  const second = await runWeeklyLearning(pool, ai, embeddings, testConfig);
+  const second = await runWeeklyLearning(pool, ai);
   assert.equal(second.conversationsScanned, 0, 'no new messages since the last run');
 
   const cursor = await getLearningCursor(pool);
@@ -65,6 +67,6 @@ test('learning is a no-op when the ai is disabled', async () => {
   const disabledAi = new FakeAi();
   disabledAi.enabled = false;
 
-  const result = await runWeeklyLearning(pool, disabledAi, embeddings, testConfig);
+  const result = await runWeeklyLearning(pool, disabledAi);
   assert.deepEqual(result, { conversationsScanned: 0, added: 0, skipped: 0 });
 });

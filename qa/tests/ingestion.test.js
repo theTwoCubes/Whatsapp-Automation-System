@@ -67,29 +67,25 @@ test('a topic can be created and listed', async () => {
   await app.close();
 });
 
-test('a knowledge unit can be added to a topic and listed under it', async () => {
+test('an answer can be added to a pack and listed under it', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   const app = await buildApp();
   const t = await token(app);
   const add = await app.inject({
     method: 'POST',
-    url: '/api/knowledge',
+    url: '/api/faqs',
     headers: auth(t),
-    payload: { title: 'Pricing', content: 'The logo package is 20000 rupees.', scope: 'topic', topicId: topic.id },
+    payload: { question: 'What does a logo cost?', answer: 'The logo package is 20000 rupees.', topicId: topic.id },
   });
   assert.equal(add.statusCode, 200);
-  assert.equal(add.json().added, true);
+  assert.equal(add.json().faq.question, 'What does a logo cost?');
 
-  const list = await app.inject({
-    method: 'GET',
-    url: `/api/knowledge?scope=topic&topicId=${topic.id}`,
-    headers: auth(t),
-  });
-  assert.equal(list.json().knowledge.length, 1);
+  const list = await app.inject({ method: 'GET', url: `/api/faqs?pack=${topic.id}`, headers: auth(t) });
+  assert.equal(list.json().faqs.length, 1);
   await app.close();
 });
 
-test('ingestion of a Q colon A colon FAQ splits into per fact units', async () => {
+test('importing a Q colon A colon document splits it into separate answers', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   const raw = [
     'Q: What is your logo design price?',
@@ -99,40 +95,37 @@ test('ingestion of a Q colon A colon FAQ splits into per fact units', async () =
     'A: The package includes two rounds of revisions.',
   ].join('\n');
 
-  const res = await ingestText(pool, new FakeAi('not-json'), new FakeEmbeddings(), raw, {
-    scope: 'topic',
-    topicId: topic.id,
-  });
-  assert.equal(res.added, 2, 'both facts inserted');
+  const res = await ingestText(pool, new FakeAi('not-json'), raw, { topicId: topic.id });
+  assert.equal(res.added, 2, 'both answers inserted');
 });
 
-test('ingestion is dedup gated so re-running does not duplicate', async () => {
+test('re-importing the same document adds nothing the second time', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   const raw = 'Q: Price?\nA: The logo package is 20000 rupees plus GST.';
-  const embeddings = new FakeEmbeddings();
-  const first = await ingestText(pool, new FakeAi('not-json'), embeddings, raw, {
-    scope: 'topic',
-    topicId: topic.id,
-  });
+  const first = await ingestText(pool, new FakeAi('not-json'), raw, { topicId: topic.id });
   assert.equal(first.added, 1);
-  const second = await ingestText(pool, new FakeAi('not-json'), embeddings, raw, {
-    scope: 'topic',
-    topicId: topic.id,
-  });
+  const second = await ingestText(pool, new FakeAi('not-json'), raw, { topicId: topic.id });
   assert.equal(second.added, 0, 'nothing new to add');
   assert.equal(second.skipped, 1);
 });
 
-test('ingesting through the api reports counts', async () => {
+test('the same question worded with different punctuation is still a duplicate', async () => {
+  const first = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: 20000 rupees.', {});
+  assert.equal(first.added, 1);
+  const second = await ingestText(pool, new FakeAi('not-json'), 'Q: price\nA: 20000 rupees.', {});
+  assert.equal(second.added, 0, 'case and punctuation are normalised before comparing');
+});
+
+test('importing through the api reports counts', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   const app = await buildApp();
   const t = await token(app);
   const raw = 'Q: Price?\nA: Twenty thousand rupees plus GST.';
   const res = await app.inject({
     method: 'POST',
-    url: '/api/knowledge/ingest',
+    url: '/api/faqs/import',
     headers: auth(t),
-    payload: { text: raw, scope: 'topic', topicId: topic.id },
+    payload: { text: raw, topicId: topic.id },
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().added, 1);

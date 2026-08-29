@@ -7,7 +7,6 @@ const tabs = [
   ['campaigns', 'Campaigns'],
   ['profile', 'Business profile'],
   ['faqs', 'FAQs'],
-  ['knowledge', 'Knowledge base'],
   ['media', 'Media'],
   ['templates', 'Templates'],
   ['agents', 'Agents'],
@@ -43,7 +42,6 @@ export default function Admin({ onBack, onLogout }) {
           {tab === 'campaigns' && <Campaigns />}
           {tab === 'profile' && <Profile />}
           {tab === 'faqs' && <Faqs />}
-          {tab === 'knowledge' && <Knowledge />}
           {tab === 'media' && <Media />}
           {tab === 'templates' && <Templates />}
           {tab === 'agents' && <Agents />}
@@ -229,18 +227,48 @@ function Faqs() {
   const [packs, setPacks] = useState([]);
   const [pack, setPack] = useState('base');
   const [reloadKey, setReloadKey] = useState(0);
+  const [addTopicOpen, setAddTopicOpen] = useState(false);
+  const [learnMsg, setLearnMsg] = useState('');
+  const [learning, setLearning] = useState(false);
 
   const reloadPacks = () => {
     api.packs().then((d) => setPacks(d.packs || [])).catch(() => {});
   };
   useEffect(reloadPacks, [reloadKey]);
 
+  const runLearning = async () => {
+    setLearning(true);
+    setLearnMsg('');
+    try {
+      const res = await api.runLearning();
+      setLearnMsg(
+        res.added > 0
+          ? `Found ${res.added} new answer${res.added === 1 ? '' : 's'} from recent chats, waiting for review below.`
+          : 'Scanned recent chats, nothing new to learn this time.',
+      );
+      setReloadKey((k) => k + 1);
+    } catch (e) {
+      setLearnMsg(e.message);
+    } finally {
+      setLearning(false);
+    }
+  };
+
   return (
     <div>
       <p className="muted">
-        Every answer the bot can give is written here. The base pack goes into every conversation. A service pack
-        goes in when the lead came through that campaign, and the bot can pull in another one if the question calls
-        for it. Nothing is summarised or guessed at, so if an answer is wrong here it is wrong in the chat.
+        Every answer the bot can give is written here. The base pack goes into every conversation, and a service
+        pack goes in when the lead came through that campaign. The whole pack is handed over as written, nothing is
+        summarised or picked out, so if an answer is wrong here it is wrong in the chat. Anything the answers do not
+        cover goes to a person instead of being guessed at.
+      </p>
+      <p className="muted">
+        Every week we also scan recent chats for things the team explained that are not written down yet. Nothing
+        goes live until you approve it.{' '}
+        <button className="btn ghost" onClick={runLearning} disabled={learning}>
+          {learning ? 'Scanning...' : 'Scan recent chats now'}
+        </button>
+        {learnMsg && <span className="muted"> {learnMsg}</span>}
       </p>
 
       <div className="topic-tabs">
@@ -253,7 +281,21 @@ function Faqs() {
             {p.name} <span className="count">{p.faq_count}</span>
           </button>
         ))}
+        <button className="topic-tab add" onClick={() => setAddTopicOpen(true)}>
+          + Add pack
+        </button>
       </div>
+
+      {addTopicOpen && (
+        <AddTopic
+          onCancel={() => setAddTopicOpen(false)}
+          onCreated={(t) => {
+            setAddTopicOpen(false);
+            setReloadKey((k) => k + 1);
+            setPack(t.id);
+          }}
+        />
+      )}
 
       <FaqPane
         key={`${pack}-${reloadKey}`}
@@ -270,6 +312,8 @@ function FaqPane({ pack, onChange }) {
   const [answer, setAnswer] = useState('');
   const [verbatim, setVerbatim] = useState(false);
   const [msg, setMsg] = useState('');
+  const [raw, setRaw] = useState('');
+  const [importMsg, setImportMsg] = useState('');
   const rows = data?.faqs || [];
 
   const refresh = () => {
@@ -292,6 +336,18 @@ function FaqPane({ pack, onChange }) {
       refresh();
     } catch (e) {
       setMsg(e.message);
+    }
+  };
+
+  const importText = async () => {
+    setImportMsg('Processing...');
+    try {
+      const res = await api.importFaqs(raw, pack === 'base' ? null : pack);
+      setImportMsg(`Added ${res.added}, skipped ${res.skipped} already covered.`);
+      setRaw('');
+      refresh();
+    } catch (e) {
+      setImportMsg(e.message);
     }
   };
 
@@ -332,6 +388,17 @@ function FaqPane({ pack, onChange }) {
         <button className="btn" onClick={add} disabled={!question.trim() || !answer.trim()}>Add answer</button>
         {msg && <span className="error">{msg}</span>}
       </div>
+
+      <div className="add-box">
+        <strong>Or paste a document</strong>
+        <p className="muted">
+          Paste an FAQ, a price list or raw notes and we split it into separate answers in this pack. Anything
+          whose question already exists here is skipped.
+        </p>
+        <textarea placeholder="Paste Q: A: pairs or paragraphs" value={raw} onChange={(e) => setRaw(e.target.value)} rows={8} />
+        <button className="btn" onClick={importText} disabled={!raw.trim()}>Split and add</button>
+        {importMsg && <span className="muted">{importMsg}</span>}
+      </div>
     </div>
   );
 }
@@ -354,6 +421,10 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
   };
   const remove = async () => {
     await api.deleteFaq(faq.id);
+    onChanged();
+  };
+  const approve = async () => {
+    await api.updateFaq(faq.id, { active: true });
     onChanged();
   };
   const toggleHistory = async () => {
@@ -395,7 +466,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
         <strong>{faq.question}</strong>
         {faq.verbatim && <span className="tag human">word for word</span>}
         {faq.pinned && <span className="tag">always included</span>}
-        {!faq.active && <span className="tag">inactive</span>}
+        {!faq.active && <span className="tag human">learned, awaiting review</span>}
         <div className="muted">{faq.answer}</div>
         {history && (
           <div className="history">
@@ -415,107 +486,11 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
       <div className="form-actions">
         <button className="icon-btn" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
         <button className="icon-btn" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
+        {!faq.active && <button className="btn" onClick={approve}>Approve</button>}
         <button className="btn ghost" onClick={toggleHistory}>History</button>
         <button className="btn ghost" onClick={() => setEditing(true)}>Edit</button>
-        <button className="btn ghost danger" onClick={remove}>Delete</button>
+        <button className="btn ghost danger" onClick={remove}>{faq.active ? 'Delete' : 'Reject'}</button>
       </div>
-    </div>
-  );
-}
-
-function Knowledge() {
-  // Tiered knowledge editor. Base tab shows the shared brain, plus one tab per
-  // Topic. Each pane supports adding a single fact, pasting raw text to be
-  // split into atomic deduped facts, and listing what is stored.
-  const [topics, setTopics] = useState([]);
-  const [scope, setScope] = useState('base');
-  const [topicId, setTopicId] = useState(null);
-  const [reloadKey, setReloadKey] = useState(0);
-  const [addTopicOpen, setAddTopicOpen] = useState(false);
-  const [learnMsg, setLearnMsg] = useState('');
-  const [learning, setLearning] = useState(false);
-
-  useEffect(() => {
-    api.topics().then((d) => setTopics(d.topics)).catch(() => {});
-  }, [reloadKey]);
-
-  const openBase = () => {
-    setScope('base');
-    setTopicId(null);
-  };
-  const openTopic = (t) => {
-    setScope('topic');
-    setTopicId(t.id);
-  };
-
-  const runLearning = async () => {
-    setLearning(true);
-    setLearnMsg('');
-    try {
-      const res = await api.runLearning();
-      setLearnMsg(
-        res.added > 0
-          ? `Found ${res.added} new fact${res.added === 1 ? '' : 's'} from recent chats, waiting for review below.`
-          : 'Scanned recent chats, nothing new to learn this time.',
-      );
-      setReloadKey((k) => k + 1);
-    } catch (e) {
-      setLearnMsg(e.message);
-    } finally {
-      setLearning(false);
-    }
-  };
-
-  return (
-    <div>
-      <p className="muted">
-        The base knowledge is the shared brain that every conversation can draw from. Each Topic is a service
-        or campaign specific pack. The bot pulls the most relevant facts for every incoming message.
-      </p>
-      <p className="muted">
-        Every week we also scan recent chats for things the team explained that are not written down yet. Nothing
-        goes live until you approve it below.{' '}
-        <button className="btn ghost" onClick={runLearning} disabled={learning}>
-          {learning ? 'Scanning...' : 'Scan recent chats now'}
-        </button>
-        {learnMsg && <span className="muted"> {learnMsg}</span>}
-      </p>
-
-      <div className="topic-tabs">
-        <button className={`topic-tab ${scope === 'base' ? 'active' : ''}`} onClick={openBase}>
-          Base
-        </button>
-        {topics.map((t) => (
-          <button
-            key={t.id}
-            className={`topic-tab ${scope === 'topic' && String(topicId) === String(t.id) ? 'active' : ''}`}
-            onClick={() => openTopic(t)}
-          >
-            {t.name} <span className="count">{t.knowledge_count}</span>
-          </button>
-        ))}
-        <button className="topic-tab add" onClick={() => setAddTopicOpen(true)}>
-          + Add topic
-        </button>
-      </div>
-
-      {addTopicOpen && (
-        <AddTopic
-          onCancel={() => setAddTopicOpen(false)}
-          onCreated={(t) => {
-            setAddTopicOpen(false);
-            setReloadKey((k) => k + 1);
-            openTopic(t);
-          }}
-        />
-      )}
-
-      <KnowledgePane
-        key={`${scope}-${topicId ?? 'base'}-${reloadKey}`}
-        scope={scope}
-        topicId={topicId}
-        onChange={() => setReloadKey((k) => k + 1)}
-      />
     </div>
   );
 }
@@ -545,107 +520,6 @@ function AddTopic({ onCancel, onCreated }) {
         <button className="btn ghost" onClick={onCancel}>Cancel</button>
         {msg && <span className="error">{msg}</span>}
       </div>
-    </div>
-  );
-}
-
-function KnowledgePane({ scope, topicId, onChange }) {
-  const [data, error, reload] = useAsync(() => api.knowledge(scope, topicId), [scope, topicId]);
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [raw, setRaw] = useState('');
-  const [msg, setMsg] = useState('');
-
-  const add = async () => {
-    setMsg('');
-    try {
-      const res = await api.addKnowledge(title, content, scope, topicId);
-      setMsg(res.added ? 'Added.' : `Already known (matches unit ${res.duplicateOf}).`);
-      if (res.added) {
-        setTitle('');
-        setContent('');
-      }
-      reload();
-      onChange?.();
-    } catch (e) {
-      setMsg(e.message);
-    }
-  };
-  const remove = async (id) => {
-    await api.deleteKnowledge(id);
-    reload();
-    onChange?.();
-  };
-  const approve = async (id) => {
-    await api.updateKnowledge(id, { active: true });
-    reload();
-    onChange?.();
-  };
-  const ingest = async () => {
-    setMsg('Processing...');
-    try {
-      const res = await api.ingestKnowledge(raw, scope, topicId);
-      setMsg(`Added ${res.added}, skipped ${res.skipped} duplicates.`);
-      setRaw('');
-      reload();
-      onChange?.();
-    } catch (e) {
-      setMsg(e.message);
-    }
-  };
-
-  if (error) return <p className="error">{error}</p>;
-  const rows = data?.knowledge || [];
-  const live = rows.filter((k) => k.active);
-  const pendingReview = rows.filter((k) => !k.active);
-
-  return (
-    <div className="form">
-      {pendingReview.length > 0 && (
-        <>
-          <div className="muted">{pendingReview.length} learned from recent chats, waiting for your review.</div>
-          {pendingReview.map((k) => (
-            <div key={k.id} className="list-row">
-              <div>
-                <strong>{k.title}</strong> <span className="tag human">learned</span>
-                <div className="muted">{k.content}</div>
-              </div>
-              <div className="form-actions">
-                <button className="btn ghost danger" onClick={() => remove(k.id)}>Reject</button>
-                <button className="btn" onClick={() => approve(k.id)}>Approve</button>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
-
-      <div className="muted">{live.length} facts stored in this scope.</div>
-      {live.map((k) => (
-        <div key={k.id} className="list-row">
-          <div>
-            <strong>{k.title}</strong>
-            <div className="muted">{k.content}</div>
-            <div className="muted" style={{ fontSize: 11 }}>source: {k.source}</div>
-          </div>
-          <button className="btn ghost danger" onClick={() => remove(k.id)}>Delete</button>
-        </div>
-      ))}
-
-      <div className="add-box">
-        <strong>Add a single fact</strong>
-        <input placeholder="Title, e.g. Pricing" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <textarea placeholder="Content" value={content} onChange={(e) => setContent(e.target.value)} />
-        <button className="btn" onClick={add} disabled={!title.trim() || !content.trim()}>Add fact</button>
-      </div>
-
-      <div className="add-box">
-        <strong>Or paste an FAQ or block of text</strong>
-        <p className="muted">We split it into atomic facts and skip anything that duplicates what is already stored.</p>
-        <textarea placeholder="Paste Q: A: pairs or paragraphs" value={raw} onChange={(e) => setRaw(e.target.value)} rows={10} />
-        <button className="btn" onClick={ingest} disabled={!raw.trim()}>Process and add</button>
-      </div>
-
-      {msg && <p className="muted">{msg}</p>}
     </div>
   );
 }

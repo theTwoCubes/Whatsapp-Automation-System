@@ -98,7 +98,7 @@ export class FakeMeta {
 // Returns a fixed reply instead of calling OpenAI. Set fail=true to simulate the
 // api being unavailable.
 export class FakeAi {
-  constructor(reply = 'Here is a helpful answer.', fail = false) {
+  constructor(reply = JSON.stringify({ action: 'answer', reply: 'Here is a helpful answer.' }), fail = false) {
     this.reply = reply;
     this.fail = fail;
     this.calls = 0;
@@ -161,6 +161,7 @@ export const testConfig = {
   fallbackMessage: 'Thanks, the team will get back to you.',
   handoffMessage: 'Connecting you with a person now.',
   attachmentMessage: 'Got your file, connecting you with a person now.',
+  faqBudgetTokens: 6000,
   messageBatchDebounceMs: 30,
   messageBatchMaxWaitMs: 200,
   mediaResendCooldownMinutes: 180,

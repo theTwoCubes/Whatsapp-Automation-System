@@ -124,7 +124,7 @@ async function handleMessage(value, message, deps) {
 }
 
 async function respondToLead(deps, conversationId, items) {
-  const { pool, embeddings, ai, config } = deps;
+  const { pool, ai, config } = deps;
   const log = deps.log;
 
   // A handoff may have happened elsewhere while this batch sat in its
@@ -150,19 +150,15 @@ async function respondToLead(deps, conversationId, items) {
     return;
   }
 
-  // AI reply. The model returns a reply plus its own judgement on whether a
-  // human should take over. Any failure, including no api key, falls back to a
-  // canned message so the lead always gets an answer. Retrieval is scored
-  // against the message text and biased by the lead's topic if the campaign is
-  // linked to one.
+  // AI reply. The model is given the base answers plus the pack for the
+  // service this lead came in through, and must either answer from them or
+  // ask for a person. Any failure, including no api key, falls back to a
+  // canned message so the lead always gets something.
   let decision;
   try {
-    decision = await buildReply(pool, ai, embeddings, settings, conversationId, {
-      query: text,
+    decision = await buildReply(pool, ai, settings, conversationId, {
       topicId,
-      topK: config.retrievalTopK,
-      tokenBudget: config.retrievalTokenBudget,
-      similarityFloor: config.retrievalSimilarityFloor,
+      faqBudgetTokens: config.faqBudgetTokens,
     });
   } catch (err) {
     log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');

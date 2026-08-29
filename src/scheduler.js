@@ -52,7 +52,7 @@ export async function runDueDrips(deps) {
 // Hands chats back to the bot when a human has left the lead waiting too long,
 // then answers the waiting message so the lead is not left hanging.
 export async function runAutoResume(deps) {
-  const { pool, meta, ai, embeddings, config, realtime, log } = deps;
+  const { pool, meta, ai, config, realtime, log } = deps;
   const settings = await getSettings(pool, config);
   if (!settings.resumeMinutes || settings.resumeMinutes <= 0) return 0;
 
@@ -65,14 +65,9 @@ export async function runAutoResume(deps) {
 
       let decision;
       try {
-        // Auto resume has no fresh query, so retrieval falls back to fts on the
-        // last message inside buildReply history.
-        decision = await buildReply(pool, ai, embeddings, settings, row.id, {
-          query: '',
-          topicId: null,
-          topK: config.retrievalTopK,
-          tokenBudget: config.retrievalTokenBudget,
-          similarityFloor: config.retrievalSimilarityFloor,
+        decision = await buildReply(pool, ai, settings, row.id, {
+          topicId: row.topic_id ?? null,
+          faqBudgetTokens: config.faqBudgetTokens,
         });
       } catch {
         // fall back below
@@ -94,13 +89,13 @@ export async function runAutoResume(deps) {
 // since the last run, otherwise does nothing. Checked every tick rather than
 // on its own timer so there is no second interval to manage.
 export async function runWeeklyLearningIfDue(deps) {
-  const { pool, ai, embeddings, config, log } = deps;
+  const { pool, ai, config, log } = deps;
   const cursor = await getLearningCursor(pool);
   const intervalMs = (config.learningIntervalDays ?? 7) * 24 * 60 * 60 * 1000;
   if (cursor.lastRunAt && Date.now() - new Date(cursor.lastRunAt).getTime() < intervalMs) return null;
 
   try {
-    const result = await runWeeklyLearning(pool, ai, embeddings, config);
+    const result = await runWeeklyLearning(pool, ai);
     log.info(result, 'weekly learning pass completed');
     return result;
   } catch (err) {

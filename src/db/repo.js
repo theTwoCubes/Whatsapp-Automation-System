@@ -469,9 +469,10 @@ export async function getMediaAsset(pool, id) {
 // lead should not be left waiting indefinitely.
 export async function conversationsToResume(pool, minutes) {
   const res = await pool.query(
-    `select c.id, ct.wa_id
+    `select c.id, ct.wa_id, ca.topic_id
      from conversations c
      join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
      where c.state in ('human', 'pending')
        and coalesce(c.last_agent_at, c.assigned_at) < now() - make_interval(mins => $1)
        and (

@@ -1,0 +1,127 @@
+import test, { before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { buildReply } from '../../src/ai/reply.js';
+import { createFaq } from '../../src/knowledge/faqs.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
+import { recordInbound } from '../../src/db/repo.js';
+import { setupPool, resetTables, FakeAi, testConfig } from './support/harness.js';
+
+let pool;
+
+before(async () => {
+  pool = await setupPool();
+});
+after(async () => {
+  await pool?.end();
+});
+beforeEach(async () => {
+  await resetTables(pool);
+});
+
+// Captures the messages it was asked to complete, so the tests can assert on
+// what the model would actually have been shown.
+class SpyAi extends FakeAi {
+  async complete(messages, options) {
+    this.lastMessages = messages;
+    return super.complete(messages, options);
+  }
+}
+
+async function conversation(body = 'what does a logo cost?') {
+  const { conversationId } = await recordInbound(pool, {
+    waId: '919000000123',
+    name: 'Test Lead',
+    waMessageId: `wamid.${Math.random()}`,
+    type: 'text',
+    body,
+    referral: null,
+    raw: {},
+  });
+  return conversationId;
+}
+
+test('an answer action produces a reply and no handoff', async () => {
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.' });
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 20000 rupees plus GST.' }));
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, false);
+  assert.equal(decision.reply, 'A logo is 20000 rupees plus GST.');
+});
+
+test('a handoff action carries its reason through for the team', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'handoff', reply: 'Let me get a colleague.', reason: 'wants a discount' }));
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true);
+  assert.equal(decision.reason, 'wants a discount');
+  assert.equal(decision.reply, 'Let me get a colleague.');
+});
+
+test('output that is not valid json hands off rather than being sent as a reply', async () => {
+  const id = await conversation();
+  const ai = new SpyAi('Sure, a logo is around 20k I think');
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true, 'unparseable output must never reach the lead');
+  assert.equal(decision.reply, '');
+});
+
+test('an unknown action hands off rather than guessing what was meant', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'something_else', reply: 'hello' }));
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true);
+});
+
+test('an answer action with an empty reply hands off instead of sending nothing', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: '   ' }));
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true);
+});
+
+test('the prompt carries the pack answers and the rule against inventing figures', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday.' });
+  await createFaq(pool, { topicId: logo.id, question: 'What does a logo cost?', answer: '20000 rupees plus GST.', verbatim: true });
+
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, { topicId: logo.id });
+
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /20000 rupees plus GST/, 'the answer itself is in the prompt');
+  assert.match(system, /Monday to Saturday/, 'the base pack is there too');
+  assert.match(system, /quote this answer exactly/, 'the verbatim marker survives into the prompt');
+  assert.match(system, /Never state a number, price, amount, duration, date or deadline that does not appear/);
+  assert.match(system, /"action": "handoff"/, 'the contract is spelled out');
+});
+
+test('the shared instructions are separated from anything lead specific, for caching', async () => {
+  await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday.' });
+  const first = await conversation('hello');
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, first, {});
+  const sharedForFirst = ai.lastMessages[0].content;
+
+  await pool.query('update contacts set name = $1', ['Someone Else']);
+  const second = await conversation('hello again');
+  await buildReply(pool, ai, testConfig, second, {});
+
+  assert.equal(ai.lastMessages[0].content, sharedForFirst, 'the first message is identical across leads');
+  assert.match(ai.lastMessages[1].content, /About the customer/, 'per lead detail lives in the second message');
+  assert.doesNotMatch(sharedForFirst, /Someone Else/, 'no lead name leaks into the cacheable prefix');
+});
+
+test('with no answers written yet the bot is told to hand everything over', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  assert.match(ai.lastMessages[0].content, /There are no approved answers yet/);
+});
