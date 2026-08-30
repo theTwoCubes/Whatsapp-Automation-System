@@ -33,7 +33,7 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="flex h-full overflow-hidden bg-white">
+    <div className="flex min-h-[100dvh] overflow-hidden bg-white">
 
       {/* Left panel: illustration */}
       <div 

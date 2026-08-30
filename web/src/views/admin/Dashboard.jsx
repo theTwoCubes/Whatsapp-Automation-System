@@ -9,7 +9,7 @@ export function AdminPage({ title, subtitle, actions, children }) {
     <div className="w-full max-w-[1400px] mx-auto px-3 py-6 md:px-8 md:py-8">
       <div className="flex items-center justify-between gap-3 mb-4 md:mb-8">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-3xl font-bold text-gray-900 tracking-tight truncate">{title}</h1>
+          <h1 className="text-xl md:text-3xl font-bold text-slate-900 tracking-tight truncate">{title}</h1>
           {subtitle && <p className="hidden md:block text-sm text-gray-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
         </div>
         {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
@@ -22,7 +22,7 @@ export function AdminPage({ title, subtitle, actions, children }) {
 export function Section({ title, subtitle, children }) {
   return (
     <div className="mb-5 md:mb-8">
-      {title && <div className="text-base md:text-xl font-semibold text-gray-900 mb-2">{title}</div>}
+      {title && <div className="text-base md:text-xl font-semibold text-slate-800 mb-2">{title}</div>}
       {subtitle && <p className="hidden md:block text-sm text-gray-500 mb-3 leading-relaxed max-w-2xl">{subtitle}</p>}
       {children}
     </div>

@@ -117,19 +117,6 @@ export default function App() {
     return () => { if (permStatus) permStatus.onchange = null; };
   }, [authed]);
 
-  const turnOnPush = async () => {
-    const res = await enablePush();
-    let next;
-    if (res.ok) {
-      next = 'granted';
-    } else if (res.reason === 'denied') {
-      next = 'denied';
-    } else {
-      next = 'default';
-    }
-    savePushState(next);
-    setPushState(next);
-  };
 
   const dismissBanner = () => {
     savePushState('dismissed');
@@ -172,8 +159,8 @@ export default function App() {
           mobileMenuOpen={mobileMenuOpen}
           setMobileMenuOpen={setMobileMenuOpen}
           pushState={pushState}
+          setPushState={setPushState}
           showBanner={showBanner}
-          turnOnPush={turnOnPush}
           dismissBanner={dismissBanner}
           deniedModalOpen={deniedModalOpen}
           setDeniedModalOpen={setDeniedModalOpen}
@@ -192,12 +179,27 @@ export default function App() {
 // ─── AppInner: inside ToastProvider so useToast works ────────────────────────
 function AppInner({
   brand, view, setView, mobileMenuOpen, setMobileMenuOpen,
-  pushState, showBanner, turnOnPush, dismissBanner,
+  pushState, showBanner, dismissBanner,
   deniedModalOpen, setDeniedModalOpen,
   pendingCount, setConversations, logout, isAdmin,
-  threadOpen, setThreadOpen,
+  threadOpen, setThreadOpen, setPushState
 }) {
   const toast = useToast();
+
+  const turnOnPush = async () => {
+    const res = await enablePush();
+    let next;
+    if (res.ok) {
+      next = 'granted';
+    } else if (res.reason === 'denied') {
+      next = 'denied';
+    } else {
+      next = 'default';
+      toast.error(`Push registration failed: ${res.reason || 'Unknown error'}`);
+    }
+    savePushState(next);
+    setPushState?.(next);
+  };
 
   // SW update toast
   useEffect(() => {
@@ -260,11 +262,11 @@ function AppInner({
           <div
             className="md:hidden flex items-center justify-between px-4 bg-white flex-shrink-0 z-20 border-b border-gray-200"
             style={{
-              height: 64,
+              height: 72,
               paddingTop: 'env(safe-area-inset-top)',
             }}
           >
-            <div className="font-bold text-lg text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
+            <div className="font-bold text-xl text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
             <button
               className="p-2 -mr-1 text-gray-600 hover:text-gray-900 transition-colors"
               onClick={() => setMobileMenuOpen(true)}

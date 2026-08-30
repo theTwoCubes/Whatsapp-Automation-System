@@ -127,13 +127,18 @@ function Templates() {
 function DripFollowups() {
   const [settings, setSettings] = useState(null);
   const [steps, setSteps]       = useState([]);
+  const [templates, setTemplates] = useState([]);
   const toast = useToast();
 
   useEffect(() => {
-    api.getSettings().then((d) => {
+    Promise.all([
+      api.getSettings(),
+      api.templates()
+    ]).then(([d, t]) => {
       const s = d.settings;
       setSettings(s);
       setSteps(parseDripSteps(s.drip_steps || ''));
+      setTemplates(t.templates.filter(tmpl => tmpl.status === 'APPROVED') || []);
     }).catch(() => {});
   }, []);
 
@@ -157,7 +162,7 @@ function DripFollowups() {
   return (
     <Section
       title="Chase quiet leads automatically"
-      subtitle="When a lead goes silent, we send these messages one by one on the days you choose. The clock resets the moment the lead replies, so no one gets chased twice."
+      subtitle="When a lead goes silent, the system automatically sends a follow-up message from your approved templates. Simply pick the template to send, and how many days to wait. The clock resets the moment they reply, so no one gets chased twice."
     >
       <Card>
         <CardBody>
@@ -167,31 +172,34 @@ function DripFollowups() {
             )}
             {steps.map((s, i) => (
               <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 p-3 md:p-0 border border-gray-100 md:border-0 rounded-lg">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 w-full md:w-auto md:flex-1">
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
                     style={{ background: 'var(--accent)' }}
                   >
                     {i + 1}
                   </div>
-                  <input
-                    className="field-input flex-1 md:flex-1"
-                    placeholder="Pick a message you created above"
+                  <select
+                    className="field-input flex-1 min-w-0"
                     value={s.template}
                     onChange={(e) => updateStep(i, 'template', e.target.value)}
-                  />
+                  >
+                    <option value="" disabled>Select approved template...</option>
+                    {templates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    {s.template && !templates.find(t => t.name === s.template) && (
+                      <option value={s.template}>{s.template}</option>
+                    )}
+                  </select>
                 </div>
-                <div className="flex items-center gap-2 md:gap-3 pl-11 md:pl-0">
-                  <span className="text-sm text-gray-500 whitespace-nowrap">after</span>
+                <div className="flex items-center gap-2 pl-11 md:pl-0">
+                  <span className="text-sm text-gray-500 flex-shrink-0">Wait</span>
                   <input
-                    className="field-input"
-                    style={{ width: 72 }}
                     type="number"
-                    min={1}
-                    placeholder="3"
+                    min="1"
+                    className="field-input w-20 text-center"
+                    placeholder="Days"
                     value={s.days}
                     onChange={(e) => updateStep(i, 'days', e.target.value)}
-                    title="Days of silence"
                   />
                   <span className="text-sm text-gray-500 whitespace-nowrap flex-1 md:flex-none">days of silence</span>
                   <button

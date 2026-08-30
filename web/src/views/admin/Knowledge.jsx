@@ -936,12 +936,12 @@ export default function Knowledge() {
       {tab === 'answers' && (
         <>
           {/* Pack tabs */}
-          <div className="flex gap-2 flex-wrap mb-6 items-center">
+          <div className="flex gap-2 mb-6 items-center overflow-x-auto pb-1 flex-nowrap" style={{ WebkitOverflowScrolling: 'touch' }}>
             {packs.map((p) => (
               <button
                 key={p.slug}
                 onClick={() => { setPack(p.topic_id ?? 'base'); setSearch(''); }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors border ${
+                className={`flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-md text-sm font-medium transition-colors border flex-shrink-0 ${
                   String(pack) === String(p.topic_id ?? 'base')
                     ? 'bg-[var(--accent-dim)] text-[var(--accent-text)] border-[var(--accent-dim)]'
                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
@@ -952,7 +952,7 @@ export default function Knowledge() {
               </button>
             ))}
             <button
-              className="px-4 py-2 rounded-md text-sm font-medium text-[var(--accent-text)] border border-dashed border-gray-300 hover:border-[var(--accent)] transition-colors"
+              className="px-3 md:px-4 py-2 rounded-md text-sm font-medium text-[var(--accent-text)] border border-dashed border-gray-300 hover:border-[var(--accent)] transition-colors flex-shrink-0"
               onClick={() => setAddTopicOpen(true)}
             >
               + New pack

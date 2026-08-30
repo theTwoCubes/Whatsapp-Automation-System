@@ -708,7 +708,10 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
   const scrollRef = useRef(null);
   const toast     = useToast();
 
-  useEffect(() => { inputRef.current?.focus(); }, [conversation.id]);
+  // Only auto-focus on desktop, to avoid triggering keyboard popup immediately on mobile
+  useEffect(() => { 
+    if (window.innerWidth >= 768) inputRef.current?.focus(); 
+  }, [conversation.id]);
 
   // Smart scroll: only jump to bottom if already near it (§4.2)
   const [showNewMsg, setShowNewMsg] = useState(false);
@@ -764,7 +767,13 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
       )}
 
       {/* Thread header */}
-      <div className="flex items-center gap-2 md:gap-3 px-3 md:px-5 h-[72px] border-b border-gray-200 flex-shrink-0 bg-white">
+      <div 
+        className="flex items-center gap-2 md:gap-3 px-3 md:px-5 border-b border-gray-200 flex-shrink-0 bg-white"
+        style={{
+          minHeight: 72,
+          paddingTop: 'env(safe-area-inset-top)',
+        }}
+      >
         {onBack && (
           <button 
             className="md:hidden p-2 -ml-2 text-gray-500 hover:text-gray-900"
