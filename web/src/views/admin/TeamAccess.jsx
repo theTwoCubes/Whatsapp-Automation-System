@@ -53,14 +53,14 @@ function SideTabs({ tabs, active, onChange }) {
             aria-selected={isActive}
             onClick={() => onChange(key)}
             className={`
-              flex items-start gap-3 text-left px-4 py-3.5 rounded-xl transition-colors duration-100
+              flex items-center md:items-start gap-3 text-left px-4 py-2.5 md:py-3.5 rounded-xl transition-colors duration-100
               ${isActive
                 ? 'bg-white border border-gray-200 shadow-xs'
                 : 'border border-transparent hover:bg-white/60'}
             `}
           >
             <div
-              className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              className={`w-8 h-8 md:w-9 md:h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
                 isActive ? 'text-white' : 'bg-gray-100 text-gray-500'
               }`}
               style={isActive ? { background: 'var(--accent)' } : undefined}
@@ -71,7 +71,8 @@ function SideTabs({ tabs, active, onChange }) {
               <div className={`text-sm font-semibold ${isActive ? 'text-gray-900' : 'text-gray-700'}`}>
                 {label}
               </div>
-              <div className="text-sm text-gray-500 leading-snug mt-0.5">{description}</div>
+              {/* Description hidden on mobile to keep tabs compact */}
+              <div className="hidden md:block text-sm text-gray-500 leading-snug mt-0.5">{description}</div>
             </div>
           </button>
         );
@@ -459,31 +460,23 @@ function AuditLog() {
               return (
                 <div
                   key={a.id}
-                  className="flex flex-col px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
+                  className="flex flex-col px-4 md:px-6 py-3 md:py-5 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-lg font-bold text-gray-900 capitalize">{a.action}</span>
-                      {a.target && (
-                        <span className="text-base text-gray-500 truncate">{a.target}</span>
-                      )}
-                    </div>
-                    <div className="text-base text-gray-500 mt-2 flex flex-wrap items-center gap-2">
-                      <span
-                        className="text-sm font-semibold px-2.5 py-1 rounded-full"
-                        style={{ background: accent.bg, color: accent.fg }}
-                      >
-                        {a.actor || 'system'}
-                      </span>
-                      <span className="text-gray-400">·</span>
-                      <span>{new Date(a.created_at).toLocaleString()}</span>
-                      {a.detail && (
-                        <>
-                          <span className="text-gray-400">·</span>
-                          <span className="truncate">{a.detail}</span>
-                        </>
-                      )}
-                    </div>
+                  {/* First line: actor pill + timestamp */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: actionAccent(a.action).bg, color: actionAccent(a.action).fg }}
+                    >
+                      {a.actor || 'system'}
+                    </span>
+                    <span className="text-xs text-gray-400">{new Date(a.created_at).toLocaleString()}</span>
+                  </div>
+                  {/* Second line: action + target + detail */}
+                  <div className="flex flex-wrap items-baseline gap-1.5 mt-1">
+                    <span className="text-sm font-bold text-gray-900 capitalize">{a.action}</span>
+                    {a.target && <span className="text-sm text-gray-500 truncate min-w-0">{a.target}</span>}
+                    {a.detail && <span className="text-xs text-gray-400 truncate min-w-0">· {a.detail}</span>}
                   </div>
                 </div>
               );

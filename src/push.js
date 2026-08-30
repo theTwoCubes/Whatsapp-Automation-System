@@ -103,3 +103,65 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     log?.info({ endpoint: row.endpoint }, 'fcm push queued, delivery not yet wired');
   }));
 }
+
+// Returns diagnostic info about push for a given agent (§2.4)
+export async function getPushStatus(pool, agentEmail) {
+  configure();
+  const all = (await pool.query('select count(*) as n from push_subscriptions')).rows[0].n;
+  const mine = (await pool.query(
+    `select id, transport, platform,
+       split_part(endpoint, '/', 3) as endpoint_host,
+       created_at, last_seen_at
+     from push_subscriptions where agent_email = $1`,
+    [agentEmail],
+  )).rows;
+  return {
+    vapidConfigured: configured,
+    myEndpoints: mine,
+    totalSubscriptions: Number(all),
+  };
+}
+
+// Sends a test push to only the calling agent's subscriptions (§2.4)
+export async function sendTestPush(pool, agentEmail, log) {
+  configure();
+  if (!configured) {
+    throw new Error('Notifications are not configured on the server. Run node scripts/generate-vapid.js >> .env and restart.');
+  }
+  const rows = (await pool.query(
+    'select * from push_subscriptions where agent_email = $1',
+    [agentEmail],
+  )).rows;
+  if (rows.length === 0) {
+    return { ok: true, sent: 0, errors: ['No subscription found for this device. Try turning notifications on again.'] };
+  }
+  const payload = JSON.stringify({
+    title: 'Test notification',
+    body: 'If you see this, push is working.',
+    tag: 'push-test',
+  });
+  const errors = [];
+  let sent = 0;
+  await Promise.all(rows.map(async (row) => {
+    if (row.transport === 'web') {
+      try {
+        await webpush.sendNotification({
+          endpoint: row.endpoint,
+          keys: { p256dh: row.p256dh_key, auth: row.auth_key },
+        }, payload);
+        sent++;
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await pool.query('delete from push_subscriptions where id = $1', [row.id]);
+          errors.push(`Endpoint expired (${err.statusCode}) — unsubscribed`);
+        } else {
+          errors.push(err.message);
+          log?.warn({ err }, 'test push failed');
+        }
+      }
+    } else {
+      errors.push('FCM delivery not wired yet');
+    }
+  }));
+  return { ok: true, sent, errors };
+}

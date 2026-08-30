@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import {
   MessageSquare, LayoutDashboard, Brain, Mail, Settings, Users, LogOut,
+  Bell, BellOff,
 } from 'lucide-react';
 import { BrandContext } from '../../brand.js';
 import Avatar from '../ui/Avatar.jsx';
@@ -15,7 +16,53 @@ const NAV = [
   { key: 'team',       label: 'Team & Access', icon: Users },
 ];
 
-export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, agentEmail, mobileOpen, onCloseMobile }) {
+// Push status pill shown in sidebar footer (§2.2) and wired to test in phase 3
+function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo }) {
+  if (pushState === 'granted') {
+    return (
+      <button
+        onClick={onTest}
+        title="Notifications on — tap to send a test"
+        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+      >
+        <Bell size={12} />
+        On
+      </button>
+    );
+  }
+  if (pushState === 'denied') {
+    return (
+      <button
+        onClick={onDeniedInfo}
+        title="Notifications blocked in browser settings"
+        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+      >
+        <BellOff size={12} />
+        Off
+      </button>
+    );
+  }
+  // default / dismissed
+  if (pushState === 'default' || pushState === 'dismissed') {
+    return (
+      <button
+        onClick={onEnablePush}
+        title="Turn on notifications"
+        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+      >
+        <BellOff size={12} />
+        Off
+      </button>
+    );
+  }
+  return null;
+}
+
+export default function Sidebar({
+  view, onNavigate, onLogout, pendingCount = 0, agentEmail,
+  mobileOpen, onCloseMobile,
+  pushState, onPushTest, onEnablePush, onPushDeniedInfo,
+}) {
   const brand     = useContext(BrandContext);
   const brandName = brand?.name || 'Console';
   const initials  = brandName.slice(0, 2).toUpperCase();
@@ -35,6 +82,7 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
           fixed inset-y-0 left-0 z-50 md:relative md:flex
           w-[280px] flex-shrink-0 flex-col bg-white border-r border-gray-200 overflow-hidden
           transition-transform duration-200 ease-out
+          pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
         aria-label="Main navigation"
@@ -84,7 +132,7 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
               onClick={() => onNavigate(item.key)}
               aria-current={isActive ? 'page' : undefined}
               className={`
-                relative flex items-center gap-3 w-full px-4 py-3 rounded-xl text-base font-medium
+                relative flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm md:text-base font-medium
                 transition-colors duration-100 text-left
                 ${isActive
                   ? 'bg-[var(--accent-dim)] text-[var(--accent-text)] font-semibold'
@@ -115,13 +163,25 @@ export default function Sidebar({ view, onNavigate, onLogout, pendingCount = 0, 
       </nav>
 
       {/* Footer */}
-      <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-200 flex-shrink-0">
+      <div className="flex items-center gap-2 px-4 py-4 border-t border-gray-200 flex-shrink-0 min-w-0">
         <Avatar name={agentEmail} waId={agentEmail} size="md" />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-gray-700 truncate">
             {agentEmail || 'Agent'}
           </div>
+          {typeof __BUILD_INFO__ !== 'undefined' && (
+            <div className="text-[10px] text-gray-400 truncate">
+              v{__BUILD_INFO__.version} · {__BUILD_INFO__.gitSha}
+            </div>
+          )}
         </div>
+        {/* Push status pill */}
+        <PushPill
+          pushState={pushState}
+          onTest={onPushTest}
+          onEnablePush={onEnablePush}
+          onDeniedInfo={onPushDeniedInfo}
+        />
         <button
           onClick={onLogout}
           title="Sign out"

@@ -65,9 +65,9 @@ function Templates() {
             <div key={t.name} className="flex items-start gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-gray-800">{t.name}</div>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <Badge variant="neutral">{t.category || 'utility'}</Badge>
-                  {t.body && <span className="text-sm text-gray-500 italic truncate">{t.body}</span>}
+                <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                  <Badge variant="neutral" className="flex-shrink-0">{t.category || 'utility'}</Badge>
+                  {t.body && <span className="text-sm text-gray-500 italic truncate min-w-0">{t.body}</span>}
                 </div>
               </div>
             </div>

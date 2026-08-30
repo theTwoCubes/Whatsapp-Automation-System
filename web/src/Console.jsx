@@ -5,7 +5,7 @@ import {
   Search, Paperclip, Library, Send, Clock, AlertCircle,
   CheckCheck, Check, ChevronRight, X, MessageSquare,
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
-  Download, Film, Mic, Pencil,
+  Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -243,7 +243,10 @@ export default function Console({ onConversationsChange }) {
         setThread(data); 
         loadList(true);
       }
-    } catch { /* retry */ }
+    } catch {
+      // show error state only when it's the current conversation
+      if (currentFetch === fetchCounter.current) setThread('error');
+    }
   }, [loadList]);
 
   useEffect(() => {
@@ -256,15 +259,29 @@ export default function Console({ onConversationsChange }) {
     loadThread(selected);
   }, [selected, loadThread]);
 
-  // WebSocket real-time
+  // WebSocket real-time with reconnect indicator (§4.3)
+  const [wsOffline, setWsOffline] = useState(false);
+  const wsRetryRef = useRef(null);
+
   useEffect(() => {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
-    ws.onmessage = () => {
-      loadList(true);
-      if (selectedRef.current) loadThread(selectedRef.current);
-    };
-    return () => ws.close();
+    let delay = 1000;
+    let ws;
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
+      ws.onopen = () => { setWsOffline(false); delay = 1000; };
+      ws.onmessage = () => {
+        loadList(true);
+        if (selectedRef.current) loadThread(selectedRef.current);
+      };
+      ws.onclose = () => {
+        setWsOffline(true);
+        delay = Math.min(delay * 2, 30000);
+        wsRetryRef.current = setTimeout(connect, delay);
+      };
+    }
+    connect();
+    return () => { clearTimeout(wsRetryRef.current); ws?.close(); };
   }, [loadList, loadThread]);
 
   const filtered = useMemo(() => {
@@ -295,6 +312,10 @@ export default function Console({ onConversationsChange }) {
     { key: 'bot',     label: 'AI' },
     { key: 'human',   label: 'Agent' },
   ];
+
+  // Scroll restoration for mobile list (§4.1)
+  const listScrollRef = useRef(null);
+  const listPosRef    = useRef(0);
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden relative w-full">
@@ -357,7 +378,12 @@ export default function Console({ onConversationsChange }) {
         </div>
 
         {/* Conversation list */}
-        <div className="flex-1 overflow-y-auto" role="list">
+        <div
+          className="flex-1 overflow-y-auto"
+          role="list"
+          ref={listScrollRef}
+          onScroll={() => { listPosRef.current = listScrollRef.current?.scrollTop ?? 0; }}
+        >
           {loading && Array.from({ length: 6 }).map((_, i) => <ChatRowSkeleton key={i} />)}
           {!loading && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center h-40 text-sm text-gray-400 px-6 text-center">
@@ -380,7 +406,18 @@ export default function Console({ onConversationsChange }) {
 
       {/* Thread */}
       <div className={`flex-1 flex-col min-h-0 overflow-hidden bg-white ${!selected ? 'hidden md:flex' : 'flex'}`}>
-        {thread
+        {thread === 'error'
+          ? (
+            <div className="flex flex-col items-center justify-center flex-1 gap-3 text-gray-400">
+              <AlertCircle size={28} className="text-red-400" />
+              <span className="text-sm">Could not load this conversation</span>
+              <button
+                className="text-sm px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                onClick={() => loadThread(selected)}
+              >Retry</button>
+            </div>
+          )
+          : thread
           ? <ChatThread
               thread={thread}
               templates={templates}
@@ -388,7 +425,11 @@ export default function Console({ onConversationsChange }) {
               onChanged={() => { loadThread(selected); loadList(true); }}
               showContext={showContext}
               onToggleContext={() => setShowContext(v => !v)}
-              onBack={() => setSelected(null)}
+              wsOffline={wsOffline}
+              onBack={() => {
+                listScrollRef.current && (listScrollRef.current.scrollTop = listPosRef.current);
+                setSelected(null);
+              }}
             />
           : <EmptyChat />
         }
@@ -630,23 +671,39 @@ function ContextRow({ label, children }) {
 }
 
 // Chat Thread
-function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext, onBack }) {
+function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext, onBack, wsOffline }) {
   const { conversation, messages } = thread;
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showLibrary, setShowLibrary]     = useState(false);
   const [confirmMedia, setConfirmMedia]   = useState(null);
-  const endRef = useRef(null);
-  const inputRef = useRef(null);
-  const toast  = useToast();
+  const [showMoreActions, setShowMoreActions] = useState(false);
+  const endRef    = useRef(null);
+  const inputRef  = useRef(null);
+  const scrollRef = useRef(null);
+  const toast     = useToast();
 
+  useEffect(() => { inputRef.current?.focus(); }, [conversation.id]);
+
+  // Smart scroll: only jump to bottom if already near it (§4.2)
+  const [showNewMsg, setShowNewMsg] = useState(false);
   useEffect(() => {
-    inputRef.current?.focus();
+    const el = scrollRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 120) {
+      endRef.current?.scrollIntoView({ block: 'end' });
+      setShowNewMsg(false);
+    } else {
+      setShowNewMsg(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
+  // On conversation switch always scroll to bottom
+  useEffect(() => {
+    setShowNewMsg(false);
+    setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50);
   }, [conversation.id]);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length, conversation.id]);
 
   const act = async (fn, successMsg) => {
     try {
@@ -668,10 +725,18 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
   const groups    = groupByDay(messages);
   const isPending = conversation.state === 'pending';
   const isHuman   = conversation.state === 'human';
+  const isBot     = conversation.state === 'bot';
   const win       = windowLabel(conversation);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {/* WS offline indicator (§4.3) */}
+      {wsOffline && (
+        <div className="flex items-center justify-center gap-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-xs py-1.5 px-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+          Reconnecting...
+        </div>
+      )}
 
       {/* Thread header */}
       <div className="flex items-center gap-2 md:gap-3 px-3 md:px-5 h-[72px] border-b border-gray-200 flex-shrink-0 bg-white">
@@ -711,7 +776,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             <Button variant="secondary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
               onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
               <span className="hidden sm:inline">Give back to AI</span>
-              <span className="sm:hidden">Bot</span>
+              <Bot size={16} className="sm:hidden" aria-label="Give back to AI" />
             </Button>
           )}
           {isPending && (
@@ -729,7 +794,8 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           {!isHuman && !isPending && (
             <Button variant="secondary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
               onClick={() => act(() => api.takeover(conversation.id), 'You have taken over this conversation')}>
-              Take over
+              <span className="hidden sm:inline">Take over</span>
+              <UserRound size={16} className="sm:hidden" aria-label="Take over" />
             </Button>
           )}
           <div className="w-px h-8 bg-gray-200 mx-1 hidden md:block" />
@@ -765,7 +831,12 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 md:px-5 py-4 md:py-5 chat-bg flex flex-col gap-1 min-w-0" role="log" aria-live="polite">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 md:px-5 py-4 md:py-5 chat-bg flex flex-col gap-1 min-w-0 relative"
+        role="log"
+        aria-live="polite"
+      >
         {groups.map((g) => (
           <React.Fragment key={g.label}>
             {/* Day divider */}
@@ -783,17 +854,17 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
               >
                 <div
                   className={`
-                    relative max-w-[85%] md:max-w-[72%] px-3 md:px-5 py-2 md:py-3 rounded-2xl text-sm md:text-lg leading-relaxed shadow-xs break-words
-                    ${m.direction === 'outbound'
-                      ? 'bg-gray-800 text-white rounded-br-sm'
-                      : 'bg-white text-gray-900 rounded-bl-sm border border-black/5'}
+                    relative max-w-[85%] md:max-w-[72%] px-3 md:px-5 py-2 md:py-3 rounded-2xl text-sm md:text-lg leading-relaxed shadow-xs
+                    break-words [overflow-wrap:anywhere]
+                    ${m.direction === 'outbound' ? 'msg-outbound bg-gray-800 text-white rounded-br-sm' : 'msg-inbound bg-white text-gray-900 rounded-bl-sm border border-black/5'}
+                    ${m.direction === 'outbound' ? 'pr-14' : ''}
                   `}
                 >
                   {m.type !== 'text'
                     ? (
                       <div className="flex flex-col gap-1.5">
                         <InboundAttachment message={m} />
-                        {m.body && <div className="pt-0.5">{m.body}</div>}
+                        {m.body && <div className="pt-0.5 truncate">{m.body}</div>}
                       </div>
                     )
                     : m.body
@@ -808,6 +879,15 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           </React.Fragment>
         ))}
         <div ref={endRef} />
+        {/* New message button (§4.2) */}
+        {showNewMsg && (
+          <button
+            className="sticky bottom-4 mx-auto flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-full shadow-md hover:bg-gray-50 transition-colors"
+            onClick={() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); setShowNewMsg(false); }}
+          >
+            <ArrowDown size={13} /> New message
+          </button>
+        )}
       </div>
 
       {/* Composer */}
@@ -866,7 +946,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
                 }}
               />
             </label>
-            {/* Library — hidden on mobile to save room */}
+            {/* Library - hidden on mobile */}
             <button
               className={`hidden sm:flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send from media library"
@@ -875,16 +955,37 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             >
               <Library size={20} />
             </button>
-            {/* Template toggle */}
+            {/* Template toggle - hidden below sm behind overflow button */}
             <button
-              className={`flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`hidden sm:flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send a template"
               onClick={() => { setShowTemplates((v) => !v); setShowLibrary(false); }}
               aria-pressed={showTemplates}
             >
-              <FileText size={18} className="md:hidden" />
-              <FileText size={20} className="hidden md:block" />
+              <FileText size={20} />
             </button>
+            {/* Overflow on xs: library + template behind a ... button */}
+            <div className="relative sm:hidden">
+              <button
+                className={`flex items-center justify-center w-9 h-9 rounded-lg transition-colors flex-shrink-0 ${showMoreActions ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+                onClick={() => setShowMoreActions(v => !v)}
+                aria-label="More options"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+              {showMoreActions && (
+                <div className="absolute bottom-12 left-0 bg-white border border-gray-200 rounded-xl shadow-lg z-10 min-w-[160px] py-1">
+                  <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowLibrary(v => !v); setShowTemplates(false); setShowMoreActions(false); }}>
+                    <Library size={16} /> Media library
+                  </button>
+                  <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowTemplates(v => !v); setShowLibrary(false); setShowMoreActions(false); }}>
+                    <FileText size={16} /> Templates
+                  </button>
+                </div>
+              )}
+            </div>
             {/* Text input */}
             <input
               ref={inputRef}

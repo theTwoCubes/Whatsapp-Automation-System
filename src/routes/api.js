@@ -24,7 +24,7 @@ import {
 } from '../knowledge/faqs.js';
 import { simulateReply } from '../knowledge/simulator.js';
 import { getSettings } from '../settings.js';
-import { saveSubscription, removeSubscription, getVapidPublicKey } from '../push.js';
+import { saveSubscription, removeSubscription, getVapidPublicKey, getPushStatus, sendTestPush } from '../push.js';
 import {
   getAgentByEmail,
   listConversations,
@@ -331,6 +331,24 @@ export function registerApi(app, deps) {
     const endpoint = req.body?.endpoint;
     if (endpoint) await removeSubscription(pool, endpoint);
     return { ok: true };
+  });
+
+  // Diagnostic: VAPID status + this agent's subscriptions (§2.4)
+  app.get('/api/push/status', { preHandler: auth }, async (req, reply) => {
+    try {
+      return await getPushStatus(pool, req.user.email);
+    } catch (err) {
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
+  // Test push to the calling agent's devices only (§2.4)
+  app.post('/api/push/test', { preHandler: auth }, async (req, reply) => {
+    try {
+      return await sendTestPush(pool, req.user.email, req.log);
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
   });
 
   // Create a template from the console. It still needs Meta approval before use.

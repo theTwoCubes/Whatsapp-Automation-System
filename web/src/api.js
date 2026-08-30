@@ -98,6 +98,8 @@ export const api = {
   getVapidKey: () => req('/push/vapid-public-key'),
   pushSubscribe: (body) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
   pushUnsubscribe: (endpoint) => req('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
+  pushStatus: () => req('/push/status'),
+  pushTest: () => req('/push/test', { method: 'POST' }),
   branding: () =>
     fetch('/api/branding')
       .then((r) => r.json())

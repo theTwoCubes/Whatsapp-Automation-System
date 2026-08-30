@@ -66,6 +66,18 @@ echo "▶ Syncing the web bundle into the Android project"
 npx cap sync android
 
 echo "▶ Assembling the debug APK"
+
+# Bump versionCode and versionName from package.json into build.gradle (§6.2.3)
+PKG_VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo "0.1.0")"
+# Convert semantic version to an integer versionCode: e.g. 0.2.3 -> 203
+VERSION_CODE="$(echo "$PKG_VERSION" | awk -F. '{ printf "%d", ($1*10000 + $2*100 + $3) }')"
+BUILD_GRADLE="android/app/build.gradle"
+if [ -f "$BUILD_GRADLE" ]; then
+  sed -i "s/versionCode [0-9]*/versionCode $VERSION_CODE/" "$BUILD_GRADLE"
+  sed -i "s/versionName \"[^\"]*\"/versionName \"$PKG_VERSION\"/" "$BUILD_GRADLE"
+  echo "  versionCode=$VERSION_CODE  versionName=$PKG_VERSION"
+fi
+
 (cd android && ./gradlew assembleDebug)
 
 SRC="android/app/build/outputs/apk/debug/app-debug.apk"

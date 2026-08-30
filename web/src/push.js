@@ -21,11 +21,26 @@ function urlBase64ToUint8Array(base64String) {
 
 let registration = null;
 
-export async function ensureServiceWorker() {
+export async function ensureServiceWorker(onUpdateReady) {
   if (registration) return registration;
   if (!('serviceWorker' in navigator)) return null;
   try {
     registration = await navigator.serviceWorker.register('/service-worker.js');
+    // If a new SW is waiting, prompt to update (§2.5)
+    const checkWaiting = (reg) => {
+      if (reg.waiting) {
+        onUpdateReady?.();
+      }
+    };
+    checkWaiting(registration);
+    registration.addEventListener('updatefound', () => {
+      const newWorker = registration.installing;
+      newWorker?.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          onUpdateReady?.();
+        }
+      });
+    });
     return registration;
   } catch (err) {
     return null;

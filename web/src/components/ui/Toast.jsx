@@ -69,10 +69,20 @@ function ToastItem({ toast, onDismiss }) {
         </span>
       </div>
 
-      {/* Message + close */}
+      {/* Message + optional action + close */}
       <div className="flex-1 flex items-start gap-3 pl-2 pr-4 py-4 min-w-0">
         <div className="flex-1 min-w-0 pt-0.5">
           <p className="text-base font-medium text-gray-900 leading-snug break-words">{toast.message}</p>
+          {/* Optional action button (§4.7 extension) */}
+          {toast.action && (
+            <button
+              onClick={() => { toast.action.onClick?.(); dismiss(); }}
+              className="mt-1.5 text-sm font-semibold underline underline-offset-2"
+              style={{ color: style.tint }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
         <button
           onClick={dismiss}
@@ -104,18 +114,18 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const show = useCallback((message, type = 'info', duration = 2000) => {
+  const show = useCallback((message, type = 'info', duration = 2000, action = null) => {
     const id = ++counterRef.current;
-    setToasts((prev) => [...prev, { id, message, type, duration }]);
+    setToasts((prev) => [...prev, { id, message, type, duration, action }]);
     if (duration > 0) setTimeout(() => dismiss(id), duration);
     return id;
   }, [dismiss]);
 
   const toast = useMemo(() => ({
-    success: (msg, dur) => show(msg, 'success', dur),
-    error:   (msg, dur) => show(msg, 'error', dur),
-    warning: (msg, dur) => show(msg, 'warning', dur),
-    info:    (msg, dur) => show(msg, 'info', dur),
+    success: (msg, dur, action) => show(msg, 'success', dur, action),
+    error:   (msg, dur, action) => show(msg, 'error',   dur, action),
+    warning: (msg, dur, action) => show(msg, 'warning', dur, action),
+    info:    (msg, dur, action) => show(msg, 'info',    dur, action),
     dismiss,
   }), [show, dismiss]);
 
@@ -134,7 +144,13 @@ export function ToastProvider({ children }) {
         className="fixed top-6 right-6 z-50 flex flex-col gap-3 w-[420px] pointer-events-none"
         aria-live="polite"
       >
-        {toasts.map((t) => (
+        {/* Cap at 3 most-recent toasts, show overflow count (§4.7) */}
+        {toasts.length > 3 && (
+          <div className="pointer-events-auto text-center text-xs text-gray-500 bg-white/80 rounded-full px-3 py-1 shadow-sm border border-gray-200 self-center">
+            +{toasts.length - 3} more
+          </div>
+        )}
+        {toasts.slice(-3).map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
         ))}
       </div>

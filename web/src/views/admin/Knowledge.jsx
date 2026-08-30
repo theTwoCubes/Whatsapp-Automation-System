@@ -699,11 +699,11 @@ function MediaPane({ topics }) {
 
   return (
     <div>
-      {/* Topic filter */}
-      <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg w-fit flex-wrap">
+      {/* Topic filter — scrolls horizontally on mobile (§3.5) */}
+      <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg overflow-x-auto flex-nowrap">
         <button
           onClick={() => setTopicId(null)}
-          className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${topicId === null ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`flex-shrink-0 whitespace-nowrap px-3 py-1 rounded-md text-sm font-medium transition-colors ${topicId === null ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
         >
           All
         </button>
@@ -711,7 +711,7 @@ function MediaPane({ topics }) {
           <button
             key={t.id}
             onClick={() => setTopicId(t.id)}
-            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${String(topicId) === String(t.id) ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex-shrink-0 whitespace-nowrap px-3 py-1 rounded-md text-sm font-medium transition-colors ${String(topicId) === String(t.id) ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
           >
             {t.name}
           </button>
