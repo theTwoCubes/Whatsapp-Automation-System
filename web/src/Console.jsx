@@ -181,7 +181,7 @@ function Ticks({ status }) {
 }
 
 // Console Root
-export default function Console({ onConversationsChange }) {
+export default function Console({ onConversationsChange, onThreadOpen }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected]           = useState(null);
   const [thread, setThread]               = useState(null);
@@ -254,10 +254,27 @@ export default function Console({ onConversationsChange }) {
     api.templates().then((d) => setTemplates(d.templates || [])).catch(() => {});
   }, [loadList]);
 
+  // Notify parent when thread opens/closes so the mobile top bar hides
+  useEffect(() => {
+    onThreadOpen?.(Boolean(selected));
+  }, [selected, onThreadOpen]);
+
+  // Android hardware back button — intercept via history
   useEffect(() => {
     selectedRef.current = selected;
+    if (!selected) { loadThread(null); return; }
+    // Load the thread data
     loadThread(selected);
-  }, [selected, loadThread]);
+    // Push a dummy state so the back gesture has something to pop
+    history.pushState({ chatOpen: true }, '');
+    const onPop = () => {
+      setSelected(null);
+      setThread(null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   // WebSocket real-time with reconnect indicator (§4.3)
   const [wsOffline, setWsOffline] = useState(false);
@@ -397,7 +414,9 @@ export default function Console({ onConversationsChange }) {
                 key={c.id}
                 conversation={c}
                 isActive={isActive}
-                onSelect={() => setSelected(c.id)}
+                onSelect={() => {
+                  setSelected(c.id);
+                }}
               />
             );
           })}
@@ -428,17 +447,18 @@ export default function Console({ onConversationsChange }) {
               wsOffline={wsOffline}
               onBack={() => {
                 listScrollRef.current && (listScrollRef.current.scrollTop = listPosRef.current);
-                setSelected(null);
+                // Clean up the history entry we pushed when thread opened
+                history.back();
               }}
             />
           : <EmptyChat />
         }
       </div>
 
-      {/* Context Panel wrapper for animation */}
+      {/* Context Panel — on mobile it slides in on top, offset below the thread header */}
       <div
         className={`transition-[width,border] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex-shrink-0 bg-white overflow-hidden ${
-          showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-y-0 right-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
+          showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-x-0 bottom-0 top-14 md:inset-y-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
         }`}
       >
         <div className="w-full md:w-[360px] h-full flex flex-col">
@@ -1024,8 +1044,6 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           </div>
         )}
       </div>
-
-      <Watermark />
     </div>
   );
 }

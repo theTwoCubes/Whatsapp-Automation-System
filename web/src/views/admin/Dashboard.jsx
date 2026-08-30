@@ -6,13 +6,13 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 // Shared admin layout primitives
 export function AdminPage({ title, subtitle, actions, children }) {
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-4 py-6 md:px-8 md:py-8">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6 md:mb-8">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">{title}</h1>
-          {subtitle && <p className="text-base md:text-lg text-gray-500 mt-2 max-w-2xl leading-relaxed">{subtitle}</p>}
+    <div className="w-full max-w-[1400px] mx-auto px-3 py-4 md:px-8 md:py-8">
+      <div className="flex items-center justify-between gap-3 mb-4 md:mb-8">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-3xl font-bold text-gray-900 tracking-tight truncate">{title}</h1>
+          {subtitle && <p className="hidden md:block text-sm text-gray-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
       </div>
       {children}
     </div>
@@ -21,9 +21,9 @@ export function AdminPage({ title, subtitle, actions, children }) {
 
 export function Section({ title, subtitle, children }) {
   return (
-    <div className="mb-8">
-      {title && <div className="text-xl font-semibold text-gray-900 mb-1.5">{title}</div>}
-      {subtitle && <p className="text-base text-gray-500 mb-4 leading-relaxed max-w-2xl">{subtitle}</p>}
+    <div className="mb-5 md:mb-8">
+      {title && <div className="text-base md:text-xl font-semibold text-gray-900 mb-2">{title}</div>}
+      {subtitle && <p className="hidden md:block text-sm text-gray-500 mb-3 leading-relaxed max-w-2xl">{subtitle}</p>}
       {children}
     </div>
   );
@@ -39,15 +39,15 @@ export function Card({ children, className = '' }) {
 
 export function CardHeader({ title, children }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100">
-      {title && <div className="text-lg font-semibold text-gray-800">{title}</div>}
+    <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
+      {title && <div className="text-sm md:text-base font-semibold text-gray-800">{title}</div>}
       {children}
     </div>
   );
 }
 
 export function CardBody({ children }) {
-  return <div className="p-4 md:p-5">{children}</div>;
+  return <div className="p-3 md:p-5">{children}</div>;
 }
 
 export function FormStack({ children }) {
@@ -79,12 +79,12 @@ export function Divider() {
 
 export function TabPills({ tabs, active, onChange }) {
   return (
-    <div className="flex gap-1.5 mb-6 bg-gray-100 p-1.5 rounded-lg w-fit">
+    <div className="flex gap-1 mb-4 md:mb-6 bg-gray-100 p-1 rounded-lg overflow-x-auto flex-nowrap">
       {tabs.map(({ key, label }) => (
         <button
           key={key}
           onClick={() => onChange(key)}
-          className={`px-5 py-2 rounded-md text-base font-medium transition-all duration-100 ${
+          className={`flex-shrink-0 whitespace-nowrap px-3 md:px-5 py-1.5 md:py-2 rounded-md text-sm font-medium transition-all duration-100 ${
             active === key
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-500 hover:text-gray-700'
@@ -112,15 +112,17 @@ export function EmptyState({ message }) {
   );
 }
 
-// StatCard
+// StatCard — compact on mobile, roomy on desktop
 function StatCard({ num, label, sub }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5">
-      <div className="text-4xl font-extrabold text-gray-900 tracking-tight mb-1.5">
+    <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-5 flex md:block items-center gap-3">
+      <div className="text-2xl md:text-4xl font-extrabold text-gray-900 tracking-tight leading-none md:mb-1.5">
         {num ?? '—'}
       </div>
-      <div className="text-base font-medium text-gray-700">{label}</div>
-      {sub && <div className="text-sm text-gray-400 mt-1">{sub}</div>}
+      <div className="min-w-0">
+        <div className="text-xs md:text-base font-medium text-gray-700 leading-tight">{label}</div>
+        {sub && <div className="text-xs text-gray-400 mt-0.5 hidden md:block">{sub}</div>}
+      </div>
     </div>
   );
 }
@@ -161,9 +163,9 @@ export default function Dashboard() {
         <p className="text-sm text-red-500 mb-4">{error}</p>
       )}
 
-      {/* Conversation stats */}
+      {/* Conversation stats — always 2-col on mobile, 4-col on lg */}
       <Section title="Conversations">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
           {!o
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={i} />)
             : <>
@@ -176,9 +178,9 @@ export default function Dashboard() {
         </div>
       </Section>
 
-      {/* Message volume */}
+      {/* Message volume — always 2-col on mobile */}
       <Section title="Message volume">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
           {!o
             ? Array.from({ length: 3 }).map((_, i) => <SkeletonStat key={i} />)
             : <>

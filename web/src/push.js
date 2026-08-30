@@ -8,7 +8,8 @@
 
 import { api } from './api.js';
 
-const isCapacitor = () => typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+export const isCapacitor = () =>
+  typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -26,11 +27,9 @@ export async function ensureServiceWorker(onUpdateReady) {
   if (!('serviceWorker' in navigator)) return null;
   try {
     registration = await navigator.serviceWorker.register('/service-worker.js');
-    // If a new SW is waiting, prompt to update (§2.5)
+    // If a new SW is waiting, prompt to update
     const checkWaiting = (reg) => {
-      if (reg.waiting) {
-        onUpdateReady?.();
-      }
+      if (reg.waiting) onUpdateReady?.();
     };
     checkWaiting(registration);
     registration.addEventListener('updatefound', () => {
@@ -42,14 +41,12 @@ export async function ensureServiceWorker(onUpdateReady) {
       });
     });
     return registration;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
-// Are we in a state where the browser can subscribe (no permission asked yet
-// or already granted, and Push API is available)? Used by the UI to decide
-// whether to show the "Turn on alerts" prompt.
+// Are we in a state where the browser can subscribe?
 export function pushAvailable() {
   if (isCapacitor()) return true;
   return typeof window !== 'undefined'
@@ -94,40 +91,80 @@ export async function enablePush() {
   return { ok: true };
 }
 
-// Best effort registration inside the Capacitor Android APK. The wrapper
-// project must install @capacitor/push-notifications for this to succeed; if
-// the plugin is not present we bail cleanly.
+// Silently attempt to register on every Capacitor launch. Safe to call
+// multiple times — it checks permissions first and skips if not granted yet.
+export async function autoRegisterIfNative() {
+  if (!isCapacitor()) return;
+  try {
+    const mod = await import(/* @vite-ignore */ '@capacitor/push-notifications').catch(() => null);
+    if (!mod?.PushNotifications) return;
+    const { PushNotifications } = mod;
+
+    // Check without prompting first
+    const status = await PushNotifications.checkPermissions();
+    if (status.receive === 'granted') {
+      // Already granted — refresh the token silently
+      await _doNativeRegistration(PushNotifications);
+    }
+    // If not granted, don't prompt here — wait for user to press "Turn on"
+  } catch { /* ignore */ }
+}
+
+// Rewritten native push: adds listeners BEFORE calling register() so we
+// never miss a token that arrives synchronously on Android 13+.
 async function enableNativePush() {
   try {
-    // Dynamic import so a plain browser build does not choke on the plugin.
-    // The vite-ignore hint keeps Rollup from trying to bundle it at build time
-    // when the Capacitor plugin is not installed.
     const mod = await import(/* @vite-ignore */ '@capacitor/push-notifications').catch(() => null);
     if (!mod?.PushNotifications) return { ok: false, reason: 'plugin-missing' };
     const { PushNotifications } = mod;
 
-    const perm = await PushNotifications.requestPermissions();
-    if (perm.receive !== 'granted') return { ok: false, reason: perm.receive };
+    // Check current state first
+    let perm = await PushNotifications.checkPermissions();
 
-    await PushNotifications.register();
-    return new Promise((resolve) => {
-      PushNotifications.addListener('registration', async (token) => {
-        try {
-          await api.pushSubscribe({
-            subscription: { transport: 'fcm', token: token.value },
-            meta: { platform: 'android' },
-          });
-          subscribed = true;
-          resolve({ ok: true });
-        } catch (err) {
-          resolve({ ok: false, reason: err.message });
-        }
-      });
-      PushNotifications.addListener('registrationError', (err) => {
-        resolve({ ok: false, reason: err?.error || 'registration-error' });
-      });
-    });
+    // Only prompt if not determined yet
+    if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') {
+      perm = await PushNotifications.requestPermissions();
+    }
+
+    if (perm.receive !== 'granted') {
+      return { ok: false, reason: perm.receive };
+    }
+
+    return _doNativeRegistration(PushNotifications);
   } catch (err) {
     return { ok: false, reason: err.message };
   }
+}
+
+// Registers and waits for token. Adds listeners BEFORE calling .register()
+// so the token is never missed if Android delivers it synchronously.
+function _doNativeRegistration(PushNotifications) {
+  return new Promise((resolve) => {
+    // Remove any stale listeners first to avoid duplicates
+    PushNotifications.removeAllListeners().catch(() => {});
+
+    // Add success listener
+    PushNotifications.addListener('registration', async (token) => {
+      try {
+        await api.pushSubscribe({
+          subscription: { transport: 'fcm', token: token.value },
+          meta: { platform: 'android' },
+        });
+        subscribed = true;
+        resolve({ ok: true });
+      } catch (err) {
+        resolve({ ok: false, reason: err.message });
+      }
+    });
+
+    // Add error listener
+    PushNotifications.addListener('registrationError', (err) => {
+      resolve({ ok: false, reason: err?.error || 'registration-error' });
+    });
+
+    // NOW call register — listeners are already wired
+    PushNotifications.register().catch((err) => {
+      resolve({ ok: false, reason: err?.message || 'register-failed' });
+    });
+  });
 }

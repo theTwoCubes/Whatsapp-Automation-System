@@ -317,6 +317,11 @@ export function registerApi(app, deps) {
     const email = req.user?.email;
     if (!sub || !email) return reply.code(400).send({ error: 'subscription and login required' });
     try {
+      const transport = sub.transport || 'web';
+      const tokenPreview = transport === 'fcm'
+        ? `fcm:${String(sub.token || '').slice(0, 20)}…`
+        : `web:${String(sub.endpoint || '').slice(-20)}`;
+      req.log.info({ email, transport, token: tokenPreview }, 'push subscription saved');
       await saveSubscription(pool, email, sub, {
         platform: meta.platform,
         userAgent: req.headers['user-agent'],

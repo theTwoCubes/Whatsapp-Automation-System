@@ -906,7 +906,7 @@ export default function Knowledge() {
 
   return (
     <AdminPage
-      title="Answers your AI uses"
+      title="Knowledge Base"
       subtitle="The common pack is used in every chat. Service packs kick in when a lead came through a campaign or mentions matching keywords."
       actions={
         <>

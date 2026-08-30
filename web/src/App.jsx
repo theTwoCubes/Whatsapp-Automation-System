@@ -6,11 +6,14 @@ import Sidebar from './components/layout/Sidebar.jsx';
 import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
-import { Menu, Bell } from 'lucide-react';
-import { ensureServiceWorker, enablePush, pushAvailable } from './push.js';
+import { Menu } from 'lucide-react';
+import {
+  ensureServiceWorker, enablePush, pushAvailable,
+  autoRegisterIfNative, isCapacitor,
+} from './push.js';
 import Modal from './components/ui/Modal.jsx';
 
-// Color helpers for white-label brand theming
+// ─── Color helpers ────────────────────────────────────────────────────────────
 function hexToRgb(hex) {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
@@ -30,39 +33,39 @@ function hexWithAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// Persist push state across sessions in localStorage (§2.1)
+// ─── Push state persistence ───────────────────────────────────────────────────
 const PUSH_STATE_KEY = 'wa_push_state';
 
 function resolveInitialPushState() {
   const stored = localStorage.getItem(PUSH_STATE_KEY);
   if (typeof Notification === 'undefined') return stored || 'dismissed';
-  const perm = Notification.permission; // 'granted' | 'denied' | 'default'
-  // If OS says granted/denied, trust that over stored value
+  const perm = Notification.permission;
   if (perm === 'granted') return 'granted';
   if (perm === 'denied') return 'denied';
-  // Otherwise respect stored dismissed state
   return stored || 'default';
 }
-
 function savePushState(state) {
   localStorage.setItem(PUSH_STATE_KEY, state);
 }
 
+// ─── Root ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [authed, setAuthed] = useState(Boolean(getToken()));
-  const [view, setView] = useState('conversations');
-  const [brand, setBrand] = useState({
+  const [authed, setAuthed]  = useState(Boolean(getToken()));
+  const [view, setView]      = useState('conversations');
+  const [brand, setBrand]    = useState({
     name: 'Console',
     watermark: '',
     supportEmail: '',
     accentColor: '#00a884',
   });
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations]   = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [pushState, setPushState] = useState(() => resolveInitialPushState());
+  const [pushState, setPushState]           = useState(() => resolveInitialPushState());
   const [deniedModalOpen, setDeniedModalOpen] = useState(false);
+  // Track whether a thread is open on mobile (hides top bar)
+  const [threadOpen, setThreadOpen]         = useState(false);
 
-  // Load branding on mount
+  // Load branding
   useEffect(() => {
     api.branding().then((b) => {
       if (!b) return;
@@ -77,7 +80,7 @@ export default function App() {
     });
   }, []);
 
-  // Keep conversation list so sidebar can show the pending count
+  // Load conversation list for badge count
   useEffect(() => {
     if (!authed) return;
     api.conversations()
@@ -85,18 +88,20 @@ export default function App() {
       .catch(() => {});
   }, [authed]);
 
-  // Register SW on sign-in and sync push state (§2.1)
+  // SW registration + push state sync + live OS permission listener
   useEffect(() => {
     if (!authed) return;
+
     ensureServiceWorker(() => {
-      // A new service worker is waiting. We can't call useToast here (outside
-      // the provider tree) so we fire a custom event that AppInner listens to.
       window.dispatchEvent(new CustomEvent('sw-update-ready'));
     });
-    // Sync with current permission (handles case where user changed OS settings)
+
     setPushState(resolveInitialPushState());
 
-    // Live permission change listener (§2.1)
+    // Silently re-register FCM token on every Capacitor launch
+    autoRegisterIfNative();
+
+    // Live OS permission change (browser only)
     let permStatus = null;
     try {
       navigator.permissions?.query({ name: 'notifications' }).then((ps) => {
@@ -108,7 +113,7 @@ export default function App() {
           setPushState(next);
         };
       }).catch(() => {});
-    } catch { /* browser doesn't support */ }
+    } catch { /* unsupported */ }
     return () => { if (permStatus) permStatus.onchange = null; };
   }, [authed]);
 
@@ -131,10 +136,6 @@ export default function App() {
     setPushState('dismissed');
   };
 
-  // Push test — calls backend, shows toast via outer ToastProvider
-  // Wired inside the ToastProvider tree so we use a wrapper
-  const [pushTestResult, setPushTestResult] = useState(null);
-
   const pendingCount = useMemo(
     () => conversations.filter((c) => c.state === 'pending').length,
     [conversations],
@@ -156,11 +157,10 @@ export default function App() {
     );
   }
 
-  // Admin views
   const adminViews = ['dashboard', 'knowledge', 'followups', 'setup', 'team'];
-  const isAdmin = adminViews.includes(view);
-
-  const showBanner = pushState === 'default' && pushAvailable();
+  const isAdmin    = adminViews.includes(view);
+  // Show banner only on web (not Capacitor), and only when on conversations view
+  const showBanner = !isCapacitor() && pushState === 'default' && pushAvailable() && !threadOpen;
 
   return (
     <BrandContext.Provider value={brand}>
@@ -178,26 +178,28 @@ export default function App() {
           deniedModalOpen={deniedModalOpen}
           setDeniedModalOpen={setDeniedModalOpen}
           pendingCount={pendingCount}
-          conversations={conversations}
           setConversations={setConversations}
           logout={logout}
           isAdmin={isAdmin}
+          threadOpen={threadOpen}
+          setThreadOpen={setThreadOpen}
         />
       </ToastProvider>
     </BrandContext.Provider>
   );
 }
 
-// Inner component so useToast works inside the provider tree
+// ─── AppInner: inside ToastProvider so useToast works ────────────────────────
 function AppInner({
   brand, view, setView, mobileMenuOpen, setMobileMenuOpen,
   pushState, showBanner, turnOnPush, dismissBanner,
   deniedModalOpen, setDeniedModalOpen,
   pendingCount, setConversations, logout, isAdmin,
+  threadOpen, setThreadOpen,
 }) {
   const toast = useToast();
 
-  // Listen for SW update signal from App root
+  // SW update toast
   useEffect(() => {
     const handler = () => {
       toast.info('A new version is ready.', 0, {
@@ -216,19 +218,19 @@ function AppInner({
   const handlePushTest = async () => {
     try {
       const status = await api.pushStatus();
-      if (!status?.vapidConfigured) {
-        toast.error('Notifications not configured on the server. Run node scripts/generate-vapid.js >> .env and restart.');
+      if (!status?.vapidConfigured && !isCapacitor()) {
+        toast.error('Notifications not configured on the server.');
         return;
       }
       if (!status?.myEndpoints?.length) {
-        toast.warning('No subscription found for this device. Try turning notifications on again.');
+        toast.warning('No subscription found. Try turning notifications on again.');
         return;
       }
       const res = await api.pushTest();
       if (res?.sent > 0) {
         toast.success(`Test sent to ${res.sent} device${res.sent !== 1 ? 's' : ''}`);
       } else {
-        toast.warning('Server sent 0 notifications. Check your device settings.');
+        toast.warning('Server sent 0 notifications. Check device settings.');
       }
     } catch (err) {
       toast.error(err.message);
@@ -250,64 +252,71 @@ function AppInner({
         onEnablePush={turnOnPush}
         onPushDeniedInfo={() => setDeniedModalOpen(true)}
       />
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page w-full relative">
-        {/* Mobile Top Bar — share bottom border with banner when banner visible (§2.3) */}
-        <div
-          className={`md:hidden flex items-center justify-between px-4 h-14 bg-white flex-shrink-0 z-20 shadow-sm relative
-            ${showBanner ? '' : 'border-b border-gray-200'}`}
-          style={{ paddingTop: 'env(safe-area-inset-top)' }}
-        >
-          <div className="font-bold text-lg text-gray-900 truncate">{brand.name || 'Console'}</div>
-          <button 
-            className="p-2 -mr-2 text-gray-600 hover:text-gray-900 transition-colors"
-            onClick={() => setMobileMenuOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu size={24} />
-          </button>
-        </div>
 
-        {/* Push banner — simplified on mobile (§2.3) */}
+      <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page w-full relative">
+
+        {/* Mobile Top Bar — hidden when a thread is open (thread header replaces it) */}
+        {!threadOpen && (
+          <div
+            className="md:hidden flex items-center justify-between px-4 bg-white flex-shrink-0 z-20 border-b border-gray-200"
+            style={{
+              height: 56,
+              paddingTop: 'env(safe-area-inset-top)',
+            }}
+          >
+            <div className="font-bold text-base text-gray-900 truncate flex-1">{brand.name || 'Console'}</div>
+            <button
+              className="p-2 -mr-2 text-gray-600 hover:text-gray-900 transition-colors"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu size={22} />
+            </button>
+          </div>
+        )}
+
+        {/* Notification banner — only on web, only when list is visible */}
         {showBanner && (
-          <div className="flex items-center gap-2 md:gap-3 px-4 md:px-5 py-2 md:py-2.5 bg-amber-50 border-b border-amber-200 text-sm text-amber-900 flex-shrink-0">
-            <Bell size={14} className="flex-shrink-0" />
-            <span className="flex-1 min-w-0 text-xs md:text-sm truncate md:whitespace-normal">
-              <span className="md:hidden">Get alerted when a lead needs a person</span>
-              <span className="hidden md:inline">Get alerted when a lead needs a person, even with this tab closed.</span>
+          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-900 flex-shrink-0">
+            <span className="flex-1 min-w-0 text-xs truncate">
+              Get notified when a lead needs help
             </span>
             <button
               onClick={turnOnPush}
-              className="h-7 md:h-8 px-2.5 md:px-3 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex-shrink-0 transition-colors"
+              className="h-7 px-3 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex-shrink-0 transition-colors"
             >
               Turn on
             </button>
-            {/* Not now hidden on mobile per §2.3 spec — use X instead */}
             <button
               onClick={dismissBanner}
-              className="text-amber-700 hover:text-amber-900 text-xs px-1 md:px-2 flex-shrink-0"
+              className="text-amber-700 text-lg leading-none px-1 flex-shrink-0"
               aria-label="Dismiss"
             >
-              <span className="md:hidden">&times;</span>
-              <span className="hidden md:inline">Not now</span>
+              ×
             </button>
           </div>
         )}
 
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
           {view === 'conversations' && (
-            <Console onConversationsChange={setConversations} />
+            <Console
+              onConversationsChange={setConversations}
+              onThreadOpen={setThreadOpen}
+            />
           )}
           {isAdmin && (
-            <Admin activeTab={view} onNavigate={(v) => { setView(v); setMobileMenuOpen(false); }} />
+            <Admin
+              activeTab={view}
+              onNavigate={(v) => { setView(v); setMobileMenuOpen(false); }}
+            />
           )}
         </div>
       </main>
 
-      {/* Denied modal (§2.2) */}
       {deniedModalOpen && (
         <Modal
           title="Notifications blocked"
-          body="You blocked notifications for this site. To re-enable, open your browser's site settings for this URL and allow notifications, then refresh the page."
+          body="You blocked notifications for this site. To re-enable, open your browser site settings for this URL, allow notifications, then refresh."
           confirmLabel="Got it"
           cancelLabel=""
           onConfirm={() => setDeniedModalOpen(false)}
