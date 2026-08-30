@@ -1,107 +1,63 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, X, AlertTriangle, Info } from 'lucide-react';
+import { X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
-// A single visual language for every notification: a soft coloured tile on the
-// left carries the icon, a bold first line carries the message, and a thin bar
-// underneath ticks down the auto-dismiss so the user can tell it isn't stuck.
+// Plain, minimal toast: a solid-coloured left border, message text, dismiss X.
+// No icon, no countdown bar, no animation beyond a simple slide-in.
 const typeStyles = {
-  success: {
-    icon:  Check,
-    tint:  '#10b981',
-    tintBg: 'rgba(16, 185, 129, 0.12)',
-  },
-  error: {
-    icon:  X,
-    tint:  '#ef4444',
-    tintBg: 'rgba(239, 68, 68, 0.12)',
-  },
-  warning: {
-    icon:  AlertTriangle,
-    tint:  '#f59e0b',
-    tintBg: 'rgba(245, 158, 11, 0.14)',
-  },
-  info: {
-    icon:  Info,
-    tint:  '#3b82f6',
-    tintBg: 'rgba(59, 130, 246, 0.12)',
-  },
+  success: { border: '#10b981', bg: '#f0fdf4', text: '#065f46' },
+  error:   { border: '#ef4444', bg: '#fef2f2', text: '#991b1b' },
+  warning: { border: '#f59e0b', bg: '#fffbeb', text: '#92400e' },
+  info:    { border: '#3b82f6', bg: '#eff6ff', text: '#1e40af' },
 };
 
 function ToastItem({ toast, onDismiss }) {
   const style = typeStyles[toast.type] || typeStyles.info;
-  const Icon = style.icon;
-  const [leaving, setLeaving] = useState(false);
-  const [progress, setProgress] = useState(100);
+  const [visible, setVisible] = useState(false);
 
+  // Trigger enter animation on mount
   useEffect(() => {
-    if (!toast.duration || toast.duration <= 0) return;
-    const start = Date.now();
-    const tick = setInterval(() => {
-      const pct = Math.max(0, 100 - ((Date.now() - start) / toast.duration) * 100);
-      setProgress(pct);
-    }, 30);
-    return () => clearInterval(tick);
-  }, [toast.duration]);
+    requestAnimationFrame(() => setVisible(true));
+  }, []);
 
   const dismiss = () => {
-    setLeaving(true);
-    setTimeout(() => onDismiss(toast.id), 160);
+    setVisible(false);
+    setTimeout(() => onDismiss(toast.id), 200);
   };
 
   return (
     <div
       role="status"
-      className={`
-        pointer-events-auto relative flex items-stretch gap-0 rounded-xl overflow-hidden bg-white
-        shadow-[0_10px_24px_-8px_rgba(15,23,42,0.18),0_2px_4px_rgba(15,23,42,0.06)]
-        border border-gray-200/70
-        transition-all duration-150 ease-out
-        ${leaving ? 'opacity-0 translate-x-3' : 'opacity-100 translate-x-0'}
-      `}
-      style={{ animation: leaving ? undefined : 'toast-slide 200ms ease-out' }}
+      style={{
+        borderLeft: `4px solid ${style.border}`,
+        background: style.bg,
+        color: style.text,
+        opacity: visible ? 1 : 0,
+        transform: visible ? 'translateY(0)' : 'translateY(-6px)',
+        transition: 'opacity 200ms ease, transform 200ms ease',
+      }}
+      className="pointer-events-auto flex items-center gap-3 rounded-lg px-4 py-3 shadow-md w-full"
     >
-      {/* Icon */}
-      <div className="flex items-center justify-center w-14 flex-shrink-0">
-        <span style={{ color: style.tint }}>
-          <Icon size={22} strokeWidth={2.5} />
-        </span>
-      </div>
-
-      {/* Message + optional action + close */}
-      <div className="flex-1 flex items-start gap-3 pl-2 pr-4 py-4 min-w-0">
-        <div className="flex-1 min-w-0 pt-0.5">
-          <p className="text-base font-medium text-gray-900 leading-snug break-words">{toast.message}</p>
-          {/* Optional action button (§4.7 extension) */}
-          {toast.action && (
-            <button
-              onClick={() => { toast.action.onClick?.(); dismiss(); }}
-              className="mt-1.5 text-sm font-semibold underline underline-offset-2"
-              style={{ color: style.tint }}
-            >
-              {toast.action.label}
-            </button>
-          )}
-        </div>
-        <button
-          onClick={dismiss}
-          className="text-gray-400 hover:text-gray-700 transition-colors p-1 -mr-1 rounded flex-shrink-0"
-          aria-label="Dismiss"
-        >
-          <X size={18} />
-        </button>
-      </div>
-
-      {/* Countdown */}
-      {toast.duration > 0 && (
-        <div className="absolute bottom-0 left-14 right-0 h-[3px] bg-gray-100">
-          <div
-            className="h-full transition-[width] duration-75 ease-linear"
-            style={{ width: `${progress}%`, background: style.tint }}
-          />
-        </div>
-      )}
+      <p className="flex-1 text-sm font-medium leading-snug break-words">
+        {toast.message}
+        {toast.action && (
+          <button
+            onClick={() => { toast.action.onClick?.(); dismiss(); }}
+            className="ml-2 underline underline-offset-2 font-semibold text-sm"
+            style={{ color: style.border }}
+          >
+            {toast.action.label}
+          </button>
+        )}
+      </p>
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss"
+        className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+      >
+        <X size={16} />
+      </button>
     </div>
   );
 }
@@ -114,7 +70,7 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const show = useCallback((message, type = 'info', duration = 2000, action = null) => {
+  const show = useCallback((message, type = 'info', duration = 3500, action = null) => {
     const id = ++counterRef.current;
     setToasts((prev) => [...prev, { id, message, type, duration, action }]);
     if (duration > 0) setTimeout(() => dismiss(id), duration);
@@ -122,31 +78,23 @@ export function ToastProvider({ children }) {
   }, [dismiss]);
 
   const toast = useMemo(() => ({
-    success: (msg, dur, action) => show(msg, 'success', dur, action),
-    error:   (msg, dur, action) => show(msg, 'error',   dur, action),
-    warning: (msg, dur, action) => show(msg, 'warning', dur, action),
-    info:    (msg, dur, action) => show(msg, 'info',    dur, action),
+    success: (msg, dur, action) => show(msg, 'success', dur ?? 3500, action),
+    error:   (msg, dur, action) => show(msg, 'error',   dur ?? 5000, action),
+    warning: (msg, dur, action) => show(msg, 'warning', dur ?? 4000, action),
+    info:    (msg, dur, action) => show(msg, 'info',    dur ?? 3500, action),
     dismiss,
   }), [show, dismiss]);
 
   return (
     <ToastContext.Provider value={toast}>
       {children}
-
-      <style>{`
-        @keyframes toast-slide {
-          from { opacity: 0; transform: translate(12px, -4px); }
-          to   { opacity: 1; transform: translate(0, 0); }
-        }
-      `}</style>
-
       <div
-        className="fixed top-6 right-6 z-50 flex flex-col gap-3 w-[420px] pointer-events-none"
+        className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-[340px] max-w-[calc(100vw-2rem)] pointer-events-none"
         aria-live="polite"
       >
-        {/* Cap at 3 most-recent toasts, show overflow count (§4.7) */}
+        {/* Cap at 3 most-recent */}
         {toasts.length > 3 && (
-          <div className="pointer-events-auto text-center text-xs text-gray-500 bg-white/80 rounded-full px-3 py-1 shadow-sm border border-gray-200 self-center">
+          <div className="pointer-events-auto text-center text-xs text-gray-500 bg-white rounded-full px-3 py-1 shadow-sm border border-gray-200 self-center">
             +{toasts.length - 3} more
           </div>
         )}

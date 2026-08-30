@@ -260,17 +260,17 @@ function AppInner({
           <div
             className="md:hidden flex items-center justify-between px-4 bg-white flex-shrink-0 z-20 border-b border-gray-200"
             style={{
-              height: 56,
+              height: 64,
               paddingTop: 'env(safe-area-inset-top)',
             }}
           >
-            <div className="font-bold text-base text-gray-900 truncate flex-1">{brand.name || 'Console'}</div>
+            <div className="font-bold text-lg text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
             <button
-              className="p-2 -mr-2 text-gray-600 hover:text-gray-900 transition-colors"
+              className="p-2 -mr-1 text-gray-600 hover:text-gray-900 transition-colors"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open menu"
             >
-              <Menu size={22} />
+              <Menu size={24} />
             </button>
           </div>
         )}

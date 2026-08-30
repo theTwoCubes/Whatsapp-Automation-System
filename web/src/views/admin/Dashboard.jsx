@@ -6,7 +6,7 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 // Shared admin layout primitives
 export function AdminPage({ title, subtitle, actions, children }) {
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-3 py-4 md:px-8 md:py-8">
+    <div className="w-full max-w-[1400px] mx-auto px-3 py-6 md:px-8 md:py-8">
       <div className="flex items-center justify-between gap-3 mb-4 md:mb-8">
         <div className="min-w-0">
           <h1 className="text-xl md:text-3xl font-bold text-gray-900 tracking-tight truncate">{title}</h1>

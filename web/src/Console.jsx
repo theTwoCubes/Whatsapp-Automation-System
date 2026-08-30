@@ -80,19 +80,24 @@ function InboundAttachment({ message }) {
     try {
       const { url, size: bytes } = await api.mediaObjectUrl(message.id);
       setSize(bytes);
-      const filename = guessFilename(message);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.rel = 'noopener';
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      // Some mobile browsers ignore the download hint and just navigate. If
-      // the tab is still here after a beat, we know the click worked as a
-      // real download so we can revoke; if it opened a new tab, the OS has
-      // the blob and will keep it alive.
-      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60_000);
+
+      // Capacitor WebView silently drops blob-URL anchor clicks and hangs.
+      // Opening the URL directly lets the OS handle it (Downloads / Files app).
+      // On desktop browsers the anchor approach still works fine.
+      const isCapacitor = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+      if (isCapacitor) {
+        window.open(url, '_system');
+      } else {
+        const filename = guessFilename(message);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60_000);
+      }
     } catch (err) {
       setError(err.message || 'Download failed');
     } finally {
