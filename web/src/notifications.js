@@ -84,3 +84,30 @@ export function applyBadge(count) {
   setFaviconBadge(count);
   setTitleBadge(count);
 }
+
+// Tells the active service worker which chat is open right now so it can
+// suppress an OS notification for a message the agent is actively reading.
+// Pass null when leaving the thread. Also re-post on visibility change so
+// backgrounding the tab counts as "not viewing".
+let currentViewing = null;
+export function setViewingConversation(id) {
+  currentViewing = id != null ? String(id) : null;
+  postViewing();
+}
+
+function postViewing() {
+  const sw = navigator.serviceWorker;
+  if (!sw) return;
+  sw.ready.then((reg) => {
+    const target = sw.controller || reg.active;
+    if (!target) return;
+    // If the tab is not visible, tell the SW nothing is open on this device
+    // so an incoming push still lands in the notification tray.
+    const idForSw = document.visibilityState === 'visible' ? currentViewing : null;
+    target.postMessage({ type: 'VIEWING_CONVERSATION', id: idForSw });
+  }).catch(() => { /* SW not ready yet, will re-post on next change */ });
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', postViewing);
+}

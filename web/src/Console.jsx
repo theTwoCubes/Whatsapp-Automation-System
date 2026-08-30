@@ -13,7 +13,7 @@ import {
   shortTime, groupByDay, templateParamCount,
   useAlias, setAlias, displayName,
 } from './lib.js';
-import { playChime, applyBadge } from './notifications.js';
+import { playChime, applyBadge, setViewingConversation } from './notifications.js';
 import Avatar from './components/ui/Avatar.jsx';
 import { StateBadge } from './components/ui/Badge.jsx';
 import Button from './components/ui/Button.jsx';
@@ -280,6 +280,9 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
   // Android hardware back button — intercept via history
   useEffect(() => {
     selectedRef.current = selected;
+    // Let the service worker know which chat is open so it can suppress
+    // OS notifications for messages the agent is already reading.
+    setViewingConversation(selected);
     if (!selected) { loadThread(null); return; }
     // Load the thread data
     loadThread(selected);
@@ -290,7 +293,11 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
       setThread(null);
     };
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      // Leaving the Console entirely counts as no chat open.
+      setViewingConversation(null);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
@@ -859,17 +866,17 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
       {/* Handoff banner */}
       {isPending && conversation.handoff_reason && (
-        <div className="flex items-start gap-3 px-3 md:px-5 py-3 md:py-4 bg-amber-50 border-b border-amber-200 flex-shrink-0">
-          <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 px-3 md:px-5 py-3 md:py-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+          <AlertCircle size={16} className="text-gray-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-amber-900">Waiting for a team member</div>
-            <div className="text-xs text-amber-700 mt-0.5 break-words">{conversation.handoff_reason}</div>
+            <div className="text-sm font-semibold text-gray-900">Waiting for a team member</div>
+            <div className="text-xs text-gray-600 mt-0.5 break-words">{conversation.handoff_reason}</div>
             <div className="flex gap-2 mt-3">
               <Button variant="primary" size="sm"
                 onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted').then(() => onChanged())}>
                 Accept
               </Button>
-              <Button variant="ghost" size="sm"
+              <Button variant="secondary" size="sm"
                 onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected, AI taking over').then(() => onChanged())}>
                 Reject
               </Button>

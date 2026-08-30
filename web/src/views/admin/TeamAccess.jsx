@@ -18,7 +18,7 @@ import { AdminPage } from './Dashboard.jsx';
 // like the console than a dense settings screen.
 function Panel({ children, className = '' }) {
   return (
-    <div className={`bg-white border border-gray-200 rounded-2xl ${className}`}>
+    <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${className}`}>
       {children}
     </div>
   );
@@ -435,7 +435,7 @@ function AuditLog() {
           />
         }
       />
-      <div className="max-h-[500px] overflow-y-auto">
+      <div className="max-h-[500px] overflow-y-auto overflow-x-hidden">
         {!data && (
           <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-4">
             <Skeleton height={18} width="80%" />
@@ -511,7 +511,7 @@ export default function TeamAccess() {
           </div>
           <SideTabs tabs={tabs} active={tab} onChange={setTab} />
         </aside>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full">
           {tab === 'agents'   && <Agents />}
           {tab === 'branding' && <Branding />}
           {tab === 'audit'    && <AuditLog />}

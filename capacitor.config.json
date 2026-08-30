@@ -1,5 +1,5 @@
 {
-  "appId": "com.thetwocubes.console",
+  "appId": "com.wamanager.console",
   "appName": "WA Manager",
   "webDir": "web/dist",
   "server": {

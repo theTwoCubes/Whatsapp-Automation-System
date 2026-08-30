@@ -117,11 +117,11 @@ export default function App() {
       // @vite-ignore is required — these paths must NOT be transformed by Rollup.
       // The Capacitor WebView runtime resolves @capacitor/* imports natively.
       import(/* @vite-ignore */ '@capacitor/app').then(({ App: CapApp }) => {
-        CapApp.addListener('backButton', () => {
-          if (threadOpenRef.current) {
-            setThreadOpen(false);
-          } else if (viewRef.current !== 'conversations') {
+        CapApp.addListener('backButton', ({ canGoBack }) => {
+          if (viewRef.current !== 'conversations') {
             setView('conversations');
+          } else if (canGoBack) {
+            window.history.back();
           } else {
             CapApp.exitApp();
           }

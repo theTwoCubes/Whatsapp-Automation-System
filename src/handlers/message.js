@@ -20,7 +20,10 @@ import { notifyAgentsOfHandoff } from '../push.js';
 
 // Fires a push to every subscribed device. Fetches contact bits in a single
 // query so the caller does not need to pass them in from every handoff site.
-async function pushHandoff(pool, conversationId, reason, log) {
+// opts.kind picks the title shown on the phone:
+//   'handoff' (default) → "<name> needs a person"
+//   'inbound'           → "<name> sent a message"
+async function pushHandoff(pool, conversationId, reason, log, opts = {}) {
   try {
     const res = await pool.query(
       `select ct.name, ct.wa_id
@@ -29,11 +32,16 @@ async function pushHandoff(pool, conversationId, reason, log) {
       [conversationId],
     );
     const row = res.rows[0];
+    const label = row?.name || row?.wa_id;
+    const title = opts.kind === 'inbound'
+      ? `${label} sent a message`
+      : `${label} needs a person`;
     await notifyAgentsOfHandoff(pool, {
       conversationId,
       name: row?.name,
       waId: row?.wa_id,
       reason,
+      title,
       log,
     });
   } catch (err) {
@@ -119,9 +127,17 @@ async function handleMessage(value, message, deps) {
 
   realtime?.emit({ type: 'refresh', conversationId: result.conversationId });
 
-  // A human owns this conversation, so the bot stays out of it.
+  // A human owns this conversation, so the bot stays out of it. The team
+  // still needs to know a new message landed, so fire a push. The service
+  // worker suppresses it if the agent already has that specific chat open.
   if (result.state !== 'bot') {
     log.info({ conversationId: result.conversationId }, 'conversation is with a human, bot staying quiet');
+    if (message.text?.body || message.type !== 'text') {
+      const preview = message.text?.body
+        ? message.text.body.slice(0, 120)
+        : `Sent a ${message.type}`;
+      await pushHandoff(pool, result.conversationId, preview, log, { kind: 'inbound' });
+    }
     return;
   }
 
@@ -221,7 +237,7 @@ async function respondToLead(deps, conversationId, items) {
     log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');
     decision = {
       handoff: true,
-      reason: 'AI service unavailable (fallback triggered)',
+      reason: 'AI service unavailable',
       reply: settings.fallbackMessage,
     };
   }

@@ -88,17 +88,22 @@ export async function removeSubscription(pool, endpoint) {
 
 // Fan out one notification to every subscribed device. Deletes stale endpoints
 // on 404/410 so the table does not grow unbounded with expired browsers.
-export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, log }) {
+// The service worker on each device decides whether to actually surface the
+// notification — if the agent already has that specific chat open, the SW
+// suppresses it so we don't nag them for a message they're already reading.
+export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, log }) {
   configure();
   if (!configured) return;
   const rows = (await pool.query('select * from push_subscriptions')).rows;
   if (rows.length === 0) return;
 
   const payload = JSON.stringify({
-    title: `${name || waId} needs a person`,
+    title: title || `${name || waId} needs a person`,
     body: reason || 'A lead is waiting on your team.',
     conversationId,
-    tag: `handoff-${conversationId}`,
+    // Same tag so a burst of messages from one lead collapses into one line
+    // in the notification tray instead of stacking noisily.
+    tag: `chat-${conversationId}`,
   });
 
   await Promise.all(rows.map(async (row) => {
