@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, clearToken, getToken, getAgentEmail } from './api.js';
 import { BrandContext } from './brand.js';
 import { ToastProvider, useToast } from './components/ui/Toast.jsx';
@@ -11,6 +11,7 @@ import {
   ensureServiceWorker, enablePush, pushAvailable,
   autoRegisterIfNative, isCapacitor,
 } from './push.js';
+
 import Modal from './components/ui/Modal.jsx';
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -64,6 +65,11 @@ export default function App() {
   const [deniedModalOpen, setDeniedModalOpen] = useState(false);
   // Track whether a thread is open on mobile (hides top bar)
   const [threadOpen, setThreadOpen]         = useState(false);
+  // For back-button: reference current view/thread so the listener always sees latest state
+  const viewRef       = useRef(view);
+  const threadOpenRef = useRef(threadOpen);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  useEffect(() => { threadOpenRef.current = threadOpen; }, [threadOpen]);
 
   // Load branding
   useEffect(() => {
@@ -101,6 +107,43 @@ export default function App() {
     // Silently re-register FCM token on every Capacitor launch
     autoRegisterIfNative();
 
+    // Hardware back button support for Android —
+    // uses React state (not history) so it works correctly in a SPA:
+    //   - thread open → close thread
+    //   - on an admin sub-view → go back to conversations
+    //   - already on conversations → exit app
+    let backListener = null;
+    if (isCapacitor()) {
+      // @vite-ignore is required — these paths must NOT be transformed by Rollup.
+      // The Capacitor WebView runtime resolves @capacitor/* imports natively.
+      import(/* @vite-ignore */ '@capacitor/app').then(({ App: CapApp }) => {
+        CapApp.addListener('backButton', () => {
+          if (threadOpenRef.current) {
+            setThreadOpen(false);
+          } else if (viewRef.current !== 'conversations') {
+            setView('conversations');
+          } else {
+            CapApp.exitApp();
+          }
+        }).then((listener) => { backListener = listener; });
+      }).catch(() => {});
+
+      // Request push permissions immediately on every Capacitor launch.
+      // On first launch this shows the Android system permission dialog.
+      // On subsequent launches it silently refreshes the FCM token if already granted.
+      import(/* @vite-ignore */ '@capacitor/push-notifications')
+        .then(({ PushNotifications }) => {
+          PushNotifications.requestPermissions()
+            .then((status) => {
+              if (status.receive === 'granted') {
+                autoRegisterIfNative();
+              }
+            })
+            .catch(() => {});
+        })
+        .catch(() => {});
+    }
+
     // Live OS permission change (browser only)
     let permStatus = null;
     try {
@@ -114,7 +157,10 @@ export default function App() {
         };
       }).catch(() => {});
     } catch { /* unsupported */ }
-    return () => { if (permStatus) permStatus.onchange = null; };
+    return () => { 
+      if (permStatus) permStatus.onchange = null; 
+      if (backListener) backListener.then(l => l.remove());
+    };
   }, [authed]);
 
 
@@ -219,14 +265,21 @@ function AppInner({
 
   const handlePushTest = async () => {
     try {
-      const status = await api.pushStatus();
+      let status = await api.pushStatus();
       if (!status?.vapidConfigured && !isCapacitor()) {
         toast.error('Notifications not configured on the server.');
         return;
       }
       if (!status?.myEndpoints?.length) {
-        toast.warning('No subscription found. Try turning notifications on again.');
-        return;
+        // The backend has lost our subscription (e.g. server restart or dev wipe).
+        // Try to re-register silently instead of failing.
+        const re = await enablePush();
+        if (!re.ok) {
+          toast.warning('No subscription found. Try turning notifications on again.');
+          return;
+        }
+        // Re-fetch status after silent registration
+        status = await api.pushStatus();
       }
       const res = await api.pushTest();
       if (res?.sent > 0) {
@@ -260,13 +313,15 @@ function AppInner({
         {/* Mobile Top Bar — hidden when a thread is open (thread header replaces it) */}
         {!threadOpen && (
           <div
-            className="md:hidden flex items-center justify-between px-4 bg-white flex-shrink-0 z-20 border-b border-gray-200"
+            className="md:hidden flex items-center justify-between flex-shrink-0 z-20 border-b border-gray-200 bg-white"
             style={{
-              height: 72,
+              height: 'calc(64px + env(safe-area-inset-top))',
               paddingTop: 'env(safe-area-inset-top)',
+              paddingLeft: '20px',
+              paddingRight: '16px',
             }}
           >
-            <div className="font-bold text-xl text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
+            <div className="font-bold text-2xl text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
             <button
               className="p-2 -mr-1 text-gray-600 hover:text-gray-900 transition-colors"
               onClick={() => setMobileMenuOpen(true)}

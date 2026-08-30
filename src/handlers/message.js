@@ -329,7 +329,7 @@ async function sendAndRecord(deps, to, conversationId, body) {
       realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
-    log.error({ conversationId, to, err }, 'failed to send reply');
+    console.error(err); log.error({ conversationId, to, err }, 'failed to send reply');
   }
 }
 

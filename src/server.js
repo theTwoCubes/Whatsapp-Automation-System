@@ -45,7 +45,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'SAMEORIGIN');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'");
+    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https:");
     return payload;
   });
 

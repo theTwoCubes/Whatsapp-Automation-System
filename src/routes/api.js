@@ -176,7 +176,7 @@ export function registerApi(app, deps) {
     try {
       const wamid = await meta.sendText(conversation.wa_id, body);
       if (wamid) await recordOutbound(pool, { conversationId: conversation.id, waMessageId: wamid, body });
-      await claimConversation(pool, conversation, req.user.email);
+      await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await pool.query('update conversations set last_read_at = now() where id = $1', [conversation.id]);
       realtime.emit({ type: 'refresh', conversationId: conversation.id });

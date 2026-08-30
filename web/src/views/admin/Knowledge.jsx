@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2, MoreVertical } from 'lucide-react';
+import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2, MoreVertical, X } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
 import { InputField } from '../../components/ui/Field.jsx';
@@ -12,8 +12,11 @@ import {
   FormStack, FormActions, EmptyState, TabPills,
 } from './Dashboard.jsx';
 
-// Simulator Drawer
-function SimulatorDrawer({ packs, onClose }) {
+import { isCapacitor } from '../../push.js';
+
+
+// Simulator Modal
+function SimulatorModal({ packs, onClose }) {
   const [text, setText]           = useState('');
   const [topicId, setTopicId]     = useState('');
   const [result, setResult]       = useState(null);
@@ -34,7 +37,15 @@ function SimulatorDrawer({ packs, onClose }) {
   const packNames    = new Map(packs.map((p) => [String(p.topic_id ?? 'base'), p.name]));
 
   return (
-    <Drawer title="Test the AI" onClose={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex flex-shrink-0 items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900">Test the AI</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
       <FormStack>
         <p className="text-sm text-gray-500 leading-relaxed mb-4">
           Type a message as if a customer sent it. The AI will respond exactly as it would in a live chat. Nothing is sent to any real conversation.
@@ -113,7 +124,9 @@ function SimulatorDrawer({ packs, onClose }) {
           </div>
         )}
       </FormStack>
-    </Drawer>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -229,14 +242,25 @@ function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDel
   const [open, setOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const ref = useRef(null);
+  const [openUpward, setOpenUpward] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    // Check if the button is in the lower 40% of the viewport — open upward if so
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setOpenUpward(rect.bottom > window.innerHeight * 0.65);
+    }
     const close = (e) => { if (!ref.current?.contains(e.target)) { setOpen(false); setConfirmDel(false); } };
     const esc = (e) => { if (e.key === 'Escape') { setOpen(false); setConfirmDel(false); } };
     document.addEventListener('mousedown', close);
+    document.addEventListener('touchstart', close);
     document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('touchstart', close);
+      document.removeEventListener('keydown', esc);
+    };
   }, [open]);
 
   const item = 'w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
@@ -252,7 +276,11 @@ function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDel
         <MoreVertical size={18} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-30 py-1">
+        <div
+          className={`absolute right-0 w-52 bg-white border border-gray-200 rounded-lg shadow-xl z-50 py-1 ${
+            openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+        >
           {!faq.active && (
             <button className={`${item} text-[var(--accent-text)] font-semibold`} onClick={() => { setOpen(false); onApprove(); }}>
               Approve
@@ -693,7 +721,17 @@ function MediaPane({ topics }) {
     finally { setUploading(false); }
   };
 
-  const remove = async () => { await api.deleteMedia(deleteId); setDeleteId(null); toast.success('File deleted'); reload(); };
+  const remove = async () => {
+    try {
+      await api.deleteMedia(deleteId);
+      setDeleteId(null);
+      toast.success('File deleted');
+      reload();
+    } catch (e) {
+      setDeleteId(null);
+      toast.error('Delete failed: ' + e.message);
+    }
+  };
 
   const rows = data?.media || [];
 
@@ -882,12 +920,40 @@ export default function Knowledge() {
   };
 
   const doExport = async () => {
-    const data = await api.exportFaqs();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `answers-${new Date().toISOString().slice(0, 10)}.json`; a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const data = await api.exportFaqs();
+      const jsonStr = JSON.stringify(data, null, 2);
+
+      if (isCapacitor()) {
+        try {
+          // Try native share sheet first
+          const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
+          await Share.share({
+            title: 'knowledge-base.json',
+            text: jsonStr,
+            dialogTitle: 'Export Knowledge Base',
+          });
+        } catch (shareErr) {
+          // Fallback: write to clipboard
+          try {
+            await navigator.clipboard.writeText(jsonStr);
+            toast.success('Copied to clipboard (share not available)');
+          } catch {
+            toast.error('Export failed: ' + shareErr.message);
+          }
+        }
+      } else {
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = `answers-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      toast.error('Export failed: ' + e.message);
+    }
   };
 
   const createTopic = async (name, slug, description, keywords) => {
@@ -992,7 +1058,7 @@ export default function Knowledge() {
 
       {tab === 'media' && <MediaPane topics={topics} />}
 
-      {simOpen && <SimulatorDrawer packs={packs} onClose={() => setSimOpen(false)} />}
+      {simOpen && <SimulatorModal packs={packs} onClose={() => setSimOpen(false)} />}
     </AdminPage>
   );
 }

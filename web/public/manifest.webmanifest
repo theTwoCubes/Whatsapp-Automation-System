@@ -1,7 +1,7 @@
 {
-  "name": "theTwoCubes Console",
-  "short_name": "TwoCubes",
-  "description": "WhatsApp lead nurturing console",
+  "name": "WA Manager",
+  "short_name": "WA Manager",
+  "description": "WhatsApp Lead Nurturing Console",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

@@ -179,17 +179,16 @@ function DripFollowups() {
                   >
                     {i + 1}
                   </div>
-                  <select
-                    className="field-input flex-1 min-w-0"
+                  <input
+                    className="field-input w-full md:w-64"
+                    list="template-options"
+                    placeholder="e.g. drip_day3"
                     value={s.template}
                     onChange={(e) => updateStep(i, 'template', e.target.value)}
-                  >
-                    <option value="" disabled>Select approved template...</option>
-                    {templates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-                    {s.template && !templates.find(t => t.name === s.template) && (
-                      <option value={s.template}>{s.template}</option>
-                    )}
-                  </select>
+                  />
+                  <datalist id="template-options">
+                    {templates.map(t => <option key={t.name} value={t.name} />)}
+                  </datalist>
                 </div>
                 <div className="flex items-center gap-2 pl-11 md:pl-0">
                   <span className="text-sm text-gray-500 flex-shrink-0">Wait</span>

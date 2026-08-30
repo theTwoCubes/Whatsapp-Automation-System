@@ -7,7 +7,7 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 export function AdminPage({ title, subtitle, actions, children }) {
   return (
     <div className="w-full max-w-[1400px] mx-auto px-3 py-6 md:px-8 md:py-8">
-      <div className="flex items-center justify-between gap-3 mb-4 md:mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-3 mb-4 md:mb-8">
         <div className="min-w-0">
           <h1 className="text-xl md:text-3xl font-bold text-slate-900 tracking-tight truncate">{title}</h1>
           {subtitle && <p className="hidden md:block text-sm text-gray-500 mt-1 max-w-2xl leading-relaxed">{subtitle}</p>}
@@ -31,7 +31,7 @@ export function Section({ title, subtitle, children }) {
 
 export function Card({ children, className = '' }) {
   return (
-    <div className={`bg-white border border-gray-200 rounded-xl overflow-hidden ${className}`}>
+    <div className={`bg-white border border-gray-200 rounded-xl ${className}`}>
       {children}
     </div>
   );

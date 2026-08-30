@@ -18,7 +18,7 @@ import { AdminPage } from './Dashboard.jsx';
 // like the console than a dense settings screen.
 function Panel({ children, className = '' }) {
   return (
-    <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${className}`}>
+    <div className={`bg-white border border-gray-200 rounded-2xl ${className}`}>
       {children}
     </div>
   );

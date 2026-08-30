@@ -91,22 +91,19 @@ export async function enablePush() {
   return { ok: true };
 }
 
-// Silently attempt to register on every Capacitor launch. Safe to call
-// multiple times — it checks permissions first and skips if not granted yet.
+// Silently registers/refreshes FCM token on Capacitor launch.
+// Only runs when permission is already granted (no user prompt).
+// The initial permission prompt is triggered in App.jsx on first launch.
 export async function autoRegisterIfNative() {
   if (!isCapacitor()) return;
   try {
     const mod = await import(/* @vite-ignore */ '@capacitor/push-notifications').catch(() => null);
     if (!mod?.PushNotifications) return;
     const { PushNotifications } = mod;
-
-    // Check without prompting first
     const status = await PushNotifications.checkPermissions();
     if (status.receive === 'granted') {
-      // Already granted — refresh the token silently
       await _doNativeRegistration(PushNotifications);
     }
-    // If not granted, don't prompt here — wait for user to press "Turn on"
   } catch { /* ignore */ }
 }
 

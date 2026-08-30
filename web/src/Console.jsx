@@ -78,15 +78,28 @@ function InboundAttachment({ message }) {
     setDownloading(true);
     setError(null);
     try {
-      const { url, size: bytes } = await api.mediaObjectUrl(message.id);
+      const { url, size: bytes, contentType } = await api.mediaObjectUrl(message.id);
       setSize(bytes);
 
-      // Capacitor WebView silently drops blob-URL anchor clicks and hangs.
-      // Opening the URL directly lets the OS handle it (Downloads / Files app).
-      // On desktop browsers the anchor approach still works fine.
-      const isCapacitor = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
-      if (isCapacitor) {
-        window.open(url, '_system');
+      const isNative = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+      if (isNative) {
+        // Capacitor WebView cannot open blob URLs externally.
+        // Convert blob → base64 and hand to native share/open sheet.
+        try {
+          const resp = await fetch(url);
+          const arrBuf = await resp.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(arrBuf)));
+          const filename = guessFilename(message);
+          const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
+          await Share.share({
+            title: filename,
+            url: `data:${contentType};base64,${base64}`,
+            dialogTitle: `Open ${filename}`,
+          });
+        } catch (shareErr) {
+          // Fallback: open the blob URL in the webview (won't trigger save but shows the file)
+          window.open(url, '_blank');
+        }
       } else {
         const filename = guessFilename(message);
         const a = document.createElement('a');
@@ -463,7 +476,7 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
       {/* Context Panel — on mobile it slides in on top, offset below the thread header */}
       <div
         className={`transition-[width,border] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex-shrink-0 bg-white overflow-hidden ${
-          showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-x-0 bottom-0 top-14 md:inset-y-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
+          showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-0 md:inset-y-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
         }`}
       >
         <div className="w-full md:w-[360px] h-full flex flex-col">
@@ -609,9 +622,10 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
       aria-label="Conversation details"
     >
       {/* Contact header */}
-      <div className="flex items-center gap-4 px-4 md:px-6 py-4 md:py-6 border-b border-gray-100 relative">
+      <div className="flex items-center gap-4 px-4 md:px-6 py-4 md:py-6 border-b border-gray-100 relative" style={{ paddingTop: 'calc(1rem + env(safe-area-inset-top))' }}>
         <button 
-          className="md:hidden absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-700"
+          className="md:hidden absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-700 bg-gray-50 rounded-full"
+          style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}
           onClick={onCloseContext}
         >
           <X size={18} />
@@ -768,10 +782,10 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
       {/* Thread header */}
       <div 
-        className="flex items-center gap-2 md:gap-3 px-3 md:px-5 border-b border-gray-200 flex-shrink-0 bg-white"
+        className="flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 border-b border-gray-200 flex-shrink-0 bg-white"
         style={{
           minHeight: 72,
-          paddingTop: 'env(safe-area-inset-top)',
+          paddingTop: 'calc(0.875rem + env(safe-area-inset-top))',
         }}
       >
         {onBack && (
