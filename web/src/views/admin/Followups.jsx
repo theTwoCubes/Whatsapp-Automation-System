@@ -166,38 +166,42 @@ function DripFollowups() {
               <p className="text-sm text-gray-500">No follow-ups set up yet. Add one below.</p>
             )}
             {steps.map((s, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
-                  style={{ background: 'var(--accent)' }}
-                >
-                  {i + 1}
+              <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 p-3 md:p-0 border border-gray-100 md:border-0 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    {i + 1}
+                  </div>
+                  <input
+                    className="field-input flex-1 md:flex-1"
+                    placeholder="Pick a message you created above"
+                    value={s.template}
+                    onChange={(e) => updateStep(i, 'template', e.target.value)}
+                  />
                 </div>
-                <input
-                  className="field-input flex-1"
-                  placeholder="Pick a message you created above"
-                  value={s.template}
-                  onChange={(e) => updateStep(i, 'template', e.target.value)}
-                />
-                <span className="text-sm text-gray-500 whitespace-nowrap">after</span>
-                <input
-                  className="field-input"
-                  style={{ width: 72 }}
-                  type="number"
-                  min={1}
-                  placeholder="3"
-                  value={s.days}
-                  onChange={(e) => updateStep(i, 'days', e.target.value)}
-                  title="Days of silence"
-                />
-                <span className="text-sm text-gray-500 whitespace-nowrap">days of silence</span>
-                <button
-                  onClick={() => removeStep(i)}
-                  className="text-red-400 hover:text-red-600 transition-colors p-1.5 rounded flex-shrink-0"
-                  title="Remove"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-2 md:gap-3 pl-11 md:pl-0">
+                  <span className="text-sm text-gray-500 whitespace-nowrap">after</span>
+                  <input
+                    className="field-input"
+                    style={{ width: 72 }}
+                    type="number"
+                    min={1}
+                    placeholder="3"
+                    value={s.days}
+                    onChange={(e) => updateStep(i, 'days', e.target.value)}
+                    title="Days of silence"
+                  />
+                  <span className="text-sm text-gray-500 whitespace-nowrap flex-1 md:flex-none">days of silence</span>
+                  <button
+                    onClick={() => removeStep(i)}
+                    className="text-red-400 hover:text-red-600 transition-colors p-1.5 rounded flex-shrink-0"
+                    title="Remove"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
             <FormActions>

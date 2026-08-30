@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2, MoreVertical } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
 import { InputField } from '../../components/ui/Field.jsx';
@@ -223,6 +223,62 @@ function ContradictionProposal({ proposal, onChanged }) {
   );
 }
 
+// Mobile kebab for a FAQ row. Opens a small anchored menu with the same
+// actions the desktop shows inline. Closes on outside click or escape.
+function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDelete, onMove }) {
+  const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e) => { if (!ref.current?.contains(e.target)) { setOpen(false); setConfirmDel(false); } };
+    const esc = (e) => { if (e.key === 'Escape') { setOpen(false); setConfirmDel(false); } };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [open]);
+
+  const item = 'w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
+        aria-label="More actions"
+      >
+        <MoreVertical size={18} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-30 py-1">
+          {!faq.active && (
+            <button className={`${item} text-[var(--accent-text)] font-semibold`} onClick={() => { setOpen(false); onApprove(); }}>
+              Approve
+            </button>
+          )}
+          <button className={item} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
+          <button className={item} disabled={first} onClick={() => { setOpen(false); onMove(-1); }}>Move up</button>
+          <button className={item} disabled={last} onClick={() => { setOpen(false); onMove(1); }}>Move down</button>
+          <div className="border-t border-gray-100 my-1" />
+          {!confirmDel ? (
+            <button className={`${item} text-red-600`} onClick={() => setConfirmDel(true)}>Delete</button>
+          ) : (
+            <>
+              <div className="px-4 py-2 text-xs text-gray-500">Delete this answer?</div>
+              <div className="flex gap-2 px-3 pb-2">
+                <button className="flex-1 h-9 rounded-md bg-red-600 text-white text-sm font-medium" onClick={() => { setOpen(false); onDelete(); }}>Delete</button>
+                <button className="flex-1 h-9 rounded-md bg-gray-100 text-gray-700 text-sm" onClick={() => setConfirmDel(false)}>Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // FAQ Row
 function FaqRow({ faq, first, last, onMove, onChanged }) {
   const [editing, setEditing]           = useState(false);
@@ -257,7 +313,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
   const restore = async (vId) => { await api.rollbackFaq(vId); setHistory(null); toast.success('Restored to previous version'); onChanged(); };
 
   if (editing) return (
-    <div className="px-6 py-5 border-b border-gray-100 last:border-0 flex flex-col gap-4">
+    <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 last:border-0 flex flex-col gap-4">
       <input className="field-input h-10 px-3 text-sm" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} placeholder="Question" />
       <textarea className="field-textarea text-sm" value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={4} placeholder="Answer" />
       <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
@@ -287,7 +343,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
     <div className="border-b border-gray-100 last:border-0">
       {/* Row head */}
       <div
-        className="flex items-start gap-4 px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="flex items-start gap-3 md:gap-4 px-4 md:px-6 py-3 md:py-4 cursor-pointer hover:bg-gray-50 transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <div className="flex-1 min-w-0">
@@ -300,27 +356,41 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
           </div>
           {!expanded && <div className="text-sm text-gray-500 truncate">{faq.answer}</div>}
         </div>
-        {/* Actions — stop propagation so click doesn't toggle row */}
-        <div className="flex items-center gap-2 flex-shrink-0 mt-0.5" onClick={(e) => e.stopPropagation()}>
-          <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
-          <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
-          {!faq.active && <Button variant="primary" size="sm" onClick={approve}>Approve</Button>}
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
-          {!deleteConfirm
-            ? <Button variant="danger-ghost" size="sm" onClick={() => setDeleteConfirm(true)}>Delete</Button>
-            : (
-              <span className="flex items-center gap-2 text-sm text-gray-500">
-                Delete?
-                <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
-                <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(false)}>No</Button>
-              </span>
-            )
-          }
+        {/* Actions — desktop shows the row inline, mobile collapses to a kebab */}
+        <div className="flex-shrink-0 mt-0.5" onClick={(e) => e.stopPropagation()}>
+          {/* Desktop actions */}
+          <div className="hidden md:flex items-center gap-2">
+            <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
+            <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
+            {!faq.active && <Button variant="primary" size="sm" onClick={approve}>Approve</Button>}
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+            {!deleteConfirm
+              ? <Button variant="danger-ghost" size="sm" onClick={() => setDeleteConfirm(true)}>Delete</Button>
+              : (
+                <span className="flex items-center gap-2 text-sm text-gray-500">
+                  Delete?
+                  <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(false)}>No</Button>
+                </span>
+              )
+            }
+          </div>
+          {/* Mobile: kebab menu */}
+          <FaqRowMenu
+            className="md:hidden"
+            faq={faq}
+            first={first}
+            last={last}
+            onApprove={approve}
+            onEdit={() => setEditing(true)}
+            onDelete={remove}
+            onMove={onMove}
+          />
         </div>
       </div>
       {/* Expanded */}
       {expanded && (
-        <div className="px-6 pb-4 text-sm text-gray-700 leading-relaxed bg-gray-50/50">
+        <div className="px-4 md:px-6 pb-4 text-sm text-gray-700 leading-relaxed bg-gray-50/50">
           <p className="mb-3">{faq.answer}</p>
           {history && (
             <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">

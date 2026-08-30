@@ -26,15 +26,15 @@ function Panel({ children, className = '' }) {
 
 function PanelHeader({ icon: Icon, title, subtitle, right }) {
   return (
-    <div className="flex items-center gap-4 px-6 py-4 border-b border-gray-100">
+    <div className="flex items-center gap-4 px-4 md:px-6 py-4 border-b border-gray-100">
       {Icon && (
         <div className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-100">
           <Icon size={20} className="text-gray-600" />
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="text-xl font-semibold text-gray-900 truncate">{title}</div>
-        {subtitle && <div className="text-base text-gray-500 mt-1">{subtitle}</div>}
+        <div className="text-lg md:text-xl font-semibold text-gray-900 truncate">{title}</div>
+        {subtitle && <div className="text-sm md:text-base text-gray-500 mt-1">{subtitle}</div>}
       </div>
       {right && <div className="flex-shrink-0">{right}</div>}
     </div>
@@ -142,7 +142,7 @@ function Agents() {
             : `${agents.length} ${agents.length === 1 ? 'person' : 'people'} can sign into this console.`}
         />
         {!data && (
-          <div className="px-6 py-6 flex flex-col gap-4">
+          <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-4">
             <Skeleton height={18} width="70%" />
             <Skeleton height={18} width="50%" />
             <Skeleton height={18} width="60%" />
@@ -158,7 +158,7 @@ function Agents() {
         {data && agents.map((a) => (
           <div
             key={a.id}
-            className="flex items-center gap-4 px-6 py-4 border-t border-gray-100 first:border-t-0 hover:bg-gray-50/70 transition-colors"
+            className="flex items-center gap-4 px-4 md:px-6 py-4 border-t border-gray-100 first:border-t-0 hover:bg-gray-50/70 transition-colors"
           >
             <Avatar name={a.name || a.email} waId={a.email} size="lg" />
             <div className="flex-1 min-w-0">
@@ -194,7 +194,7 @@ function Agents() {
           title="Add a team member"
           subtitle="They will get sign-in access straight away."
         />
-        <div className="px-6 py-6 flex flex-col gap-5">
+        <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <InputField
               label="Email address"
@@ -281,7 +281,7 @@ function Branding() {
   if (!data) {
     return (
       <Panel>
-        <div className="px-6 py-6 flex flex-col gap-4">
+        <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-4">
           <Skeleton height={20} width="60%" />
           <Skeleton height={20} width="80%" />
           <Skeleton height={20} width="70%" />
@@ -300,7 +300,7 @@ function Branding() {
           title="White-label branding"
           subtitle="Personalise the console for your business. Affects every agent."
         />
-        <div className="px-6 py-5 flex flex-col gap-5">
+        <div className="px-4 md:px-6 py-4 md:py-5 flex flex-col gap-5">
           <InputField
             label="Brand name"
             helper="Shown in the sidebar and browser tab."
@@ -436,7 +436,7 @@ function AuditLog() {
       />
       <div className="max-h-[500px] overflow-y-auto">
         {!data && (
-          <div className="px-6 py-6 flex flex-col gap-4">
+          <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-4">
             <Skeleton height={18} width="80%" />
             <Skeleton height={18} width="70%" />
             <Skeleton height={18} width="75%" />
@@ -451,7 +451,7 @@ function AuditLog() {
         )}
         {data && grouped.map((g) => (
           <div key={g.label}>
-            <div className="sticky top-0 z-10 px-6 py-3.5 bg-gray-50/90 backdrop-blur-sm border-t border-b border-gray-100 text-sm font-bold uppercase tracking-widest text-gray-500">
+            <div className="sticky top-0 z-10 px-4 md:px-6 py-3.5 bg-gray-50/90 backdrop-blur-sm border-t border-b border-gray-100 text-sm font-bold uppercase tracking-widest text-gray-500">
               {g.label}
             </div>
             {g.items.map((a) => {
@@ -459,7 +459,7 @@ function AuditLog() {
               return (
                 <div
                   key={a.id}
-                  className="flex flex-col px-6 py-5 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
+                  className="flex flex-col px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 last:border-0 hover:bg-gray-50/70 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-baseline gap-2">

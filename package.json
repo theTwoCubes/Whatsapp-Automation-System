@@ -9,9 +9,14 @@
     "start": "node src/index.js",
     "migrate": "node src/db/migrate.js",
     "test": "node --test --test-concurrency=1 qa/tests/*.test.js",
-    "qa": "bash qa/run.sh"
+    "qa": "bash qa/run.sh",
+    "apk": "bash scripts/build-apk.sh"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/push-notifications": "^8.1.2",
     "@fastify/jwt": "^10.2.2",
     "@fastify/multipart": "^10.1.1",
     "@fastify/static": "^10.1.3",
@@ -19,7 +24,8 @@
     "dotenv": "^16.4.5",
     "fastify": "^5.12.1",
     "openai": "^4.56.0",
-    "pg": "^8.12.0"
+    "pg": "^8.12.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "pino-pretty": "^11.2.2"

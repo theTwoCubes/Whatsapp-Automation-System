@@ -11,5 +11,14 @@ export default defineConfig({
       '/health': 'http://localhost:3000',
     },
   },
-  build: { outDir: 'dist' },
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      // Capacitor plugins are only present inside the Android APK bundle,
+      // not the plain browser build. Marking them external lets Rollup skip
+      // resolving them and leaves the dynamic import as a runtime no-op in
+      // the browser (which is exactly what push.js wants).
+      external: [/^@capacitor\//],
+    },
+  },
 });

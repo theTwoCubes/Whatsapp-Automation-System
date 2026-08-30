@@ -24,6 +24,7 @@ import {
 } from '../knowledge/faqs.js';
 import { simulateReply } from '../knowledge/simulator.js';
 import { getSettings } from '../settings.js';
+import { saveSubscription, removeSubscription, getVapidPublicKey } from '../push.js';
 import {
   getAgentByEmail,
   listConversations,
@@ -192,8 +193,11 @@ export function registerApi(app, deps) {
     if (!conversation) return reply.code(404).send({ error: 'not found' });
 
     try {
+      const templateRow = await pool.query('select language from templates where name = $1 limit 1', [name]);
+      const language = templateRow.rows[0]?.language || deps.config.dripLanguage;
+
       const components = bodyComponents(req.body?.params);
-      const wamid = await meta.sendTemplate(conversation.wa_id, name, deps.config.dripLanguage, components);
+      const wamid = await meta.sendTemplate(conversation.wa_id, name, language, components);
       if (wamid) {
         await recordOutbound(pool, {
           conversationId: conversation.id,
@@ -302,6 +306,32 @@ export function registerApi(app, deps) {
 
   // Public branding for the console shell, no auth so the login page can theme.
   app.get('/api/branding', async () => ({ branding: await getBranding(pool, deps.config) }));
+
+  // Push notifications: the frontend fetches the public VAPID key, subscribes
+  // via the Push API, then hands the subscription back here to be saved.
+  app.get('/api/push/vapid-public-key', async () => ({ key: getVapidPublicKey() }));
+
+  app.post('/api/push/subscribe', { preHandler: auth }, async (req, reply) => {
+    const sub = req.body?.subscription;
+    const meta = req.body?.meta || {};
+    const email = req.user?.email;
+    if (!sub || !email) return reply.code(400).send({ error: 'subscription and login required' });
+    try {
+      await saveSubscription(pool, email, sub, {
+        platform: meta.platform,
+        userAgent: req.headers['user-agent'],
+      });
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/push/unsubscribe', { preHandler: auth }, async (req) => {
+    const endpoint = req.body?.endpoint;
+    if (endpoint) await removeSubscription(pool, endpoint);
+    return { ok: true };
+  });
 
   // Create a template from the console. It still needs Meta approval before use.
   app.post('/api/templates/create', { preHandler: auth }, async (req, reply) => {

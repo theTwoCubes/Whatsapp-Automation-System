@@ -341,15 +341,17 @@ export async function syncTemplates(pool, templates) {
   const client = await pool.connect();
   try {
     await client.query('begin');
+    await client.query('update templates set active = false');
     for (const t of templates) {
       await client.query(
-        `insert into templates (name, language, category, body, status)
-         values ($1, $2, $3, $4, $5)
+        `insert into templates (name, language, category, body, status, active)
+         values ($1, $2, $3, $4, $5, true)
          on conflict (name) do update set
            language = excluded.language,
            category = excluded.category,
            body = excluded.body,
-           status = excluded.status`,
+           status = excluded.status,
+           active = true`,
         [t.name, t.language ?? 'en', t.category ?? null, t.body ?? null, t.status ?? null],
       );
     }

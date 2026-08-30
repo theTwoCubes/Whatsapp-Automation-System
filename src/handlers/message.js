@@ -16,6 +16,30 @@ import { buildReply, wantsHuman } from '../ai/reply.js';
 import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { handToPending } from '../handoff.js';
+import { notifyAgentsOfHandoff } from '../push.js';
+
+// Fires a push to every subscribed device. Fetches contact bits in a single
+// query so the caller does not need to pass them in from every handoff site.
+async function pushHandoff(pool, conversationId, reason, log) {
+  try {
+    const res = await pool.query(
+      `select ct.name, ct.wa_id
+       from conversations c join contacts ct on ct.id = c.contact_id
+       where c.id = $1`,
+      [conversationId],
+    );
+    const row = res.rows[0];
+    await notifyAgentsOfHandoff(pool, {
+      conversationId,
+      name: row?.name,
+      waId: row?.wa_id,
+      reason,
+      log,
+    });
+  } catch (err) {
+    log?.warn({ err, conversationId }, 'handoff push failed');
+  }
+}
 import { getSettings } from '../settings.js';
 import { createBatcher } from './batcher.js';
 
@@ -116,6 +140,7 @@ async function handleMessage(value, message, deps) {
     await cancelDrips(pool, result.conversationId);
     log.info({ conversationId: result.conversationId, type: message.type }, 'lead sent an attachment, queued for a human');
     await sendAndRecord(deps, message.from, result.conversationId, settings.attachmentMessage);
+    await pushHandoff(pool, result.conversationId, `Lead sent a ${message.type}`, log);
     return;
   }
 
@@ -165,6 +190,7 @@ async function respondToLead(deps, conversationId, items) {
     await cancelDrips(pool, conversationId);
     log.info({ conversationId }, 'queued conversation for a human on request');
     await sendAndRecord(deps, to, conversationId, settings.handoffMessage);
+    await pushHandoff(pool, conversationId, 'Lead asked to speak with a person', log);
     return;
   }
 
@@ -208,6 +234,7 @@ async function respondToLead(deps, conversationId, items) {
     await cancelDrips(pool, conversationId);
     log.info({ conversationId, reason: decision.reason }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);
+    await pushHandoff(pool, conversationId, reason, log);
     return;
   }
 

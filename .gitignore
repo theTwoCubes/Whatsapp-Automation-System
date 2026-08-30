@@ -43,3 +43,13 @@ backups/
 # qa reports
 qa/results/*
 !qa/results/.gitkeep
+
+# Capacitor generated project — regenerated with `npx cap add android`
+android/
+.gradle/
+
+# Capacitor build output
+build/
+
+# scratch / dev scripts
+test-meta.js

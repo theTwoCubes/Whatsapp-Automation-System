@@ -6,7 +6,8 @@ import Sidebar from './components/layout/Sidebar.jsx';
 import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
-import { Menu } from 'lucide-react';
+import { Menu, Bell } from 'lucide-react';
+import { ensureServiceWorker, enablePush, pushAvailable } from './push.js';
 
 // Color helpers for white-label brand theming
 function hexToRgb(hex) {
@@ -39,6 +40,7 @@ export default function App() {
   });
   const [conversations, setConversations] = useState([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pushState, setPushState] = useState('unknown');
 
   // Load branding on mount
   useEffect(() => {
@@ -64,6 +66,22 @@ export default function App() {
       .then((d) => setConversations(d.conversations || []))
       .catch(() => {});
   }, [authed]);
+
+  // Register the service worker as soon as the agent signs in. It powers the
+  // background notification path, and the browser will not accept a Push API
+  // subscribe until it is active.
+  useEffect(() => {
+    if (!authed) return;
+    ensureServiceWorker();
+    if (typeof Notification !== 'undefined') {
+      setPushState(Notification.permission); // 'granted' | 'denied' | 'default'
+    }
+  }, [authed]);
+
+  const turnOnPush = async () => {
+    const res = await enablePush();
+    setPushState(res.ok ? 'granted' : (res.reason === 'denied' ? 'denied' : 'default'));
+  };
 
   const pendingCount = useMemo(
     () => conversations.filter((c) => c.state === 'pending').length,
@@ -116,6 +134,27 @@ export default function App() {
               </button>
             </div>
             
+            {pushState === 'default' && pushAvailable() && (
+              <div className="flex items-center gap-3 px-4 md:px-5 py-2.5 bg-amber-50 border-b border-amber-200 text-sm text-amber-900 flex-shrink-0">
+                <Bell size={16} className="flex-shrink-0" />
+                <span className="flex-1 min-w-0">
+                  Get alerted when a lead needs a person, even with this tab closed.
+                </span>
+                <button
+                  onClick={turnOnPush}
+                  className="h-8 px-3 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex-shrink-0 transition-colors"
+                >
+                  Turn on
+                </button>
+                <button
+                  onClick={() => setPushState('dismissed')}
+                  className="text-amber-700 hover:text-amber-900 text-xs px-2 flex-shrink-0"
+                >
+                  Not now
+                </button>
+              </div>
+            )}
+
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
               {view === 'conversations' && (
                 <Console onConversationsChange={setConversations} />

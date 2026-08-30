@@ -47,7 +47,7 @@ export function CardHeader({ title, children }) {
 }
 
 export function CardBody({ children }) {
-  return <div className="p-5">{children}</div>;
+  return <div className="p-4 md:p-5">{children}</div>;
 }
 
 export function FormStack({ children }) {

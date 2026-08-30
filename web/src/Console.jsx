@@ -13,10 +13,12 @@ import {
   shortTime, groupByDay, templateParamCount,
   useAlias, setAlias, displayName,
 } from './lib.js';
+import { playChime, applyBadge } from './notifications.js';
 import Avatar from './components/ui/Avatar.jsx';
 import { StateBadge } from './components/ui/Badge.jsx';
 import Button from './components/ui/Button.jsx';
 import { ChatRowSkeleton } from './components/ui/Skeleton.jsx';
+import Modal from './components/ui/Modal.jsx';
 import { useToast } from './components/ui/Toast.jsx';
 
 // Helpers
@@ -76,20 +78,21 @@ function InboundAttachment({ message }) {
     setDownloading(true);
     setError(null);
     try {
-      const url = await api.mediaObjectUrl(message.id);
+      const { url, size: bytes } = await api.mediaObjectUrl(message.id);
+      setSize(bytes);
       const filename = guessFilename(message);
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
+      a.rel = 'noopener';
+      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      try {
-        const res = await fetch(url);
-        const blob = await res.blob();
-        setSize(blob.size);
-      } catch { /* size is decorative */ }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // Some mobile browsers ignore the download hint and just navigate. If
+      // the tab is still here after a beat, we know the click worked as a
+      // real download so we can revoke; if it opened a new tab, the OS has
+      // the blob and will keep it alive.
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60_000);
     } catch (err) {
       setError(err.message || 'Download failed');
     } finally {
@@ -103,7 +106,7 @@ function InboundAttachment({ message }) {
     .join(' · ');
 
   return (
-    <div className={`w-[280px] rounded-xl overflow-hidden ${outbound ? 'bg-white/10' : 'bg-black/5'}`}>
+    <div className={`w-full max-w-[280px] rounded-xl overflow-hidden ${outbound ? 'bg-white/10' : 'bg-black/5'}`}>
       {/* Blurry decorative preview strip */}
       <div className="relative h-24 overflow-hidden">
         <div
@@ -190,12 +193,38 @@ export default function Console({ onConversationsChange }) {
   const selectedRef                        = useRef(null);
   const toast                              = useToast();
 
+  // Ids that are currently pending, so we can detect *new* pending ones on
+  // the next refresh and fire a chime/toast without repeating for chats that
+  // were already waiting when we opened the tab.
+  const knownPendingRef = useRef(null);
+
   const loadList = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const { conversations: list } = await api.conversations();
       setConversations(list);
       onConversationsChange?.(list);
+
+      const pending = new Set(
+        list.filter((c) => c.state === 'pending').map((c) => c.id),
+      );
+      if (knownPendingRef.current == null) {
+        // First load, do not fire a chime for the backlog.
+        knownPendingRef.current = pending;
+      } else {
+        const fresh = [...pending].filter((id) => !knownPendingRef.current.has(id));
+        if (fresh.length > 0) {
+          playChime();
+          for (const id of fresh) {
+            const c = list.find((x) => x.id === id);
+            if (!c) continue;
+            const name = c.name || c.wa_id;
+            toast.warning(`${name} needs a person${c.handoff_reason ? ` · ${c.handoff_reason}` : ''}`, 8000);
+          }
+        }
+        knownPendingRef.current = pending;
+      }
+      applyBadge(pending.size);
     } catch (err) {
       if (err.message !== 'unauthorized') toast.error('Could not load conversations');
     } finally {
@@ -278,11 +307,11 @@ export default function Console({ onConversationsChange }) {
       `}>
 
         {/* Search bar */}
-        <div className="flex-shrink-0 px-4 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2.5 bg-gray-100 rounded-lg px-4 py-2.5">
-            <Search size={18} className="text-gray-400 flex-shrink-0" />
+        <div className="flex-shrink-0 px-3 md:px-4 py-3 md:py-4 border-b border-gray-200">
+          <div className="flex items-center gap-2.5 bg-gray-100 rounded-lg px-3 md:px-4 py-2 md:py-2.5">
+            <Search size={16} className="text-gray-400 flex-shrink-0" />
             <input
-              className="flex-1 text-base outline-none placeholder:text-gray-400 bg-transparent text-gray-900"
+              className="flex-1 min-w-0 text-sm md:text-base outline-none placeholder:text-gray-400 bg-transparent text-gray-900"
               placeholder="Search conversations…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -297,7 +326,7 @@ export default function Console({ onConversationsChange }) {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex flex-shrink-0 border-b border-gray-100 px-4 gap-2" role="tablist">
+        <div className="flex flex-shrink-0 border-b border-gray-100 px-2 md:px-4 gap-1 md:gap-2 overflow-x-auto" role="tablist">
           {FILTERS.map(({ key, label }) => (
             <button
               key={key}
@@ -305,7 +334,7 @@ export default function Console({ onConversationsChange }) {
               aria-selected={filter === key}
               onClick={() => setFilter(key)}
               className={`
-                relative flex items-center gap-1.5 px-4 py-3 text-base font-medium transition-colors duration-100
+                relative flex items-center gap-1.5 px-3 md:px-4 py-3 text-sm md:text-base font-medium transition-colors duration-100 whitespace-nowrap flex-shrink-0
                 ${filter === key
                   ? 'text-gray-900'
                   : 'text-gray-400 hover:text-gray-600'}
@@ -394,7 +423,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       onClick={onSelect}
       aria-current={isActive ? 'true' : undefined}
       className={`
-        w-full flex items-center gap-4 px-5 py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
+        w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 md:py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
         ${isActive
           ? 'bg-gray-100'
           : c.state === 'pending'
@@ -405,11 +434,11 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       <Avatar name={name} waId={c.wa_id} size="xl" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <span className="text-lg font-bold text-gray-900 truncate">{name}</span>
-          <span className="text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
+          <span className="text-base md:text-lg font-bold text-gray-900 truncate">{name}</span>
+          <span className="text-xs md:text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className={`text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
+          <span className={`text-sm md:text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
             {c.last_message || 'No messages yet'}
           </span>
           {c.unread_count > 0 ? (
@@ -514,7 +543,7 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
       aria-label="Conversation details"
     >
       {/* Contact header */}
-      <div className="flex items-center gap-4 px-6 py-6 border-b border-gray-100 relative">
+      <div className="flex items-center gap-4 px-4 md:px-6 py-4 md:py-6 border-b border-gray-100 relative">
         <button 
           className="md:hidden absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-700"
           onClick={onCloseContext}
@@ -522,18 +551,18 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
           <X size={18} />
         </button>
         <Avatar name={displayName({ waId: c.wa_id, name: c.name })} waId={c.wa_id} size="xl" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 pr-8 md:pr-0">
           <EditableName
             waId={c.wa_id}
             fallback={c.name}
-            className="text-xl font-bold text-gray-900"
+            className="text-base md:text-xl font-bold text-gray-900 max-w-full"
           />
-          <div className="text-sm text-gray-400 mt-1">{c.wa_id}</div>
+          <div className="text-xs md:text-sm text-gray-400 mt-1 truncate">{c.wa_id}</div>
         </div>
       </div>
 
       {/* Meta section */}
-      <div className="px-6 py-5 border-b border-gray-100 flex flex-col gap-3">
+      <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-3">
         <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Details</div>
         <ContextRow label="Status"><StateBadge state={c.state} /></ContextRow>
         {c.assignee && <ContextRow label="Agent"><span className="text-sm font-medium text-gray-700">{c.assignee}</span></ContextRow>}
@@ -553,14 +582,14 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
 
       {/* Source */}
       {(c.topic_name || c.campaign_id) && (
-        <div className="px-6 py-5 border-b border-gray-100 flex flex-col gap-3">
+        <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-3">
           <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Source</div>
           <ContextRow label="Campaign"><span className="text-sm font-medium text-gray-700">{c.topic_name || `#${c.campaign_id}`}</span></ContextRow>
         </div>
       )}
 
       {/* Actions */}
-      <div className="px-6 py-5 flex flex-col gap-2">
+      <div className="px-4 md:px-6 py-4 md:py-5 flex flex-col gap-2">
         <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Actions</div>
         {isHuman && (
           <Button variant="secondary" size="lg" className="w-full justify-center"
@@ -606,8 +635,14 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showLibrary, setShowLibrary]     = useState(false);
+  const [confirmMedia, setConfirmMedia]   = useState(null);
   const endRef = useRef(null);
+  const inputRef = useRef(null);
   const toast  = useToast();
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, [conversation.id]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
@@ -658,45 +693,49 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           <EditableName
             waId={conversation.wa_id}
             fallback={conversation.name}
-            className="text-base font-bold text-gray-900"
+            className="text-sm md:text-base font-bold text-gray-900 max-w-full"
           />
-          <div className="flex items-center gap-1.5 text-sm text-gray-400 mt-0.5">
-            <span>{conversation.wa_id}</span>
+          <div className="flex items-center gap-1.5 text-xs md:text-sm text-gray-400 mt-0.5 min-w-0">
+            <span className="truncate">{conversation.wa_id}</span>
             {conversation.assignee && (
-              <><ChevronRight size={13} /><span>with {conversation.assignee}</span></>
+              <>
+                <ChevronRight size={12} className="flex-shrink-0" />
+                <span className="truncate">with {conversation.assignee}</span>
+              </>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+        <div className="flex items-center gap-1.5 md:gap-3 flex-shrink-0">
 
           {isHuman && (
-            <Button variant="secondary" size="lg" className="hidden sm:flex"
+            <Button variant="secondary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
               onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
-              Give back to AI
+              <span className="hidden sm:inline">Give back to AI</span>
+              <span className="sm:hidden">Bot</span>
             </Button>
           )}
           {isPending && (
             <>
-              <Button variant="secondary" size="lg" className="hidden sm:flex"
+              <Button variant="secondary" size="sm" className="hidden sm:flex md:!h-10 md:!px-4 md:!text-base"
                 onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected')}>
                 Reject
               </Button>
-              <Button variant="primary" size="lg"
+              <Button variant="primary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
                 onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted')}>
                 Accept
               </Button>
             </>
           )}
           {!isHuman && !isPending && (
-            <Button variant="secondary" size="lg"
+            <Button variant="secondary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
               onClick={() => act(() => api.takeover(conversation.id), 'You have taken over this conversation')}>
               Take over
             </Button>
           )}
-          <div className="w-px h-8 bg-gray-200 mx-1" />
+          <div className="w-px h-8 bg-gray-200 mx-1 hidden md:block" />
           <button
             onClick={onToggleContext}
-            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
             title="Toggle Details"
           >
             <LayoutList size={18} />
@@ -706,11 +745,11 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
       {/* Handoff banner */}
       {isPending && conversation.handoff_reason && (
-        <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border-b border-amber-200 flex-shrink-0">
+        <div className="flex items-start gap-3 px-3 md:px-5 py-3 md:py-4 bg-amber-50 border-b border-amber-200 flex-shrink-0">
           <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-amber-900">Waiting for a team member</div>
-            <div className="text-xs text-amber-700 mt-0.5">{conversation.handoff_reason}</div>
+            <div className="text-xs text-amber-700 mt-0.5 break-words">{conversation.handoff_reason}</div>
             <div className="flex gap-2 mt-3">
               <Button variant="primary" size="sm"
                 onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted').then(() => onChanged())}>
@@ -726,7 +765,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-5 py-5 chat-bg flex flex-col gap-1" role="log" aria-live="polite">
+      <div className="flex-1 overflow-y-auto px-3 md:px-5 py-4 md:py-5 chat-bg flex flex-col gap-1 min-w-0" role="log" aria-live="polite">
         {groups.map((g) => (
           <React.Fragment key={g.label}>
             {/* Day divider */}
@@ -744,7 +783,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
               >
                 <div
                   className={`
-                    relative max-w-[72%] px-5 py-3 rounded-2xl text-lg leading-relaxed shadow-xs
+                    relative max-w-[85%] md:max-w-[72%] px-3 md:px-5 py-2 md:py-3 rounded-2xl text-sm md:text-lg leading-relaxed shadow-xs break-words
                     ${m.direction === 'outbound'
                       ? 'bg-gray-800 text-white rounded-br-sm'
                       : 'bg-white text-gray-900 rounded-bl-sm border border-black/5'}
@@ -773,6 +812,22 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
       {/* Composer */}
       <div className="flex-shrink-0 border-t border-gray-200 bg-white">
+        {confirmMedia && (
+          <Modal
+            title="Send attachment"
+            body={`Are you sure you want to send "${confirmMedia.name}" to this lead?`}
+            confirmLabel="Send"
+            onClose={() => setConfirmMedia(null)}
+            onConfirm={() => {
+              const file = confirmMedia;
+              setConfirmMedia(null);
+              act(async () => {
+                const asset = await api.uploadMedia(file);
+                await api.sendMedia(conversation.id, asset.id, text.trim() || undefined);
+              }, 'File sent');
+            }}
+          />
+        )}
         {/* Library / Template panels */}
         {showLibrary && (
           <LibraryPanel
@@ -793,29 +848,27 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
         {/* Composer input row */}
         {conversation.window_open ? (
-          <div className="flex items-center gap-3 px-5 py-4">
+          <div className="flex items-center gap-1.5 md:gap-3 px-2 md:px-5 py-3 md:py-4">
             {/* File attach */}
             <label
-              className="flex items-center justify-center w-11 h-11 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
+              className="flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer flex-shrink-0"
               title="Attach a photo or document"
             >
-              <Paperclip size={20} />
+              <Paperclip size={18} className="md:hidden" />
+              <Paperclip size={20} className="hidden md:block" />
               <input
                 type="file"
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
-                  if (file) act(async () => {
-                    const asset = await api.uploadMedia(file);
-                    await api.sendMedia(conversation.id, asset.id, text.trim() || undefined);
-                  }, 'File sent');
+                  if (file) setConfirmMedia(file);
                 }}
               />
             </label>
-            {/* Library */}
+            {/* Library — hidden on mobile to save room */}
             <button
-              className={`flex items-center justify-center w-11 h-11 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`hidden sm:flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg transition-colors flex-shrink-0 ${showLibrary ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send from media library"
               onClick={() => { setShowLibrary((v) => !v); setShowTemplates(false); }}
               aria-pressed={showLibrary}
@@ -824,16 +877,18 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             </button>
             {/* Template toggle */}
             <button
-              className={`flex items-center justify-center w-11 h-11 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
+              className={`flex items-center justify-center w-10 h-10 md:w-11 md:h-11 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:bg-gray-100'}`}
               title="Send a template"
               onClick={() => { setShowTemplates((v) => !v); setShowLibrary(false); }}
               aria-pressed={showTemplates}
             >
-              <FileText size={20} />
+              <FileText size={18} className="md:hidden" />
+              <FileText size={20} className="hidden md:block" />
             </button>
             {/* Text input */}
             <input
-              className="flex-1 h-12 bg-gray-100 rounded-xl px-5 text-base outline-none placeholder:text-gray-400 border border-transparent focus:border-gray-300 focus:bg-white transition-colors"
+              ref={inputRef}
+              className="flex-1 min-w-0 h-11 md:h-12 bg-gray-100 rounded-xl px-3 md:px-5 text-sm md:text-base outline-none placeholder:text-gray-400 border border-transparent focus:border-gray-300 focus:bg-white transition-colors"
               placeholder="Type a message…"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -842,7 +897,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             />
             {/* Send */}
             <button
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
+              className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
               style={{ background: 'var(--accent)' }}
               disabled={!text.trim()}
               onClick={send}
@@ -852,13 +907,13 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <Clock size={13} className="text-gray-400 flex-shrink-0" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 px-3 md:px-4 py-3">
+            <div className="flex items-start gap-2 text-xs text-gray-500 min-w-0">
+              <Clock size={13} className="text-gray-400 flex-shrink-0 mt-0.5" />
               <span>The 24h messaging window is closed. You can only send approved templates.</span>
             </div>
             <button
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ${showTemplates ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              className={`flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg transition-colors flex-shrink-0 self-start sm:self-auto ${showTemplates ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               onClick={() => setShowTemplates((v) => !v)}
             >
               <FileText size={14} />

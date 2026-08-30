@@ -95,6 +95,9 @@ export const api = {
   audit: () => req('/audit'),
   createTemplate: (name, category, bodyText) =>
     req('/templates/create', { method: 'POST', body: JSON.stringify({ name, category, bodyText }) }),
+  getVapidKey: () => req('/push/vapid-public-key'),
+  pushSubscribe: (body) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
+  pushUnsubscribe: (endpoint) => req('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
   branding: () =>
     fetch('/api/branding')
       .then((r) => r.json())
@@ -105,8 +108,13 @@ export const api = {
     const res = await fetch(`/api/messages/${messageId}/media`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
-    if (!res.ok) throw new Error('media failed');
-    return URL.createObjectURL(await res.blob());
+    if (!res.ok) {
+      let msg = 'This file is no longer available. Meta only keeps attachments for about 30 days.';
+      try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* body was not JSON */ }
+      throw new Error(msg);
+    }
+    const blob = await res.blob();
+    return { url: URL.createObjectURL(blob), size: blob.size, contentType: blob.type };
   },
   uploadMedia: async (file, topicId = null, description = '') => {
     const token = getToken();
