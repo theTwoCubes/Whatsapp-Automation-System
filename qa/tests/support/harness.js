@@ -95,6 +95,9 @@ export class FakeMeta {
   async downloadMedia() {
     return { buffer: Buffer.from('fake-bytes'), contentType: 'image/png' };
   }
+  async markRead(wamid) {
+    return { success: true };
+  }
 }
 
 // Returns a fixed reply instead of calling OpenAI. Set fail=true to simulate the
