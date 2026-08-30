@@ -44,6 +44,6 @@ message and an approved template both send.
 
 ## Notes
 
-- The audit log under Admin records who did what.
+- The audit log under Admin records who did what, and can be filtered by date.
 - Auto resume, drip timing and the AI tone are all editable in Settings without a
   redeploy.

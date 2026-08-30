@@ -129,8 +129,13 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 ### Web console
 
 - A live chat view lists every conversation with its state, sorted by
-  recent activity, and updates in real time over a websocket as messages
-  and status changes arrive.
+  recent activity. An unread badge tracks inbound messages that haven't
+  been seen by an agent yet.
+- The view updates in real time over a websocket as messages and status
+  changes arrive. Message status is tracked with granular red/white ticks,
+  matching WhatsApp's native blue tick read receipt behaviour. Messages
+  sent by the AI also automatically mark the lead's previous inbound
+  messages as read.
 - Agents can send free form messages and media within the 24 hour window,
   or send an approved template at any time, including outside the window.
 - An admin panel covers: an activity overview, campaign attribution,
