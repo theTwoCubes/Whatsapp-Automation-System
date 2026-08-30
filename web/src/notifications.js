@@ -4,6 +4,11 @@
 
 const originalTitle = typeof document !== 'undefined' ? document.title : '';
 let currentBadge = 0;
+let faviconImg = null;
+if (typeof Image !== 'undefined') {
+  faviconImg = new Image();
+  faviconImg.src = '/theTwoCubes.png';
+}
 
 // Web Audio ping, generated so we do not need to ship an mp3. Short two-tone
 // beep, tuned so it reads as an alert without being annoying.
@@ -38,21 +43,40 @@ export function playChime() {
 export function setFaviconBadge(count) {
   currentBadge = count;
   try {
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+
+    if (count === 0) {
+      link.href = '/theTwoCubes.png';
+      return;
+    }
+
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 34px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('W', size / 2, size / 2 + 2);
-    if (count > 0) {
+
+    const draw = () => {
+      ctx.clearRect(0, 0, size, size);
+      if (faviconImg && faviconImg.complete) {
+        ctx.drawImage(faviconImg, 0, 0, size, size);
+      } else {
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 34px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('W', size / 2, size / 2 + 2);
+      }
+      
       const r = 18;
       ctx.fillStyle = '#ef4444';
       ctx.beginPath();
@@ -60,15 +84,19 @@ export function setFaviconBadge(count) {
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 22px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.fillText(count > 9 ? '9+' : String(count), size - r + 2, r - 1);
+      
+      link.href = canvas.toDataURL('image/png');
+    };
+
+    if (faviconImg && !faviconImg.complete) {
+      faviconImg.onload = draw;
+      faviconImg.onerror = draw;
+    } else {
+      draw();
     }
-    let link = document.querySelector("link[rel~='icon']");
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
-    }
-    link.href = canvas.toDataURL('image/png');
   } catch { /* keep the existing favicon */ }
 }
 
