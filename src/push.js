@@ -5,8 +5,11 @@
 // walks the subscribers table.
 
 import webpush from 'web-push';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 
 let configured = false;
+let fcmConfigured = false;
 
 function configure() {
   if (configured) return;
@@ -16,6 +19,22 @@ function configure() {
   if (pub && priv) {
     webpush.setVapidDetails(subject, pub, priv);
     configured = true;
+  }
+}
+
+function configureFcm() {
+  if (fcmConfigured) return;
+  const b64 = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (!b64) return;
+  try {
+    const serviceAccount = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    if (!getApps().length) {
+      initializeApp({ credential: cert(serviceAccount) });
+    }
+    fcmConfigured = true;
+  } catch (err) {
+    // malformed env var — don't crash the server
+    console.error('[push] FCM init failed:', err.message);
   }
 }
 
@@ -98,9 +117,32 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
       }
       return;
     }
-    // FCM support ships in a follow up once a Firebase project exists. The
-    // scaffolding is here so the frontend can already register tokens.
-    log?.info({ endpoint: row.endpoint }, 'fcm push queued, delivery not yet wired');
+    // FCM: send to native Android APK via Firebase
+    if (row.transport === 'fcm') {
+      configureFcm();
+      if (!fcmConfigured) {
+        log?.warn({ endpoint: row.endpoint }, 'fcm not configured, skipping');
+        return;
+      }
+      try {
+        await getMessaging().send({
+          token: row.endpoint,
+          notification: {
+            title: JSON.parse(payload).title,
+            body: JSON.parse(payload).body,
+          },
+          data: { conversationId: String(conversationId || '') },
+          android: { priority: 'high' },
+        });
+      } catch (err) {
+        if (err.code === 'messaging/registration-token-not-registered') {
+          await pool.query('delete from push_subscriptions where id = $1', [row.id]);
+        } else {
+          log?.warn({ err, endpoint: row.endpoint }, 'fcm push failed');
+        }
+      }
+      return;
+    }
   }));
 }
 
@@ -159,8 +201,29 @@ export async function sendTestPush(pool, agentEmail, log) {
           log?.warn({ err }, 'test push failed');
         }
       }
-    } else {
-      errors.push('FCM delivery not wired yet');
+    } else if (row.transport === 'fcm') {
+      configureFcm();
+      if (!fcmConfigured) {
+        errors.push('FCM not configured on server (FCM_SERVICE_ACCOUNT_JSON missing)');
+        return;
+      }
+      try {
+        const parsed = JSON.parse(payload);
+        await getMessaging().send({
+          token: row.endpoint,
+          notification: { title: parsed.title, body: parsed.body },
+          android: { priority: 'high' },
+        });
+        sent++;
+      } catch (err) {
+        if (err.code === 'messaging/registration-token-not-registered') {
+          await pool.query('delete from push_subscriptions where id = $1', [row.id]);
+          errors.push('FCM token expired — unsubscribed');
+        } else {
+          errors.push(err.message);
+          log?.warn({ err }, 'test fcm push failed');
+        }
+      }
     }
   }));
   return { ok: true, sent, errors };
