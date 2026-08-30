@@ -40,7 +40,7 @@ export default function Login({ onLogin }) {
         className="hidden md:flex relative overflow-hidden items-center justify-center bg-white"
       >
         <img
-          src="/login-panel.png"
+          src="/LoginPanel.png"
           alt="WhatsApp automation illustration"
           draggable={false}
           className="h-full w-auto object-contain max-w-[65vw]"
@@ -56,7 +56,7 @@ export default function Login({ onLogin }) {
           {/* Brand Logo */}
           <div className="flex items-center gap-3">
             <img
-              src="/logo.png"
+              src="/CompanyLogo.png"
               alt={brandName}
               className="w-14 h-14 rounded-xl object-cover flex-shrink-0 shadow-sm"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}

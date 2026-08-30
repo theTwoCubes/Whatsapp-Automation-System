@@ -55,8 +55,8 @@ self.addEventListener('push', (event) => {
     const options = {
       body: data.body || '',
       tag: data.tag || 'handoff',
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: '/Icon192.png',
+      badge: '/Icon192.png',
       renotify: true,
       requireInteraction: false,
       data: { conversationId: data.conversationId || null },

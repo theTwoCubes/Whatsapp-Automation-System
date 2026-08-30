@@ -34,6 +34,11 @@ and the OpenAI key sit on the client accounts.
 
        curl -s https://YOUR-DOMAIN/health
 
+5. Generate the Android App (optional):
+
+       Place the `google-services.json` from Firebase in `android/app/`
+       Run `./scripts/build-apk.sh` to generate the client APK.
+
 ## Configure the webhook in Meta
 
 1. Meta app dashboard, WhatsApp, Configuration.

@@ -10,6 +10,7 @@ is done from the console, not from Meta.
 - AI: an `OPENAI_API_KEY` and/or `GEMINI_API_KEY`, and `AI_PROVIDER` for the
   primary. The other is used as automatic failover.
 - A `JWT_SECRET`, and the first console login (`ADMIN_EMAIL`, `ADMIN_PASSWORD`).
+- Firebase (for Push Notifications): A Firebase project with an Android app configured for the package `com.wamanager.console`. You need the `google-services.json` file.
 
 ## 2. Deploy
 

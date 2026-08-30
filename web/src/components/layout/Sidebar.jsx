@@ -90,7 +90,7 @@ export default function Sidebar({
       {/* Brand */}
       <div className="flex items-center gap-3.5 px-6 h-[72px] border-b border-gray-200 flex-shrink-0">
         <img
-          src="/logo.png"
+          src="/CompanyLogo.png"
           alt={brandName}
           className="w-12 h-12 rounded-lg object-cover flex-shrink-0 shadow-sm"
           onError={(e) => {

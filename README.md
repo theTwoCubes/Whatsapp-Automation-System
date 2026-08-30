@@ -198,6 +198,8 @@ targets.
   regardless of which provider is used for replies
 - A way to expose the local server to Meta during development, such as
   ngrok or cloudflared
+- To compile the Android APK: the Android SDK and a Firebase project 
+  (`google-services.json`) configured for Push Notifications.
 
 ## Setup
 
