@@ -193,6 +193,11 @@ async function respondToLead(deps, conversationId, items) {
     }
   } catch (err) {
     log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');
+    decision = {
+      handoff: true,
+      reason: 'AI service unavailable (fallback triggered)',
+      reply: settings.fallbackMessage,
+    };
   }
 
   // The AI decided this needs a person.
