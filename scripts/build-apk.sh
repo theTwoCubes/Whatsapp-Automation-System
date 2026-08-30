@@ -59,6 +59,21 @@ if [ -z "${ANDROID_HOME:-}" ] && [ -z "${ANDROID_SDK_ROOT:-}" ]; then
   fi
 fi
 
+CAP_CONFIG="capacitor.config.json"
+if [ -f "$CAP_CONFIG" ]; then
+  SERVER_URL="$(node -p "require('./$CAP_CONFIG').server?.url || ''" 2>/dev/null || echo "")"
+  if echo "$SERVER_URL" | grep -q 'ngrok'; then
+    echo "⚠  capacitor.config.json server.url points at ngrok:"
+    echo "     $SERVER_URL"
+    echo "   Free ngrok tunnels rotate on every restart — any APK built now will"
+    echo "   stop working the moment that URL changes. Use a reserved subdomain or"
+    echo "   deploy to a real host before shipping this APK to the client."
+    echo "   Continue anyway? [y/N]"
+    read -r ANSWER
+    case "$ANSWER" in y|Y|yes|YES) ;; *) echo "aborted"; exit 1;; esac
+  fi
+fi
+
 echo "▶ Building the web bundle"
 (cd web && npm run build)
 
@@ -67,7 +82,7 @@ npx cap sync android
 
 echo "▶ Assembling the debug APK"
 
-# Bump versionCode and versionName from package.json into build.gradle (§6.2.3)
+# Bump versionCode and versionName from package.json into build.gradle
 PKG_VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo "0.1.0")"
 # Convert semantic version to an integer versionCode: e.g. 0.2.3 -> 203
 VERSION_CODE="$(echo "$PKG_VERSION" | awk -F. '{ printf "%d", ($1*10000 + $2*100 + $3) }')"

@@ -737,7 +737,7 @@ function MediaPane({ topics }) {
 
   return (
     <div>
-      {/* Topic filter — scrolls horizontally on mobile (§3.5) */}
+      {/* Topic filter — scrolls horizontally on mobile */}
       <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg overflow-x-auto flex-nowrap">
         <button
           onClick={() => setTopicId(null)}
@@ -1035,7 +1035,7 @@ export default function Knowledge() {
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600 cursor-pointer">×</button>
+              <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600 cursor-pointer flex items-center" aria-label="Clear search"><X size={16} /></button>
             )}
           </div>
 

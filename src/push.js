@@ -22,7 +22,8 @@ function configure() {
   }
 }
 
-function configureFcm() {
+let fcmInitError = null;
+function configureFcm(log) {
   if (fcmConfigured) return;
   const b64 = process.env.FCM_SERVICE_ACCOUNT_JSON;
   if (!b64) return;
@@ -32,9 +33,11 @@ function configureFcm() {
       initializeApp({ credential: cert(serviceAccount) });
     }
     fcmConfigured = true;
+    fcmInitError = null;
   } catch (err) {
     // malformed env var — don't crash the server
-    console.error('[push] FCM init failed:', err.message);
+    fcmInitError = err.message;
+    log?.error({ err }, 'FCM init failed');
   }
 }
 
@@ -91,7 +94,7 @@ export async function removeSubscription(pool, endpoint) {
 // The service worker on each device decides whether to actually surface the
 // notification — if the agent already has that specific chat open, the SW
 // suppresses it so we don't nag them for a message they're already reading.
-export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, log }) {
+export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, log }) {
   configure();
   if (!configured) return;
   const rows = (await pool.query('select * from push_subscriptions')).rows;
@@ -101,9 +104,10 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     title: title || `${name || waId} needs a person`,
     body: reason || 'A lead is waiting on your team.',
     conversationId,
-    // Same tag so a burst of messages from one lead collapses into one line
-    // in the notification tray instead of stacking noisily.
-    tag: `chat-${conversationId}`,
+    // Tag per event kind so a burst of inbound messages collapses to one line
+    // in the tray, but a handoff still shows separately from later inbounds
+    // for the same chat (a handoff is a distinct call to action).
+    tag: `${kind === 'inbound' ? 'msg' : 'handoff'}-${conversationId}`,
   });
 
   await Promise.all(rows.map(async (row) => {
@@ -124,7 +128,7 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     }
     // FCM: send to native Android APK via Firebase
     if (row.transport === 'fcm') {
-      configureFcm();
+      configureFcm(log);
       if (!fcmConfigured) {
         log?.warn({ endpoint: row.endpoint }, 'fcm not configured, skipping');
         return;
@@ -151,7 +155,7 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
   }));
 }
 
-// Returns diagnostic info about push for a given agent (§2.4)
+// Returns diagnostic info about push for a given agent
 export async function getPushStatus(pool, agentEmail) {
   configure();
   const all = (await pool.query('select count(*) as n from push_subscriptions')).rows[0].n;
@@ -169,7 +173,7 @@ export async function getPushStatus(pool, agentEmail) {
   };
 }
 
-// Sends a test push to only the calling agent's subscriptions (§2.4)
+// Sends a test push to only the calling agent's subscriptions
 export async function sendTestPush(pool, agentEmail, log) {
   configure();
   if (!configured) {
@@ -207,7 +211,7 @@ export async function sendTestPush(pool, agentEmail, log) {
         }
       }
     } else if (row.transport === 'fcm') {
-      configureFcm();
+      configureFcm(log);
       if (!fcmConfigured) {
         errors.push('FCM not configured on server (FCM_SERVICE_ACCOUNT_JSON missing)');
         return;

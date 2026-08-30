@@ -56,8 +56,10 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // All toasts last 1 second
-  const show = useCallback((message, type = 'info', duration = 1000, action = null) => {
+  // Duration defaults picked per type so users have time to read the ones
+  // that carry a payload (errors, warnings, info with an action) while the
+  // quick "Saved" style success stays out of the way.
+  const show = useCallback((message, type = 'info', duration, action = null) => {
     const id = ++counterRef.current;
     setToasts((prev) => [...prev, { id, message, type, duration, action }]);
     if (duration > 0) setTimeout(() => dismiss(id), duration);
@@ -65,10 +67,10 @@ export function ToastProvider({ children }) {
   }, [dismiss]);
 
   const toast = useMemo(() => ({
-    success: (msg, dur, action) => show(msg, 'success', dur ?? 1000, action),
-    error:   (msg, dur, action) => show(msg, 'error',   dur ?? 1000, action),
-    warning: (msg, dur, action) => show(msg, 'warning', dur ?? 1000, action),
-    info:    (msg, dur, action) => show(msg, 'info',    dur ?? 1000, action),
+    success: (msg, dur, action) => show(msg, 'success', dur ?? 1500, action),
+    error:   (msg, dur, action) => show(msg, 'error',   dur ?? 4000, action),
+    warning: (msg, dur, action) => show(msg, 'warning', dur ?? 4000, action),
+    info:    (msg, dur, action) => show(msg, 'info',    dur ?? 2500, action),
     dismiss,
   }), [show, dismiss]);
 
@@ -83,6 +85,11 @@ export function ToastProvider({ children }) {
         }}
         aria-live="polite"
       >
+        {toasts.length > 3 && (
+          <div className="pointer-events-none flex justify-center text-[11px] font-semibold text-gray-500 bg-gray-900/70 text-white rounded-full self-end px-2.5 py-0.5">
+            +{toasts.length - 3} more
+          </div>
+        )}
         {toasts.slice(-3).map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
         ))}

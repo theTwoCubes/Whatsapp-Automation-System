@@ -338,7 +338,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Diagnostic: VAPID status + this agent's subscriptions (§2.4)
+  // Diagnostic: VAPID status + this agent's subscriptions
   app.get('/api/push/status', { preHandler: auth }, async (req, reply) => {
     try {
       return await getPushStatus(pool, req.user.email);
@@ -347,7 +347,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  // Test push to the calling agent's devices only (§2.4)
+  // Test push to the calling agent's devices only
   app.post('/api/push/test', { preHandler: auth }, async (req, reply) => {
     try {
       return await sendTestPush(pool, req.user.email, req.log);

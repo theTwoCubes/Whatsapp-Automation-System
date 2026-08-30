@@ -42,6 +42,7 @@ async function pushHandoff(pool, conversationId, reason, log, opts = {}) {
       waId: row?.wa_id,
       reason,
       title,
+      kind: opts.kind || 'handoff',
       log,
     });
   } catch (err) {
@@ -130,11 +131,13 @@ async function handleMessage(value, message, deps) {
   // A human owns this conversation, so the bot stays out of it. The team
   // still needs to know a new message landed, so fire a push. The service
   // worker suppresses it if the agent already has that specific chat open.
+  // The preview is kept short and generic — full message content stays inside
+  // the app so lock-screen previews cannot leak sensitive strings from a lead.
   if (result.state !== 'bot') {
     log.info({ conversationId: result.conversationId }, 'conversation is with a human, bot staying quiet');
     if (message.text?.body || message.type !== 'text') {
       const preview = message.text?.body
-        ? message.text.body.slice(0, 120)
+        ? 'New message'
         : `Sent a ${message.type}`;
       await pushHandoff(pool, result.conversationId, preview, log, { kind: 'inbound' });
     }

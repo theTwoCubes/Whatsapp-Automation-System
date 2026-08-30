@@ -6,6 +6,7 @@ import { MetaClient } from './meta/client.js';
 import { AiClient } from './ai/client.js';
 import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
+import { pushConfigured } from './push.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -48,6 +49,19 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && config.jwtSecret === 'dev-only-change-me') {
     app.log.warn('JWT_SECRET is not set, using the insecure default. Set JWT_SECRET in production.');
   }
+
+  // Push notification sanity checks — noisy so a stale deploy is obvious.
+  if (!pushConfigured()) {
+    app.log.warn('VAPID keys are not set. Web push will silently no-op. Run: node scripts/generate-vapid.js >> .env');
+  }
+  try {
+    const fcmRows = Number(
+      (await pool.query("select count(*) as n from push_subscriptions where transport = 'fcm'")).rows[0].n,
+    );
+    if (fcmRows > 0 && !process.env.FCM_SERVICE_ACCOUNT_JSON) {
+      app.log.warn({ fcmRows }, 'FCM_SERVICE_ACCOUNT_JSON is not set but FCM subscriptions exist. APK pushes will not be delivered.');
+    }
+  } catch { /* table may not exist on the very first migrate — ignore */ }
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);

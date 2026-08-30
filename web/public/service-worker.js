@@ -2,7 +2,7 @@
 // closed. Per the client's spec, clicking the notification just dismisses it,
 // it does not try to focus the console.
 
-const VERSION = 'sw-2026-08-30-3';
+const VERSION = 'sw-2026-08-30-4';
 
 // Which chat the console/app is currently viewing. Kept in memory so we can
 // suppress duplicate pings for a chat the agent is already reading. Reset
@@ -67,4 +67,17 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  // Bring the app to front so the agent can act on the message. We do not
+  // deep-link to the specific chat — per product spec, the click just
+  // dismisses in terms of navigation, but focusing the shell matches user
+  // expectations across every other messaging app they know.
+  event.waitUntil((async () => {
+    const cs = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+    if (cs.length > 0) {
+      const c = cs.find((w) => w.focused) || cs[0];
+      try { await c.focus(); } catch { /* ignore */ }
+    } else {
+      try { await self.clients.openWindow('/'); } catch { /* ignore */ }
+    }
+  })());
 });

@@ -31,7 +31,7 @@ export async function runMigrations(pool) {
       await client.query(sql);
       await client.query('insert into schema_migrations (version) values ($1)', [file]);
       await client.query('commit');
-      console.log(`applied migration ${file}`);
+      process.stdout.write(`applied migration ${file}\n`);
     } catch (err) {
       await client.query('rollback');
       throw new Error(`migration ${file} failed: ${err.message}`);
@@ -50,9 +50,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const pool = createPool(loadConfig());
   try {
     await runMigrations(pool);
-    console.log('migrations up to date');
+    process.stdout.write('migrations up to date\n');
   } catch (err) {
-    console.error(err.message);
+    process.stderr.write(`${err.message}\n`);
     process.exitCode = 1;
   } finally {
     await pool.end();

@@ -503,13 +503,37 @@ export default function TeamAccess() {
       title="Team & Access"
       subtitle="Manage sign-in access, your brand look, and the record of what happened."
     >
-      <div className="flex flex-col md:flex-row items-start gap-6 md:gap-8">
+      <div className="flex flex-col md:flex-row items-start gap-4 md:gap-8">
         <aside className="w-full md:w-[260px] flex-shrink-0 md:sticky top-0">
-          <div className="mb-4 px-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
+          <div className="hidden md:flex mb-4 px-2 items-center gap-2 text-xs font-bold uppercase tracking-widest text-gray-500">
             <Shield size={13} />
             Settings
           </div>
-          <SideTabs tabs={tabs} active={tab} onChange={setTab} />
+          {/* Mobile: chip row that scrolls horizontally so tabs never stack tall */}
+          <div className="md:hidden -mx-4 px-4 overflow-x-auto flex gap-2 pb-2">
+            {tabs.map(({ key, label, icon: Icon }) => {
+              const isActive = tab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`
+                    flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap px-3 py-2 rounded-full text-sm font-medium transition-colors border
+                    ${isActive
+                      ? 'bg-white text-gray-900 border-gray-300 shadow-xs'
+                      : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'}
+                  `}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Desktop: sidebar tabs */}
+          <div className="hidden md:block">
+            <SideTabs tabs={tabs} active={tab} onChange={setTab} />
+          </div>
         </aside>
         <div className="flex-1 min-w-0 w-full">
           {tab === 'agents'   && <Agents />}

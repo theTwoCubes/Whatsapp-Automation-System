@@ -11,7 +11,7 @@
     margin: 0;
   }
 
-  /* Prevent horizontal scroll on any viewport (§3.6) */
+  /* Prevent horizontal scroll on any viewport */
   html, body { overflow-x: clip; }
 
   body {
@@ -42,13 +42,13 @@
   ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 9999px; }
   ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
-  /* Remove Safari/Chrome tap rectangle (§4.4) */
+  /* Remove Safari/Chrome tap rectangle */
   * { -webkit-tap-highlight-color: transparent; }
 
-  /* Intentional active feedback instead (§4.4) */
+  /* Intentional active feedback instead */
   button:active, a:active { opacity: 0.7; transition: opacity 120ms; }
 
-  /* Focus ring only on keyboard nav, not on click (§4.5) */
+  /* Focus ring only on keyboard nav, not on click */
   button:focus { outline: none; }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -57,7 +57,7 @@
     outline-offset: 2px;
   }
 
-  /* Prevent iOS input zoom on focus — 16px minimum (§4.9) */
+  /* Prevent iOS input zoom on focus — 16px minimum */
   @media (max-width: 640px) {
     .field-input, .field-input-lg, .field-textarea { font-size: 16px; }
     input[type="text"], input[type="email"], input[type="password"],
@@ -99,7 +99,7 @@
   }
 }
 
-/* Message bubble animations (\u00a74.8) */
+/* Message bubble animations */
 @keyframes msg-in {
   from { opacity: 0; }
   to   { opacity: 1; }

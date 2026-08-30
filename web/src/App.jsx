@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, clearToken, getToken, getAgentEmail } from './api.js';
 import { BrandContext } from './brand.js';
 import { ToastProvider, useToast } from './components/ui/Toast.jsx';
-import Sidebar from './components/layout/Sidebar.jsx';
+import Sidebar, { PushPill } from './components/layout/Sidebar.jsx';
 import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
@@ -14,7 +14,7 @@ import {
 
 import Modal from './components/ui/Modal.jsx';
 
-// ─── Color helpers ────────────────────────────────────────────────────────────
+  // Color helpers 
 function hexToRgb(hex) {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
@@ -34,7 +34,7 @@ function hexWithAlpha(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// ─── Push state persistence ───────────────────────────────────────────────────
+  // Push state persistence 
 const PUSH_STATE_KEY = 'wa_push_state';
 
 function resolveInitialPushState() {
@@ -49,7 +49,7 @@ function savePushState(state) {
   localStorage.setItem(PUSH_STATE_KEY, state);
 }
 
-// ─── Root ─────────────────────────────────────────────────────────────────────
+  // Root 
 export default function App() {
   const [authed, setAuthed]  = useState(Boolean(getToken()));
   const [view, setView]      = useState('conversations');
@@ -222,7 +222,7 @@ export default function App() {
   );
 }
 
-// ─── AppInner: inside ToastProvider so useToast works ────────────────────────
+  // AppInner: inside ToastProvider so useToast works 
 function AppInner({
   brand, view, setView, mobileMenuOpen, setMobileMenuOpen,
   pushState, showBanner, dismissBanner,
@@ -239,6 +239,11 @@ function AppInner({
       next = 'granted';
     } else if (res.reason === 'denied') {
       next = 'denied';
+    } else if (res.reason === 'default') {
+      // The user closed the browser prompt with the ✕ instead of
+      // Allow/Block. Treat as "dismissed" so the banner does not keep
+      // re-appearing on every reload.
+      next = 'dismissed';
     } else {
       next = 'default';
       toast.error(`Push registration failed: ${res.reason || 'Unknown error'}`);
@@ -313,15 +318,22 @@ function AppInner({
         {/* Mobile Top Bar — hidden when a thread is open (thread header replaces it) */}
         {!threadOpen && (
           <div
-            className="md:hidden flex items-center justify-between flex-shrink-0 z-20 border-b border-gray-200 bg-white"
+            className="md:hidden flex items-center gap-2 flex-shrink-0 z-20 border-b border-gray-200 bg-white"
             style={{
-              height: 'calc(64px + env(safe-area-inset-top))',
+              height: 'calc(56px + env(safe-area-inset-top))',
               paddingTop: 'env(safe-area-inset-top)',
-              paddingLeft: '20px',
-              paddingRight: '16px',
+              paddingLeft: '16px',
+              paddingRight: '12px',
             }}
           >
-            <div className="font-bold text-2xl text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
+            <div className="font-bold text-lg text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
+            <PushPill
+              pushState={pushState}
+              onTest={handlePushTest}
+              onEnablePush={turnOnPush}
+              onDeniedInfo={() => setDeniedModalOpen(true)}
+              compact
+            />
             <button
               className="p-2 -mr-1 text-gray-600 hover:text-gray-900 transition-colors"
               onClick={() => setMobileMenuOpen(true)}

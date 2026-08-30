@@ -21,6 +21,10 @@ import { ChatRowSkeleton } from './components/ui/Skeleton.jsx';
 import Modal from './components/ui/Modal.jsx';
 import { useToast } from './components/ui/Toast.jsx';
 
+// Module-scoped so the value persists across Console mount/unmount cycles
+// (e.g. when the agent navigates to Admin and back).
+let savedListScroll = 0;
+
 // Helpers
 function daysSince(dateStr) {
   if (!dateStr) return null;
@@ -301,7 +305,7 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  // WebSocket real-time with reconnect indicator (§4.3)
+  // WebSocket real-time with reconnect indicator
   const [wsOffline, setWsOffline] = useState(false);
   const wsRetryRef = useRef(null);
 
@@ -355,9 +359,17 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
     { key: 'human',   label: 'Agent' },
   ];
 
-  // Scroll restoration for mobile list (§4.1)
+  // Scroll restoration for mobile list. Position lives in a module-
+  // scoped mutable so it outlives Console remounts — switching to Admin and
+  // back preserves the scroll where the agent left it.
   const listScrollRef = useRef(null);
-  const listPosRef    = useRef(0);
+  const listPosRef    = { get current() { return savedListScroll; }, set current(v) { savedListScroll = v; } };
+  useEffect(() => {
+    if (listScrollRef.current && savedListScroll > 0) {
+      listScrollRef.current.scrollTop = savedListScroll;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden relative w-full">
@@ -528,7 +540,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
             {c.last_message || 'No messages yet'}
           </span>
           {c.unread_count > 0 ? (
-            <span className="min-w-[24px] h-[24px] rounded-full flex items-center justify-center bg-green-500 text-white text-sm font-bold px-2 flex-shrink-0">
+            <span className="min-w-[22px] h-[22px] rounded-full flex items-center justify-center bg-amber-500 text-white text-xs font-bold px-1.5 flex-shrink-0" aria-label={`${c.unread_count} unread`}>
               {c.unread_count}
             </span>
           ) : c.state === 'pending' ? (
@@ -572,12 +584,12 @@ function EditableName({ waId, fallback, className }) {
     );
   }
   return (
-    <span className={`inline-flex items-center gap-1.5 min-w-0 group ${className || ''}`}>
-      <span className="truncate">{current}</span>
+    <span className={`flex items-center gap-1.5 min-w-0 group ${className || ''}`}>
+      <span className="truncate min-w-0">{current}</span>
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="text-gray-400 hover:text-gray-600 opacity-60 hover:opacity-100 transition-opacity"
+        className="flex-shrink-0 text-gray-400 hover:text-gray-600 md:opacity-60 md:hover:opacity-100 transition-opacity"
         title={alias ? 'Rename this contact' : 'Give this contact a nickname'}
         aria-label="Rename contact"
       >
@@ -734,7 +746,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
     if (window.innerWidth >= 768) inputRef.current?.focus(); 
   }, [conversation.id]);
 
-  // Smart scroll: only jump to bottom if already near it (§4.2)
+  // Smart scroll: only jump to bottom if already near it
   const [showNewMsg, setShowNewMsg] = useState(false);
   useEffect(() => {
     const el = scrollRef.current;
@@ -779,7 +791,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {/* WS offline indicator (§4.3) */}
+      {/* WS offline indicator */}
       {wsOffline && (
         <div className="flex items-center justify-center gap-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-xs py-1.5 px-4">
           <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
@@ -934,7 +946,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           </React.Fragment>
         ))}
         <div ref={endRef} />
-        {/* New message button (§4.2) */}
+        {/* New message button */}
         {showNewMsg && (
           <button
             className="sticky bottom-4 mx-auto flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-1.5 rounded-full shadow-md hover:bg-gray-50 transition-colors"

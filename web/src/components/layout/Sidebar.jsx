@@ -16,17 +16,22 @@ const NAV = [
   { key: 'team',       label: 'Team & Access', icon: Users },
 ];
 
-// Push status pill shown in sidebar footer (§2.2) and wired to test in phase 3
-function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo }) {
+// Push status pill shown in sidebar footer and wired to test in phase 3.
+// Exported so the mobile top bar can render the same chip inline.
+export function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo, compact = false }) {
+  const base = 'flex-shrink-0 flex items-center gap-1 rounded-full text-xs font-semibold transition-colors';
+  const sizing = compact ? 'w-8 h-8 justify-center' : 'px-2 py-1';
+  const iconSize = compact ? 14 : 12;
   if (pushState === 'granted') {
     return (
       <button
         onClick={onTest}
         title="Notifications on — tap to send a test"
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+        aria-label="Notifications on — send test"
+        className={`${base} ${sizing} bg-green-100 text-green-700 hover:bg-green-200`}
       >
-        <Bell size={12} />
-        On
+        <Bell size={iconSize} />
+        {!compact && 'On'}
       </button>
     );
   }
@@ -35,10 +40,11 @@ function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo }) {
       <button
         onClick={onDeniedInfo}
         title="Notifications blocked in browser settings"
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+        aria-label="Notifications blocked"
+        className={`${base} ${sizing} bg-red-100 text-red-600 hover:bg-red-200`}
       >
-        <BellOff size={12} />
-        Off
+        <BellOff size={iconSize} />
+        {!compact && 'Off'}
       </button>
     );
   }
@@ -48,10 +54,11 @@ function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo }) {
       <button
         onClick={onEnablePush}
         title="Turn on notifications"
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+        aria-label="Turn on notifications"
+        className={`${base} ${sizing} bg-gray-100 text-gray-500 hover:bg-gray-200`}
       >
-        <BellOff size={12} />
-        Off
+        <BellOff size={iconSize} />
+        {!compact && 'Off'}
       </button>
     );
   }

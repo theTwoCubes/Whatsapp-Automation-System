@@ -70,7 +70,8 @@ function BusinessProfile() {
             value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <InputField label="Address" placeholder="123 Main St, City, Country"
             value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
-          <InputField label="Websites" helper="Enter one or more URLs separated by commas."
+          <InputField label="Websites" textarea rows={2}
+            helper="Enter one or more URLs separated by commas."
             placeholder="https://yourbusiness.com, https://instagram.com/yourbusiness"
             value={form.websites} onChange={(e) => setForm({ ...form, websites: e.target.value })} />
           <FormActions>
