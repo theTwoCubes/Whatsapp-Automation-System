@@ -4,6 +4,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# vite.config.js reads ../package.json for the app version, so copy it one level up
+COPY package.json /package.json
 RUN npm run build
 
 FROM node:22-alpine
