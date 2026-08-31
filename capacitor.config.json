@@ -1,0 +1,18 @@
+{
+  "appId": "com.wamanager.console",
+  "appName": "WA Manager",
+  "webDir": "web/dist",
+  "server": {
+    "androidScheme": "https",
+    "url": "https://expiring-duration-parting.ngrok-free.dev",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}
