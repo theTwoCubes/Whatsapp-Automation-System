@@ -4,7 +4,7 @@
   "webDir": "web/dist",
   "server": {
     "androidScheme": "https",
-    "url": "https://expiring-duration-parting.ngrok-free.dev",
+    "url": "https://advoice.online",
     "cleartext": false
   },
   "android": {
