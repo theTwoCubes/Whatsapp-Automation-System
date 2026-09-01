@@ -170,6 +170,16 @@ export default function App() {
     };
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
 
+    // If app was opened from a notification click while closed, the SW passes ?c=ID
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialCid = urlParams.get('c');
+    if (initialCid) {
+      setView('conversations');
+      // Give Console.jsx a moment to mount and wire the ref
+      setTimeout(() => openConversationRef.current?.(initialCid), 100);
+      window.history.replaceState({}, '', '/');
+    }
+
     return () => { 
       if (permStatus) permStatus.onchange = null; 
       if (backListener) backListener.then(l => l.remove());

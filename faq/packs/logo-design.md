@@ -1,4 +1,4 @@
-# Logo design pack — AdVoice Inc.
+# Logo design pack - AdVoice Inc.
 
 Fee, process, deliverables, and boundaries for the standard logo design service.
 Base pack policies (billing, payment structure, refund) still apply.
@@ -14,10 +14,10 @@ Q: Is GST included?
 A: No, GST is on top of ₹20,000.
 
 Q: Can I get a logo for ₹5,000 or ₹10,000?
-A: Our logo package is ₹20,000 + GST. That fee covers the full process, not just the graphic — briefing, mind mapping, sketching, three developed directions, typography, identity development, mockups, and a professional presentation.
+A: Our logo package is ₹20,000 + GST. That fee covers the full process, not just the graphic - briefing, mind mapping, sketching, three developed directions, typography, identity development, mockups, and a professional presentation.
 
 Q: Why does it cost this much?
-A: The value is in the process. We spend time understanding the business, exploring meaningful concepts, developing multiple directions, and building the selected one into a professional identity — not simply generating a graphic.
+A: The value is in the process. We spend time understanding the business, exploring meaningful concepts, developing multiple directions, and building the selected one into a professional identity - not simply generating a graphic.
 
 # What you get
 
@@ -45,10 +45,10 @@ Q: What's in the 40-question briefing?
 A: Business information, design and style preferences, colour choices, likes and dislikes, and other questions that help us understand the business and the kind of identity you're looking for.
 
 Q: Do I need to know exactly what I want?
-A: No. Give honest information about your business and preferences in the briefing — that becomes the foundation for the creative work.
+A: No. Give honest information about your business and preferences in the briefing - that becomes the foundation for the creative work.
 
 Q: What is mind mapping?
-A: A web of words and ideas connected to the business, used to find concepts that can be turned into meaningful visual forms — beyond obvious industry symbols.
+A: A web of words and ideas connected to the business, used to find concepts that can be turned into meaningful visual forms - beyond obvious industry symbols.
 
 Q: Do you sketch by hand?
 A: Yes. Sketching happens before anything is drawn on a computer.
@@ -68,7 +68,7 @@ Q: Why a black-and-white version?
 A: A strong logo should stay recognisable without colour. It's how we test the fundamental strength of the design.
 
 Q: Does the logo work at small and large sizes?
-A: Yes. The design accounts for both — including line-drawing and simplified treatments for smaller uses.
+A: Yes. The design accounts for both - including line-drawing and simplified treatments for smaller uses.
 
 Q: Do I get the source files?
 A: Source-file delivery is confirmed as part of the agreed scope before we finalise.
@@ -82,7 +82,7 @@ A: Yes. The identity is designed for real business use across print and digital.
 # Identity development
 
 Q: Is this just a logo or a full identity?
-A: Full identity — logo, typography, colour treatment, and visual system, presented through mockups.
+A: Full identity - logo, typography, colour treatment, and visual system, presented through mockups.
 
 Q: Why is typography a separate step?
 A: The typeface, letterforms, and spacing between the symbol and the brand name change how the whole identity reads. It's developed after the core logo direction is set.
@@ -96,7 +96,7 @@ Q: Are your logos minimalist?
 A: Our approach is fresh, clean, and minimal, but always with a meaningful conceptual connection to the business.
 
 Q: Why minimal?
-A: Fewer elements make a logo clearer, more recognisable, and more versatile — as long as the core idea stays intact.
+A: Fewer elements make a logo clearer, more recognisable, and more versatile - as long as the core idea stays intact.
 
 Q: Do you follow design trends?
 A: We focus on identities that stay relevant long term, not on chasing trends.
@@ -116,7 +116,7 @@ A: We design with trademark considerations in mind, but trademark registration a
 # Colours, symbols, references
 
 Q: Can I share reference logos I like?
-A: Yes, include them in the briefing — they help us understand your visual expectations. The final concepts are developed for your business.
+A: Yes, include them in the briefing - they help us understand your visual expectations. The final concepts are developed for your business.
 
 Q: Can I tell you which colours I like?
 A: Yes, colour preferences are part of the briefing and are considered during identity development.
@@ -141,13 +141,13 @@ A: Yes. The detailed briefing and creative process are especially useful for a n
 Q: Can you redesign an existing logo?
 A: Yes. We start by understanding the current identity through the briefing, then develop new directions.
 
-Q: We're an established business wanting a fresh identity — can you do that?
+Q: We're an established business wanting a fresh identity - can you do that?
 A: Yes, while considering the existing business, positioning, and future plans.
 
 # Timeline
 
 Q: How long does the logo process take?
-A: The specific timeline is confirmed when the project is scheduled — it depends on the scope, feedback speed, and approval stages.
+A: The specific timeline is confirmed when the project is scheduled - it depends on the scope, feedback speed, and approval stages.
 
 # Handoff
 

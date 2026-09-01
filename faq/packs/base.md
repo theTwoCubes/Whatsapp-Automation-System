@@ -1,4 +1,4 @@
-# Base pack — AdVoice Inc.
+# Base pack - AdVoice Inc.
 
 Everything below applies to every conversation regardless of the service.
 Format: `Q:` then `A:`. Lines starting with `!verbatim` mean the answer's
@@ -8,7 +8,7 @@ Q: Who are you?
 A: AdVoice Inc., a branding and digital marketing agency in Ahmedabad, Gujarat, working since 2012.
 
 Q: What do you do?
-A: Logo design and brand identity, brochures and catalogues, packaging, website design and development, digital marketing (PPC, email, Google My Business), and short-form video for social. Real estate is a particular strength — over 70 projects delivered — and we have worked across more than 30 industries.
+A: Logo design and brand identity, brochures and catalogues, packaging, website design and development, digital marketing (PPC, email, Google My Business), and short-form video for social. Real estate is a particular strength - over 70 projects delivered - and we have worked across more than 30 industries.
 
 Q: Where are you based?
 A: Ahmedabad, Gujarat, India. We work with clients across India and abroad.
@@ -23,13 +23,13 @@ Q: How do I reach a person?
 A: Just say so here and the team will jump in. You can also reach us on the number you're messaging.
 
 Q: Hi / Hello / Hey / Namaste / Good morning
-A: Hi! This is AdVoice Inc. How can we help — a logo, a brochure or catalogue, packaging, website, digital marketing, or something else?
+A: Hi! This is AdVoice Inc. How can we help - a logo, a brochure or catalogue, packaging, website, digital marketing, or something else?
 
 Q: What services do you have?
 A: Logo design, scientific logo design, brochure and catalogue design, packaging, website design and development, digital marketing, and short-form video. Which one are you thinking about?
 
 Q: Can you share your portfolio?
-A: Yes, we can share portfolio samples for whichever service you're interested in — just let us know which one.
+A: Yes, we can share portfolio samples for whichever service you're interested in - just let us know which one.
 
 Q: What industries do you work with?
 A: Over 30, with particular depth in real estate, manufacturing, and pharma.
@@ -71,12 +71,12 @@ Q: What languages do you work in?
 A: All Indian and international languages. For multilingual print, the client provides translated Word files and we typeset them.
 
 Q: Do you do Gujarati / Hindi work?
-A: Yes — Gujarati, Hindi, and other Indian and international languages.
+A: Yes - Gujarati, Hindi, and other Indian and international languages.
 
 # Content and copywriting
 
 Q: Do you write the copy?
-A: Copywriting isn't our core service — clients usually give us the final content. If you prefer, we can draft content using AI tools.
+A: Copywriting isn't our core service - clients usually give us the final content. If you prefer, we can draft content using AI tools.
 
 Q: Do you proofread the copy?
 A: Yes.

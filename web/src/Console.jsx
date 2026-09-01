@@ -303,7 +303,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     } finally {
       setLoading(false);
     }
-  }, [toast, onConversationsChange]);
+  }, [toast, onConversationsChange, filter]);
 
   const fetchCounter = useRef(0);
 
@@ -762,6 +762,29 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
             <span className="text-xs text-amber-800 italic">"{c.handoff_reason}"</span>
           </div>
         )}
+      </div>
+
+      {/* Mobile Actions (Hidden on desktop since they are in the header) */}
+      <div className="md:hidden px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-3">
+        <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Actions</div>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" className="flex-1 justify-center gap-1.5"
+            onClick={() => act(() => api.pinConversation(c.id, !c.pinned_at), c.pinned_at ? 'Unpinned' : 'Pinned')}>
+            {c.pinned_at ? <PinOff size={16} /> : <Pin size={16} />}
+            <span className="text-xs">{c.pinned_at ? 'Unpin' : 'Pin'}</span>
+          </Button>
+          <Button variant="secondary" size="sm" className="flex-1 justify-center gap-1.5"
+            onClick={() => act(() => api.muteConversation(c.id, c.muted_until && new Date(c.muted_until) > new Date() ? 0 : 8),
+              c.muted_until && new Date(c.muted_until) > new Date() ? 'Unmuted' : 'Muted 8h')}>
+            {c.muted_until && new Date(c.muted_until) > new Date() ? <BellOff size={16} /> : <Bell size={16} />}
+            <span className="text-xs">{c.muted_until && new Date(c.muted_until) > new Date() ? 'Unmute' : 'Mute'}</span>
+          </Button>
+          <Button variant="secondary" size="sm" className="flex-1 justify-center gap-1.5"
+            onClick={() => act(() => api.archiveConversation(c.id, !c.archived_at), c.archived_at ? 'Unarchived' : 'Archived')}>
+            {c.archived_at ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+            <span className="text-xs">{c.archived_at ? 'Unarchive' : 'Archive'}</span>
+          </Button>
+        </div>
       </div>
 
       {/* Source */}

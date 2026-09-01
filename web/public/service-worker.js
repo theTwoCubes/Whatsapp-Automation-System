@@ -75,7 +75,9 @@ self.addEventListener('notificationclick', (event) => {
       client = cs.find((w) => w.focused) || cs[0];
       try { await client.focus(); } catch { /* ignore */ }
     } else {
-      try { client = await self.clients.openWindow('/'); } catch { /* ignore */ }
+      let url = '/';
+      if (conversationId != null) url += `?c=${conversationId}`;
+      try { client = await self.clients.openWindow(url); } catch { /* ignore */ }
     }
     // Tell the app which conversation to open.
     if (client && conversationId != null) {
