@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { BrandContext } from '../../brand.js';
 import Avatar from '../ui/Avatar.jsx';
+import NotificationBell from './NotificationBell.jsx';
 
 const NAV = [
   { key: 'conversations', label: 'Conversations', icon: MessageSquare },
@@ -182,7 +183,8 @@ export default function Sidebar({
             </div>
           )}
         </div>
-        {/* Push status pill */}
+        {/* In-app notification inbox and push status pill */}
+        <NotificationBell />
         <PushPill
           pushState={pushState}
           onTest={onPushTest}

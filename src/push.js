@@ -96,17 +96,31 @@ export async function removeSubscription(pool, endpoint) {
 // suppresses it so we don't nag them for a message they're already reading.
 export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, log }) {
   configure();
-  if (!configured) return;
   const rows = (await pool.query('select * from push_subscriptions')).rows;
+
+  const notifTitle = title || `${name || waId} needs a person`;
+  const notifBody = reason || 'A lead is waiting on your team.';
+
+  // Fan out to the in-app inbox as well as push. One row per distinct agent
+  // that has any subscription, so the drawer keeps showing this even if the
+  // browser push failed. Silent if the agent has no push at all — nothing to
+  // read in the inbox they never opened.
+  const agentEmails = [...new Set(rows.map((r) => r.agent_email).filter(Boolean))];
+  for (const agentEmail of agentEmails) {
+    await pool.query(
+      `insert into notifications (agent_email, kind, conversation_id, title, body)
+       values ($1, $2, $3, $4, $5)`,
+      [agentEmail, kind === 'inbound' ? 'inbound_in_takeover' : 'handoff', conversationId, notifTitle, notifBody],
+    ).catch((err) => log?.warn({ err }, 'failed to write in-app notification'));
+  }
+
+  if (!configured) return;
   if (rows.length === 0) return;
 
   const payload = JSON.stringify({
-    title: title || `${name || waId} needs a person`,
-    body: reason || 'A lead is waiting on your team.',
+    title: notifTitle,
+    body: notifBody,
     conversationId,
-    // Tag per event kind so a burst of inbound messages collapses to one line
-    // in the tray, but a handoff still shows separately from later inbounds
-    // for the same chat (a handoff is a distinct call to action).
     tag: `${kind === 'inbound' ? 'msg' : 'handoff'}-${conversationId}`,
   });
 

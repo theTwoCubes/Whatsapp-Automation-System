@@ -356,6 +356,40 @@ export function registerApi(app, deps) {
     }
   });
 
+  // The in-app notification inbox. The bell in the console reads this.
+  app.get('/api/notifications', { preHandler: auth }, async (req) => {
+    const rows = (await pool.query(
+      `select id, kind, conversation_id, title, body, read_at, created_at
+       from notifications where agent_email = $1
+       order by created_at desc limit 50`,
+      [req.user.email],
+    )).rows;
+    const unread = (await pool.query(
+      `select count(*)::int as n from notifications
+       where agent_email = $1 and read_at is null`,
+      [req.user.email],
+    )).rows[0].n;
+    return { notifications: rows, unread };
+  });
+
+  app.post('/api/notifications/:id/read', { preHandler: auth, schema: idParams }, async (req) => {
+    await pool.query(
+      `update notifications set read_at = now()
+       where id = $1 and agent_email = $2 and read_at is null`,
+      [req.params.id, req.user.email],
+    );
+    return { ok: true };
+  });
+
+  app.post('/api/notifications/read-all', { preHandler: auth }, async (req) => {
+    await pool.query(
+      `update notifications set read_at = now()
+       where agent_email = $1 and read_at is null`,
+      [req.user.email],
+    );
+    return { ok: true };
+  });
+
   // Create a template from the console. It still needs Meta approval before use.
   app.post('/api/templates/create', { preHandler: auth }, async (req, reply) => {
     const name = (req.body?.name ?? '').trim();

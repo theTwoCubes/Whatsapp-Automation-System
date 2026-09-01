@@ -100,6 +100,9 @@ export const api = {
   pushUnsubscribe: (endpoint) => req('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
   pushStatus: () => req('/push/status'),
   pushTest: () => req('/push/test', { method: 'POST' }),
+  notifications: () => req('/notifications'),
+  markNotificationRead: (id) => req(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () => req('/notifications/read-all', { method: 'POST' }),
   branding: () =>
     fetch('/api/branding')
       .then((r) => r.json())

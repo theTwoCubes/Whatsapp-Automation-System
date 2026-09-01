@@ -3,6 +3,7 @@ import { api, clearToken, getToken, getAgentEmail } from './api.js';
 import { BrandContext } from './brand.js';
 import { ToastProvider, useToast } from './components/ui/Toast.jsx';
 import Sidebar, { PushPill } from './components/layout/Sidebar.jsx';
+import NotificationBell from './components/layout/NotificationBell.jsx';
 import Login from './views/Login.jsx';
 import Console from './Console.jsx';
 import Admin from './Admin.jsx';
@@ -327,6 +328,7 @@ function AppInner({
             }}
           >
             <div className="font-bold text-lg text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
+            <NotificationBell />
             <PushPill
               pushState={pushState}
               onTest={handlePushTest}
