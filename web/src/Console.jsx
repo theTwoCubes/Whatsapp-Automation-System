@@ -999,7 +999,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
                     : m.body
                   }
                   <span className={`flex items-center justify-end gap-1 text-xs font-semibold mt-1.5 ${m.direction === 'outbound' ? 'text-white/60' : 'text-gray-500'}`}>
-                    {shortTime(m.created_at)}
+                    {shortTime(m.sent_at || m.created_at)}
                     {m.direction === 'outbound' && <Ticks status={m.status} />}
                   </span>
                 </div>

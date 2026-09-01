@@ -95,7 +95,7 @@ export function groupByDay(messages) {
   const groups = [];
   let current = null;
   for (const m of messages) {
-    const label = dayLabel(m.created_at);
+    const label = dayLabel(m.sent_at || m.created_at);
     if (!current || current.label !== label) {
       current = { label, items: [] };
       groups.push(current);

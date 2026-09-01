@@ -103,6 +103,8 @@ async function handleMessage(value, message, deps) {
       body: message.text?.body ?? null,
       referral: message.referral ?? null,
       raw: message,
+      // WhatsApp sends timestamp as a Unix seconds string. Convert to ms.
+      sentAt: message.timestamp ? Number(message.timestamp) * 1000 : null,
     });
   } catch (err) {
     log.error({ wamid: message.id, err }, 'failed to record inbound message');

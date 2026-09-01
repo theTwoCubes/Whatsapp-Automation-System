@@ -60,12 +60,16 @@ export async function recordInbound(pool, m) {
       topicId = t.rows[0]?.topic_id ?? null;
     }
 
+    // sent_at is the lead's send time from the WhatsApp payload. If the
+    // webhook is delivered late (server was down, retry), created_at will be
+    // now and sent_at will still show the original send time.
+    const sentAt = m.sentAt ? new Date(m.sentAt) : null;
     const inserted = await client.query(
-      `insert into messages (conversation_id, wa_message_id, direction, type, body, referral_campaign_id, raw)
-       values ($1, $2, 'inbound', $3, $4, $5, $6)
+      `insert into messages (conversation_id, wa_message_id, direction, type, body, referral_campaign_id, raw, sent_at)
+       values ($1, $2, 'inbound', $3, $4, $5, $6, coalesce($7, now()))
        on conflict (wa_message_id) do nothing
        returning id`,
-      [conversationId, m.waMessageId, m.type ?? 'text', m.body ?? null, campaignId, m.raw ? JSON.stringify(m.raw) : null],
+      [conversationId, m.waMessageId, m.type ?? 'text', m.body ?? null, campaignId, m.raw ? JSON.stringify(m.raw) : null, sentAt],
     );
 
     await client.query('commit');
@@ -278,16 +282,16 @@ export async function listConversations(pool) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             ct.wa_id, ct.name, ca.headline as campaign,
-            m.body as last_message, m.created_at as last_at,
+            m.body as last_message, coalesce(m.sent_at, m.created_at) as last_at,
             (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
      left join lateral (
-       select body, created_at from messages
-       where conversation_id = c.id order by created_at desc, id desc limit 1
+       select body, sent_at, created_at from messages
+       where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
-     order by m.created_at desc nulls last
+     order by coalesce(m.sent_at, m.created_at) desc nulls last
      limit 200`,
   );
   return res.rows;
@@ -307,6 +311,7 @@ export async function getConversationById(pool, id) {
 export async function getConversationMessages(pool, id, limit = 200) {
   const res = await pool.query(
     `select id, direction, type, body, status, created_at,
+            coalesce(sent_at, created_at) as sent_at,
             coalesce(
               raw->'document'->>'filename',
               raw->'image'->>'filename',
