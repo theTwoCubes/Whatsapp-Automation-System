@@ -76,19 +76,41 @@ function InboundAttachment({ message }) {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(null);
   const [size, setSize] = useState(null);
+  // Object URL for inline previews (image / audio / video). Fetched once,
+  // reused for both preview and the download button, and revoked on unmount
+  // so we do not leak blob URLs when the thread rerenders.
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewMime, setPreviewMime] = useState(null);
   const outbound = message.direction === 'outbound';
+
+  const previewable = message.type === 'image' || message.type === 'video' || message.type === 'audio' || message.type === 'voice';
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  const ensureBlob = async () => {
+    if (previewUrl) return { url: previewUrl, contentType: previewMime };
+    const { url, size: bytes, contentType } = await api.mediaObjectUrl(message.id);
+    setSize(bytes);
+    setPreviewUrl(url);
+    setPreviewMime(contentType);
+    return { url, contentType };
+  };
+
+  const preview = async () => {
+    if (previewUrl) return;
+    setDownloading(true);
+    setError(null);
+    try { await ensureBlob(); } catch (err) { setError(err.message || 'Preview failed'); }
+    finally { setDownloading(false); }
+  };
 
   const download = async () => {
     setDownloading(true);
     setError(null);
     try {
-      const { url, size: bytes, contentType } = await api.mediaObjectUrl(message.id);
-      setSize(bytes);
-
+      const { url, contentType } = await ensureBlob();
       const isNative = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
       if (isNative) {
-        // Capacitor WebView cannot open blob URLs externally.
-        // Convert blob → base64 and hand to native share/open sheet.
         try {
           const resp = await fetch(url);
           const arrBuf = await resp.arrayBuffer();
@@ -100,8 +122,7 @@ function InboundAttachment({ message }) {
             url: `data:${contentType};base64,${base64}`,
             dialogTitle: `Open ${filename}`,
           });
-        } catch (shareErr) {
-          // Fallback: open the blob URL in the webview (won't trigger save but shows the file)
+        } catch {
           window.open(url, '_blank');
         }
       } else {
@@ -113,7 +134,7 @@ function InboundAttachment({ message }) {
         a.target = '_blank';
         document.body.appendChild(a);
         a.click();
-        setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60_000);
+        setTimeout(() => a.remove(), 60_000);
       }
     } catch (err) {
       setError(err.message || 'Download failed');
@@ -127,9 +148,26 @@ function InboundAttachment({ message }) {
     .filter(Boolean)
     .join(' · ');
 
-  return (
-    <div className={`w-full max-w-[280px] rounded-xl overflow-hidden ${outbound ? 'bg-white/10' : 'bg-black/5'}`}>
-      {/* Blurry decorative preview strip */}
+  // Inline preview slot: image renders as a tap-to-download thumbnail, audio
+  // and video render native controls. Anything else keeps the blurred
+  // placeholder tile.
+  const renderPreview = () => {
+    if (previewable && previewUrl) {
+      if (message.type === 'image') {
+        return (
+          <button type="button" onClick={download} className="block w-full">
+            <img src={previewUrl} alt={filename} className="w-full max-h-72 object-cover" />
+          </button>
+        );
+      }
+      if (message.type === 'video') {
+        return <video src={previewUrl} controls className="w-full max-h-72 bg-black" />;
+      }
+      if (message.type === 'audio' || message.type === 'voice') {
+        return <audio src={previewUrl} controls className="w-full h-10 px-3 py-2" />;
+      }
+    }
+    return (
       <div className="relative h-24 overflow-hidden">
         <div
           className="absolute inset-0"
@@ -140,11 +178,23 @@ function InboundAttachment({ message }) {
           }}
         />
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center">
+          <button
+            type="button"
+            onClick={previewable ? preview : download}
+            disabled={downloading}
+            className="w-12 h-12 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors disabled:opacity-60"
+            aria-label={previewable ? 'Load preview' : 'Download'}
+          >
             {mediaKindIcon(message.type)}
-          </div>
+          </button>
         </div>
       </div>
+    );
+  };
+
+  return (
+    <div className={`w-full max-w-[280px] rounded-xl overflow-hidden ${outbound ? 'bg-white/10' : 'bg-black/5'}`}>
+      {renderPreview()}
 
       <div className={`flex items-center gap-3 px-3 py-2.5 ${outbound ? 'text-white' : 'text-gray-800'}`}>
         <div className="flex-1 min-w-0">
