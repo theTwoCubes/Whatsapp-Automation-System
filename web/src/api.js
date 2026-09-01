@@ -50,7 +50,7 @@ export const api = {
   deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
   conversation: (id) => req(`/conversations/${id}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
-  send: (id, body) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
+  send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),
   takeover: (id) => req(`/conversations/${id}/takeover`, { method: 'POST' }),
   handback: (id) => req(`/conversations/${id}/handback`, { method: 'POST' }),
   acceptHandoff: (id) => req(`/conversations/${id}/accept`, { method: 'POST' }),

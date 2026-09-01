@@ -69,7 +69,7 @@ export function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo, compac
 export default function Sidebar({
   view, onNavigate, onLogout, pendingCount = 0, agentEmail,
   mobileOpen, onCloseMobile,
-  pushState, onPushTest, onEnablePush, onPushDeniedInfo,
+  pushState, onPushTest, onEnablePush, onPushDeniedInfo, onOpenConversation,
 }) {
   const brand     = useContext(BrandContext);
   const brandName = brand?.name || 'Console';
@@ -184,7 +184,7 @@ export default function Sidebar({
           )}
         </div>
         {/* In-app notification inbox and push status pill */}
-        <NotificationBell />
+        <NotificationBell onOpenConversation={onOpenConversation} />
         <PushPill
           pushState={pushState}
           onTest={onPushTest}

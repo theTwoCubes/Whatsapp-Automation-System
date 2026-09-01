@@ -257,6 +257,13 @@ function AppInner({
 }) {
   const toast = useToast();
 
+  // Jump to a chat from a notification-inbox row.
+  const openConversation = (id) => {
+    setView('conversations');
+    setMobileMenuOpen(false);
+    openConversationRef.current?.(id);
+  };
+
   const turnOnPush = async () => {
     const res = await enablePush();
     let next;
@@ -336,6 +343,7 @@ function AppInner({
         onPushTest={handlePushTest}
         onEnablePush={turnOnPush}
         onPushDeniedInfo={() => setDeniedModalOpen(true)}
+        onOpenConversation={openConversation}
       />
 
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page w-full relative">
@@ -352,7 +360,7 @@ function AppInner({
             }}
           >
             <div className="font-bold text-lg text-gray-900 truncate flex-1 tracking-tight">{brand.name || 'Console'}</div>
-            <NotificationBell />
+            <NotificationBell onOpenConversation={openConversation} />
             <PushPill
               pushState={pushState}
               onTest={handlePushTest}

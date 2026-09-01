@@ -8,7 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2,
+  ShieldBan, ShieldCheck, Trash2, Reply,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -17,6 +17,7 @@ import {
   useAlias, setAlias, displayName,
 } from './lib.js';
 import { playChime, applyBadge, setViewingConversation } from './notifications.js';
+import { refresh as refreshNotifications } from './notificationStore.js';
 import Avatar from './components/ui/Avatar.jsx';
 import { StateBadge } from './components/ui/Badge.jsx';
 import Button from './components/ui/Button.jsx';
@@ -328,7 +329,10 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       for (const id of [...alertedPendingIds]) {
         if (!pendingIds.has(id)) alertedPendingIds.delete(id);
       }
-      applyBadge(pending.length);
+      // Badge reflects everything needing attention: unread inbound messages
+      // across every chat, not just the pending handoffs.
+      const attention = list.reduce((n, c) => n + (c.unread_count || 0), 0) + pending.length;
+      applyBadge(attention);
     } catch (err) {
       if (err.message !== 'unauthorized') toast.error('Could not load conversations');
     } finally {
@@ -458,8 +462,11 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
           });
           return;
         }
-        // Everything else: coalesce a burst of events into one refetch.
+        // Everything else: coalesce a burst of events into one refetch, and
+        // pull the notification inbox forward so the bell updates live rather
+        // than waiting up to 30s for its next poll.
         scheduleReload();
+        refreshNotifications();
       };
       ws.onclose = () => {
         setWsOffline(true);
@@ -1061,6 +1068,9 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
   const [showLibrary, setShowLibrary]     = useState(false);
   const [confirmMedia, setConfirmMedia]   = useState(null);
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const [replyTo, setReplyTo]             = useState(null);
+  const [search, setSearch]               = useState('');
+  const [showSearch, setShowSearch]       = useState(false);
   const endRef    = useRef(null);
   const inputRef  = useRef(null);
   const scrollRef = useRef(null);
@@ -1127,10 +1137,31 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
 
   const send = () => {
     if (!text.trim()) return;
-    act(() => api.send(conversation.id, text.trim()), 'Message sent');
+    const replyWamid = replyTo?.wa_message_id || null;
+    act(() => api.send(conversation.id, text.trim(), replyWamid), 'Message sent');
+    setReplyTo(null);
   };
 
-  const groups    = groupByDay(messages);
+  // Quote lookup: resolve a message's reply_to_wamid to the referenced message
+  // already loaded in the thread, for rendering the quoted snippet.
+  const messageByWamid = useMemo(() => {
+    const map = new Map();
+    for (const m of messages) if (m.wa_message_id) map.set(m.wa_message_id, m);
+    return map;
+  }, [messages]);
+
+  const snippet = (m) => {
+    if (!m) return '';
+    if (m.body) return m.body.length > 80 ? `${m.body.slice(0, 80)}…` : m.body;
+    return m.type && m.type !== 'text' ? `[${m.type}]` : '';
+  };
+
+  // In-chat search filters the rendered messages to those matching the query.
+  const q = search.trim().toLowerCase();
+  const visibleMessages = q
+    ? messages.filter((m) => (m.body || '').toLowerCase().includes(q))
+    : messages;
+  const groups    = groupByDay(visibleMessages);
   const isPending = conversation.state === 'pending';
   const isHuman   = conversation.state === 'human';
   const isBot     = conversation.state === 'bot';
@@ -1214,6 +1245,14 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
           )}
           <div className="w-px h-8 bg-gray-200 mx-1 hidden md:block" />
           <button
+            onClick={() => setShowSearch((v) => { if (v) setSearch(''); return !v; })}
+            className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${showSearch ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            title="Search in chat"
+            aria-label="Search in chat"
+          >
+            <Search size={18} />
+          </button>
+          <button
             onClick={onToggleContext}
             className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
             title="Toggle Details"
@@ -1223,6 +1262,30 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
           <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} toast={toast} onClose={onBack} />
         </div>
       </div>
+
+      {/* In-chat search bar */}
+      {showSearch && (
+        <div className="flex items-center gap-2 px-3 md:px-5 py-2 border-b border-gray-200 bg-white flex-shrink-0">
+          <Search size={16} className="text-gray-400 flex-shrink-0" />
+          <input
+            autoFocus
+            className="flex-1 min-w-0 text-sm outline-none bg-transparent text-gray-900 placeholder:text-gray-400"
+            placeholder="Search in this chat…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <span className="text-xs text-gray-400 flex-shrink-0">
+            {search.trim() ? `${visibleMessages.length} found` : ''}
+          </span>
+          <button
+            onClick={() => { setSearch(''); setShowSearch(false); }}
+            className="text-gray-400 hover:text-gray-700 flex-shrink-0"
+            aria-label="Close search"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Blocked banner */}
       {conversation.blocked_at && (
@@ -1276,11 +1339,26 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
               </span>
               <div className="flex-1 h-px bg-black/10" />
             </div>
-            {g.items.map((m) => (
+            {g.items.map((m) => {
+              const quoted = m.reply_to_wamid ? messageByWamid.get(m.reply_to_wamid) : null;
+              return (
               <div
                 key={m.id}
-                className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} mb-1`}
+                className={`group flex items-center gap-1.5 ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} mb-1`}
               >
+                {/* Reply affordance, mirrored so it always sits toward the
+                    centre of the row. Appears on hover (desktop) and is always
+                    tappable on touch. */}
+                {m.direction === 'outbound' && (
+                  <button
+                    type="button"
+                    onClick={() => setReplyTo(m)}
+                    className="opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-700 flex-shrink-0"
+                    title="Reply" aria-label="Reply"
+                  >
+                    <Reply size={15} />
+                  </button>
+                )}
                 <div
                   className={`
                     relative max-w-[85%] md:max-w-[72%] px-3 md:px-5 py-2 md:py-3 rounded-2xl text-sm md:text-lg leading-relaxed shadow-xs
@@ -1289,6 +1367,12 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
                     ${m.direction === 'outbound' ? 'pr-14' : ''}
                   `}
                 >
+                  {quoted && (
+                    <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs ${m.direction === 'outbound' ? 'bg-white/10 border-white/40 text-white/80' : 'bg-black/5 border-gray-400 text-gray-600'}`}>
+                      <div className="font-semibold opacity-80">{quoted.direction === 'outbound' ? 'You' : (conversation.name || conversation.wa_id)}</div>
+                      <div className="truncate">{snippet(quoted)}</div>
+                    </div>
+                  )}
                   {m.type !== 'text'
                     ? (
                       <div className="flex flex-col gap-1.5">
@@ -1303,8 +1387,19 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
                     {m.direction === 'outbound' && <Ticks status={m.status} />}
                   </span>
                 </div>
+                {m.direction !== 'outbound' && (
+                  <button
+                    type="button"
+                    onClick={() => setReplyTo(m)}
+                    className="opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-700 flex-shrink-0"
+                    title="Reply" aria-label="Reply"
+                  >
+                    <Reply size={15} />
+                  </button>
+                )}
               </div>
-            ))}
+              );
+            })}
           </React.Fragment>
         ))}
         <div ref={endRef} />
@@ -1353,6 +1448,27 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
             onClose={() => setShowTemplates(false)}
             onSent={async () => { setShowTemplates(false); await onChanged(); }}
           />
+        )}
+
+        {/* Reply preview — the message being quoted, with a cancel button */}
+        {replyTo && (
+          <div className="flex items-center gap-2 px-3 md:px-5 py-2 border-t border-gray-100 bg-gray-50">
+            <div className="w-1 self-stretch rounded-full bg-[var(--accent)] flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-gray-700">
+                Replying to {replyTo.direction === 'outbound' ? 'yourself' : (conversation.name || conversation.wa_id)}
+              </div>
+              <div className="text-xs text-gray-500 truncate">{snippet(replyTo)}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="text-gray-400 hover:text-gray-700 flex-shrink-0"
+              aria-label="Cancel reply"
+            >
+              <X size={16} />
+            </button>
+          </div>
         )}
 
         {/* Composer input row */}

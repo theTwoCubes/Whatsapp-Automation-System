@@ -85,12 +85,25 @@ export async function recordInbound(pool, m) {
   }
 }
 
-export async function recordOutbound(pool, o) {
+// Parks a webhook change that failed to process, so it can be inspected or
+// replayed rather than lost.
+export async function deadLetterWebhook(pool, payload, error) {
   await pool.query(
-    `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id)
-     values ($1, $2, 'outbound', $3, $4, 'sent', $5)
+    'insert into webhook_dead_letter (payload, error) values ($1, $2)',
+    [JSON.stringify(payload), error ?? null],
+  );
+}
+
+export async function recordOutbound(pool, o) {
+  // Only outbound replies carry a context (the quoted message). Store it under
+  // the same raw->context->id shape WhatsApp uses for inbound replies so the
+  // thread can resolve both directions the same way.
+  const raw = o.context ? JSON.stringify({ context: { id: o.context.message_id } }) : null;
+  await pool.query(
+    `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id, raw)
+     values ($1, $2, 'outbound', $3, $4, 'sent', $5, $6)
      on conflict (wa_message_id) do nothing`,
-    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null, o.mediaAssetId ?? null],
+    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null, o.mediaAssetId ?? null, raw],
   );
 }
 
@@ -400,6 +413,7 @@ export async function getConversationMessages(pool, id, { limit = 50, beforeId =
   const res = await pool.query(
     `select id, wa_message_id, direction, type, body, status, created_at,
             coalesce(sent_at, created_at) as sent_at,
+            raw->'context'->>'id' as reply_to_wamid,
             coalesce(
               raw->'document'->>'filename',
               raw->'image'->>'filename',

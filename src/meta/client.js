@@ -18,11 +18,12 @@ export class MetaClient {
   }
 
   // Sends a plain text message. Only works inside the 24 hour service window.
-  async sendText(to, body) {
-    return this.send(to, {
-      type: 'text',
-      text: { preview_url: false, body },
-    });
+  // Pass opts.replyTo (a wa_message_id) to quote an earlier message, the way
+  // WhatsApp shows a reply threaded under the original.
+  async sendText(to, body, opts = {}) {
+    const payload = { type: 'text', text: { preview_url: false, body } };
+    if (opts.replyTo) payload.context = { message_id: opts.replyTo };
+    return this.send(to, payload);
   }
 
   // Sends an approved template. This is how we reach a lead outside the 24 hour

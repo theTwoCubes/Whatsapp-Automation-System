@@ -67,9 +67,14 @@ async function main() {
   const ai = new AiClient(config, app.log);
   const stopScheduler = startScheduler({ pool, meta, ai, config, realtime, log: app.log });
 
+  let shuttingDown = false;
   const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     app.log.info({ signal }, 'shutting down');
     stopScheduler();
+    // Let any webhook processing already running finish before we tear down.
+    try { await app.drainWebhooks(8000); } catch { /* best effort */ }
     await app.close();
     await pool.end();
     process.exit(0);

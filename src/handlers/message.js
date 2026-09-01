@@ -12,6 +12,7 @@ import {
   wasMediaSentRecently,
   markInboundRead,
   isConversationBlocked,
+  deadLetterWebhook,
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { getFaq } from '../knowledge/faqs.js';
@@ -75,16 +76,25 @@ export async function processWebhook(body, deps) {
       const value = change.value;
       if (!value) continue;
 
-      if (value.messages?.length) {
-        for (const msg of value.messages) {
-          await handleMessage(value, msg, { meta, ai, pool, config, realtime, log });
+      // Each change is isolated: if one throws, park it in the dead-letter
+      // table and keep processing the rest instead of losing the whole batch.
+      try {
+        if (value.messages?.length) {
+          for (const msg of value.messages) {
+            await handleMessage(value, msg, { meta, ai, pool, config, realtime, log });
+          }
         }
-      }
 
-      if (value.statuses?.length) {
-        for (const status of value.statuses) {
-          await handleStatus(status, { pool, realtime, log });
+        if (value.statuses?.length) {
+          for (const status of value.statuses) {
+            await handleStatus(status, { pool, realtime, log });
+          }
         }
+      } catch (err) {
+        log.error({ err }, 'webhook change failed, parking in dead-letter');
+        await deadLetterWebhook(pool, change, err.message).catch((dlErr) =>
+          log.error({ dlErr }, 'failed to write dead-letter row'),
+        );
       }
     }
   }

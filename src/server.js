@@ -40,6 +40,17 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     },
   });
 
+  // Out-of-band webhook processing in flight right now. Shutdown drains these
+  // so an in-progress reply is not cut off mid-send.
+  const inFlight = new Set();
+  app.decorate('drainWebhooks', async (timeoutMs = 8000) => {
+    if (inFlight.size === 0) return;
+    await Promise.race([
+      Promise.allSettled([...inFlight]),
+      new Promise((r) => setTimeout(r, timeoutMs)),
+    ]);
+  });
+
   // Basic security headers on every response.
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -164,11 +175,17 @@ export function buildServer(config, pool, realtime = createRealtime()) {
       req.log.info({ payload: body }, 'webhook payload received');
     }
 
-    setImmediate(() => {
-      processWebhook(body, { meta, ai, pool, config, realtime, log: req.log }).catch((err) => {
-        req.log.error({ err }, 'unhandled error processing webhook');
+    // Track the out-of-band work so a shutdown can wait for it to finish
+    // instead of cutting a reply off mid-send.
+    const task = new Promise((resolve) => {
+      setImmediate(() => {
+        processWebhook(body, { meta, ai, pool, config, realtime, log: req.log })
+          .catch((err) => req.log.error({ err }, 'unhandled error processing webhook'))
+          .finally(resolve);
       });
     });
+    inFlight.add(task);
+    task.finally(() => inFlight.delete(task));
   });
 
   // Register the api inside a plugin so its routes load after the websocket

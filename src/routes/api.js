@@ -79,6 +79,9 @@ function mediaKind(mime) {
   if (!mime) return 'document';
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
+  // Voice notes and audio files go as WhatsApp audio, not as a document, so
+  // they play inline on the lead's phone instead of downloading as a file.
+  if (mime.startsWith('audio/')) return 'audio';
   return 'document';
 }
 
@@ -245,9 +248,19 @@ export function registerApi(app, deps) {
       });
     }
 
+    const replyTo = typeof req.body?.replyTo === 'string' ? req.body.replyTo : null;
     try {
-      const wamid = await meta.sendText(conversation.wa_id, body);
-      if (wamid) await recordOutbound(pool, { conversationId: conversation.id, waMessageId: wamid, body });
+      const wamid = await meta.sendText(conversation.wa_id, body, replyTo ? { replyTo } : {});
+      if (wamid) {
+        await recordOutbound(pool, {
+          conversationId: conversation.id,
+          waMessageId: wamid,
+          body,
+          // Store the quoted message id so the thread can render the reply
+          // threaded under the original, same as WhatsApp.
+          context: replyTo ? { message_id: replyTo } : null,
+        });
+      }
       await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await pool.query('update conversations set last_read_at = now() where id = $1', [conversation.id]);
