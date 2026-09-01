@@ -11,6 +11,7 @@ import {
   getMediaAsset,
   wasMediaSentRecently,
   markInboundRead,
+  isConversationBlocked,
 } from '../db/repo.js';
 import { buildReply, wantsHuman } from '../ai/reply.js';
 import { getFaq } from '../knowledge/faqs.js';
@@ -129,6 +130,13 @@ async function handleMessage(value, message, deps) {
   );
 
   realtime?.emit({ type: 'refresh', conversationId: result.conversationId });
+
+  // Blocked lead: the message is stored (so there's a record) but the bot
+  // never replies, no handoff, no drip, no push. It just sits, ignored.
+  if (await isConversationBlocked(pool, result.conversationId)) {
+    log.info({ conversationId: result.conversationId }, 'conversation is blocked, ignoring inbound');
+    return;
+  }
 
   // A human owns this conversation, so the bot stays out of it. The team
   // still needs to know a new message landed, so fire a push. The service

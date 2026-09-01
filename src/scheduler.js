@@ -1,4 +1,4 @@
-import { claimDueDrips, markDrip, recordOutbound, conversationsToResume, getActivePackIds } from './db/repo.js';
+import { claimDueDrips, markDrip, recordOutbound, conversationsToResume, getActivePackIds, purgeDeletedConversations } from './db/repo.js';
 import { handToBot } from './handoff.js';
 import { buildReply } from './ai/reply.js';
 import { getSettings } from './settings.js';
@@ -8,11 +8,19 @@ import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement
 // hands stalled chats back to the bot, and the weekly learning pass. In
 // process on an interval, single instance is fine for now.
 export function startScheduler(deps, intervalMs = 60000) {
+  let lastPurgeAt = 0;
   const tick = async () => {
     try {
       await runDueDrips(deps);
       await runAutoResume(deps);
       await runWeeklyRefinementIfDue(deps);
+      // Hard-delete soft-deleted chats past their grace period, at most once
+      // an hour so the delete query is not run on every minute tick.
+      if (Date.now() - lastPurgeAt > 3600_000) {
+        lastPurgeAt = Date.now();
+        const purged = await purgeDeletedConversations(deps.pool, 30);
+        if (purged > 0) deps.log.info({ purged }, 'purged soft-deleted conversations');
+      }
     } catch (err) {
       deps.log.error({ err }, 'scheduler tick failed');
     }

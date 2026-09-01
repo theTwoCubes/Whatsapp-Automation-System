@@ -8,6 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
+  ShieldBan, ShieldCheck, Trash2,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -637,10 +638,14 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
           <span className="text-base md:text-lg font-bold text-gray-900 truncate flex items-center gap-1.5">
+            {c.blocked_at && <ShieldBan size={12} className="text-red-500 flex-shrink-0" aria-label="Blocked" />}
             {c.pinned_at && <Pin size={12} className="text-amber-600 flex-shrink-0" aria-label="Pinned" />}
             <span className="truncate">{name}</span>
           </span>
-          <span className="text-xs md:text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
+          <span className="flex items-center gap-1 text-xs md:text-base font-medium text-gray-400 flex-shrink-0">
+            {c.muted_until && new Date(c.muted_until) > new Date() && <BellOff size={12} aria-label="Muted" />}
+            {shortTime(c.last_at)}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className={`text-sm md:text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
@@ -867,7 +872,7 @@ function ContextRow({ label, children }) {
 // phase 2 — block and delete). Works the same on mobile and desktop, which is
 // what makes unpin/unmute/unarchive reachable on a phone. Renders through a
 // portal positioned off the trigger so no ancestor can clip it.
-function ChatActionsMenu({ conversation, act, onChanged, toast }) {
+function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
   const btnRef = useRef(null);
@@ -876,6 +881,7 @@ function ChatActionsMenu({ conversation, act, onChanged, toast }) {
   const muted = conversation.muted_until && new Date(conversation.muted_until) > new Date();
   const pinned = Boolean(conversation.pinned_at);
   const archived = Boolean(conversation.archived_at);
+  const blocked = Boolean(conversation.blocked_at);
 
   const place = useCallback(() => {
     const el = btnRef.current;
@@ -945,6 +951,23 @@ function ChatActionsMenu({ conversation, act, onChanged, toast }) {
       )}
       <Item icon={archived ? ArchiveRestore : Archive} label={archived ? 'Unarchive' : 'Archive'}
         onClick={() => run(() => api.archiveConversation(conversation.id, !archived), archived ? 'Unarchived' : 'Archived')} />
+      <div className="my-1 border-t border-gray-100" />
+      <Item icon={blocked ? ShieldCheck : ShieldBan} label={blocked ? 'Unblock contact' : 'Block contact'} danger={!blocked}
+        onClick={() => {
+          setOpen(false);
+          const verb = blocked ? 'Unblock' : 'Block';
+          if (window.confirm(`${verb} this contact?${blocked ? '' : ' The bot will stop replying to them.'}`)) {
+            act(() => api.blockConversation(conversation.id, !blocked), blocked ? 'Unblocked' : 'Blocked');
+          }
+        }} />
+      <Item icon={Trash2} label="Delete chat" danger
+        onClick={async () => {
+          setOpen(false);
+          if (window.confirm('Delete this chat? It will be hidden and permanently removed after 30 days.')) {
+            await act(() => api.deleteConversation(conversation.id), 'Chat deleted');
+            onClose?.();
+          }
+        }} />
     </div>,
     document.body,
   ) : null;
@@ -1112,9 +1135,17 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           >
             <LayoutList size={18} />
           </button>
-          <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} toast={toast} />
+          <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} toast={toast} onClose={onBack} />
         </div>
       </div>
+
+      {/* Blocked banner */}
+      {conversation.blocked_at && (
+        <div className="flex items-center gap-2 px-3 md:px-5 py-2.5 bg-red-50 border-b border-red-200 flex-shrink-0 text-red-700">
+          <ShieldBan size={16} className="flex-shrink-0" />
+          <span className="text-sm font-medium">This contact is blocked. The bot ignores their messages.</span>
+        </div>
+      )}
 
       {/* Handoff banner */}
       {isPending && conversation.handoff_reason && (

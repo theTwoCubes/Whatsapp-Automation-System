@@ -284,7 +284,7 @@ export async function createAgent(pool, a) {
 export async function listConversations(pool, { includeArchived = false } = {}) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
-            c.pinned_at, c.archived_at, c.muted_until,
+            c.pinned_at, c.archived_at, c.muted_until, c.blocked_at,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, coalesce(m.sent_at, m.created_at) as last_at,
             (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count
@@ -295,8 +295,10 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
        select body, sent_at, created_at from messages
        where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
-     where ($1::boolean and c.archived_at is not null)
-        or (not $1::boolean and c.archived_at is null)
+     where c.deleted_at is null and (
+          ($1::boolean and c.archived_at is not null)
+       or (not $1::boolean and c.archived_at is null)
+     )
      order by (c.pinned_at is not null) desc, c.pinned_at desc nulls last,
               coalesce(m.sent_at, m.created_at) desc nulls last
      limit 200`,
@@ -324,10 +326,64 @@ export async function muteConversation(pool, conversationId, until) {
   );
 }
 
+// Sets or clears the blocked flag. The caller is responsible for calling the
+// Meta block API; this only records our own state so the webhook can ignore
+// the lead even if the remote call failed.
+export async function setConversationBlocked(pool, conversationId, blocked) {
+  await pool.query(
+    `update conversations set blocked_at = ${blocked ? 'now()' : 'null'}, updated_at = now() where id = $1`,
+    [conversationId],
+  );
+}
+
+// Soft delete. Row stays for 30 days so a misclick can be undone, then a
+// nightly job removes it for good.
+export async function softDeleteConversation(pool, conversationId) {
+  await pool.query(
+    `update conversations set deleted_at = now(), archived_at = null, pinned_at = null, updated_at = now() where id = $1`,
+    [conversationId],
+  );
+}
+
+// True when a conversation is blocked, checked in the webhook path so a
+// blocked lead's messages are stored but never answered.
+export async function isConversationBlocked(pool, conversationId) {
+  const res = await pool.query('select blocked_at from conversations where id = $1', [conversationId]);
+  return res.rows[0]?.blocked_at != null;
+}
+
+// Hard-deletes conversations soft-deleted more than the given days ago, and
+// everything hanging off them. Run from the scheduler. handoff_events and
+// notifications cascade; messages and drip_jobs do not, so clear them first.
+export async function purgeDeletedConversations(pool, olderThanDays = 30) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const ids = (await client.query(
+      `select id from conversations
+       where deleted_at is not null and deleted_at < now() - ($1 || ' days')::interval`,
+      [String(olderThanDays)],
+    )).rows.map((r) => r.id);
+    if (ids.length === 0) { await client.query('commit'); return 0; }
+    await client.query('delete from messages where conversation_id = any($1)', [ids]);
+    await client.query('delete from drip_jobs where conversation_id = any($1)', [ids]);
+    await client.query('delete from conversations where id = any($1)', [ids]);
+    await client.query('commit');
+    return ids.length;
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getConversationById(pool, id) {
   await pool.query('update conversations set last_read_at = now() where id = $1', [id]);
   const res = await pool.query(
-    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason, ct.wa_id, ct.name
+    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
+            c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.deleted_at,
+            ct.wa_id, ct.name
      from conversations c join contacts ct on ct.id = c.contact_id
      where c.id = $1`,
     [id],

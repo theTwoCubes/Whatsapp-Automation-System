@@ -30,6 +30,8 @@ import {
   listConversations,
   setConversationFlag,
   muteConversation,
+  setConversationBlocked,
+  softDeleteConversation,
   getConversationById,
   getConversationMessages,
   listTemplates,
@@ -166,6 +168,33 @@ export function registerApi(app, deps) {
     await audit(req, until ? `mute ${hours}h` : 'unmute', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh' });
     return { ok: true, until };
+  });
+
+  app.post('/api/conversations/:id/block', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const on = req.body?.on !== false;
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    // Record our own flag first so the bot goes quiet even if Meta rejects the
+    // remote block, then attempt the remote call best-effort.
+    await setConversationBlocked(pool, req.params.id, on);
+    try {
+      if (on) await meta.blockUser(conversation.wa_id);
+      else await meta.unblockUser(conversation.wa_id);
+    } catch (err) {
+      req.log.warn({ err, waId: conversation.wa_id }, 'meta block/unblock failed, local flag kept');
+    }
+    await audit(req, on ? 'block' : 'unblock', `conversation ${req.params.id}`, conversation.wa_id);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true };
+  });
+
+  app.delete('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    await softDeleteConversation(pool, req.params.id);
+    await audit(req, 'delete', `conversation ${req.params.id}`, conversation.wa_id);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true };
   });
 
   app.get('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {

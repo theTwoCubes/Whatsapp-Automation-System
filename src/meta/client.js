@@ -121,6 +121,38 @@ export class MetaClient {
     });
   }
 
+  // Blocks a wa_id at WhatsApp so the number can no longer message the
+  // business. Best effort: if the API rejects it (e.g. the contact is outside
+  // the block-eligible window) we still keep our local blocked flag so the bot
+  // stays quiet, which is the behaviour the client actually cares about.
+  async blockUser(waId) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/block_users`;
+    return this.postJson(url, {
+      messaging_product: 'whatsapp',
+      block_users: [{ user: waId }],
+    });
+  }
+
+  async unblockUser(waId) {
+    const url = `${this.baseUrl}/${this.config.phoneNumberId}/block_users`;
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.config.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', block_users: [{ user: waId }] }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new MetaApiError(err.message);
+    }
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
+    }
+    return data;
+  }
+
   async get(url) {
     let res;
     try {
