@@ -565,13 +565,19 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
 function ConversationRow({ conversation: c, isActive, onSelect }) {
   const alias = useAlias(c.wa_id);
   const name = alias || c.name || c.wa_id;
+  // State-tinted left rail: amber for pending handoff, indigo while a human
+  // is in the chat, transparent otherwise. Visible at a glance in a long list.
+  const railColor =
+    c.state === 'pending' ? 'bg-amber-500' :
+    c.state === 'human'   ? 'bg-indigo-500' :
+    'bg-transparent';
   return (
     <button
       role="listitem"
       onClick={onSelect}
       aria-current={isActive ? 'true' : undefined}
       className={`
-        w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 md:py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
+        relative w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 md:py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
         ${isActive
           ? 'bg-gray-100'
           : c.state === 'pending'
@@ -579,6 +585,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
             : 'hover:bg-gray-50'}
       `}
     >
+      <span aria-hidden="true" className={`absolute left-0 top-0 bottom-0 w-1 ${railColor}`} />
       <Avatar name={name} waId={c.wa_id} size="xl" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
@@ -589,13 +596,18 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
           <span className={`text-sm md:text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
             {c.last_message || 'No messages yet'}
           </span>
-          {c.unread_count > 0 ? (
-            <span className="min-w-[22px] h-[22px] rounded-full flex items-center justify-center bg-amber-500 text-white text-xs font-bold px-1.5 flex-shrink-0" aria-label={`${c.unread_count} unread`}>
-              {c.unread_count}
-            </span>
-          ) : c.state === 'pending' ? (
-            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-amber-500" aria-label="Needs attention" />
-          ) : null}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {c.state === 'human' && (
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full">You</span>
+            )}
+            {c.unread_count > 0 ? (
+              <span className="min-w-[22px] h-[22px] rounded-full flex items-center justify-center bg-amber-500 text-white text-xs font-bold px-1.5" aria-label={`${c.unread_count} unread`}>
+                {c.unread_count}
+              </span>
+            ) : c.state === 'pending' ? (
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" aria-label="Needs attention" />
+            ) : null}
+          </div>
         </div>
       </div>
     </button>
