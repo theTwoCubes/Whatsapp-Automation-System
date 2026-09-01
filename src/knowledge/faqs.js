@@ -3,6 +3,8 @@
 // conversation gets. Nothing here embeds or ranks anything: what the bot is
 // told is exactly the list below, in the order shown.
 
+import { bustFaqCache } from './faqCache.js';
+
 const selectColumns = `id, topic_id, question, answer, verbatim, pinned, position,
                        media_asset_id, active, source, created_at, updated_at`;
 
@@ -64,6 +66,7 @@ export async function createFaq(pool, faq, actor = null) {
     const row = res.rows[0];
     await snapshot(client, row, actor);
     await client.query('commit');
+    bustFaqCache();
     return row;
   } catch (err) {
     await client.query('rollback');
@@ -107,6 +110,7 @@ export async function updateFaq(pool, id, fields, actor = null) {
     const row = res.rows[0] ?? null;
     if (row) await snapshot(client, row, actor);
     await client.query('commit');
+    bustFaqCache();
     return row;
   } catch (err) {
     await client.query('rollback');
@@ -118,6 +122,7 @@ export async function updateFaq(pool, id, fields, actor = null) {
 
 export async function deleteFaq(pool, id) {
   await pool.query('delete from faqs where id = $1', [id]);
+  bustFaqCache();
 }
 
 // Applies a client supplied order within one pack in a single transaction, so
@@ -130,6 +135,7 @@ export async function reorderFaqs(pool, orderedIds) {
       await client.query('update faqs set position = $2, updated_at = now() where id = $1', [orderedIds[i], i + 1]);
     }
     await client.query('commit');
+    bustFaqCache();
   } catch (err) {
     await client.query('rollback');
     throw err;
@@ -191,6 +197,7 @@ export async function bulkUpdateFaqs(pool, ids, action, actor = null) {
     }
 
     await client.query('commit');
+    bustFaqCache();
     return { affected };
   } catch (err) {
     await client.query('rollback');

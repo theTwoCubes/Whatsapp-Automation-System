@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, Check, X } from 'lucide-react';
-import { api } from '../../api.js';
 import { shortTime } from '../../lib.js';
+import { subscribe, refresh, getState, markRead as storeMarkRead, markAll as storeMarkAll } from '../../notificationStore.js';
 
 // Bell in the top bar. Reads the in-app notification inbox from the server.
 // A dot on the icon means there are unread rows. Clicking opens a drawer,
@@ -10,12 +10,13 @@ import { shortTime } from '../../lib.js';
 // inbox, not the push toggle.
 export default function NotificationBell({ onOpenConversation }) {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState([]);
-  const [unread, setUnread] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [{ items, unread, loading }, setStore] = useState(getState());
   const [coords, setCoords] = useState(null);
   const panelRef = useRef(null);
   const buttonRef = useRef(null);
+
+  // Subscribe to the shared inbox store so both bells share one poll.
+  useEffect(() => subscribe(setStore), []);
 
   // Position the portal panel from the button's on-screen rect. The bell can
   // sit in the sidebar footer (bottom of the viewport) or the mobile top bar,
@@ -37,26 +38,6 @@ export default function NotificationBell({ onOpenConversation }) {
     });
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { notifications, unread: u } = await api.notifications();
-      setItems(notifications || []);
-      setUnread(u || 0);
-    } catch { /* silently ignore */ }
-    finally { setLoading(false); }
-  }, []);
-
-  // Poll unread count every 30s while the tab is visible, so the dot updates
-  // without needing a websocket wire-up for this specific signal.
-  useEffect(() => {
-    load();
-    const tick = () => { if (document.visibilityState === 'visible') load(); };
-    const id = setInterval(tick, 30000);
-    document.addEventListener('visibilitychange', tick);
-    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
-  }, [load]);
-
   useLayoutEffect(() => {
     if (!open) return;
     place();
@@ -64,7 +45,7 @@ export default function NotificationBell({ onOpenConversation }) {
 
   useEffect(() => {
     if (!open) return;
-    load();
+    refresh();
     const onDown = (e) => {
       if (buttonRef.current?.contains(e.target)) return;
       if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
@@ -80,22 +61,13 @@ export default function NotificationBell({ onOpenConversation }) {
     };
   }, [open, load, place]);
 
-  const onClickRow = async (n) => {
-    if (!n.read_at) {
-      try { await api.markNotificationRead(n.id); } catch { /* keep going anyway */ }
-      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read_at: new Date().toISOString() } : x)));
-      setUnread((u) => Math.max(0, u - 1));
-    }
+  const onClickRow = (n) => {
+    if (!n.read_at) storeMarkRead(n.id);
     setOpen(false);
     if (n.conversation_id && onOpenConversation) onOpenConversation(n.conversation_id);
   };
 
-  const markAll = async () => {
-    try { await api.markAllNotificationsRead(); } catch { /* keep going anyway */ }
-    const now = new Date().toISOString();
-    setItems((prev) => prev.map((x) => (x.read_at ? x : { ...x, read_at: now })));
-    setUnread(0);
-  };
+  const markAll = () => storeMarkAll();
 
   const panel = open && coords ? createPortal(
     <div

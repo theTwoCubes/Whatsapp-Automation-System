@@ -1,4 +1,5 @@
 import { listFaqs } from './faqs.js';
+import { cacheKey, getCached, setCached } from './faqCache.js';
 
 // Assembles the answers the bot is allowed to use, as text, with no ranking or
 // similarity search anywhere in the path. Which packs go in is decided by the
@@ -16,21 +17,35 @@ export function estimateTokens(text) {
 // first and from the end of that pack, since the client controls the order and
 // puts what matters at the top. Pinned entries are never dropped.
 export async function buildFaqContext(pool, { packs = ['base'], budgetTokens = 6000 } = {}) {
+  // De-dupe while preserving order, then load every pack's rows in parallel
+  // instead of awaiting them one after another.
   const seen = new Set();
-  const groups = [];
-
+  const ordered = [];
   for (const pack of packs) {
     const key = String(pack);
     if (seen.has(key)) continue;
     seen.add(key);
-    const rows = (await listFaqs(pool, { pack, includeInactive: false })).filter((f) => f.active);
-    if (rows.length > 0) groups.push({ pack, rows });
+    ordered.push(pack);
   }
+
+  // Serve from cache when the same pack set was assembled recently. The key
+  // folds in the budget so two callers with different budgets never collide.
+  const key = `${cacheKey(ordered)}#${budgetTokens}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+
+  const loaded = await Promise.all(
+    ordered.map(async (pack) => {
+      const rows = (await listFaqs(pool, { pack, includeInactive: false })).filter((f) => f.active);
+      return { pack, rows };
+    }),
+  );
+  const groups = loaded.filter((g) => g.rows.length > 0);
 
   const kept = trimToBudget(groups, budgetTokens);
   const text = render(kept.groups);
 
-  return {
+  const result = {
     text,
     packs: kept.groups.map((g) => g.pack),
     faqIds: kept.groups.flatMap((g) => g.rows.map((r) => r.id)),
@@ -38,31 +53,41 @@ export async function buildFaqContext(pool, { packs = ['base'], budgetTokens = 6
     dropped: kept.dropped,
     tokens: estimateTokens(text),
   };
+  setCached(key, result);
+  return result;
+}
+
+// Per-row token cost, so trimming is arithmetic instead of re-rendering the
+// entire FAQ text on every dropped row (the old loop was O(n^2)).
+function rowTokens(row) {
+  const lock = row.verbatim ? ' [quote this answer exactly, word for word]' : '';
+  const media = row.media_asset_id ? ' [has an attached file you can send with this answer]' : '';
+  return estimateTokens(`Q [id ${row.id}]: ${row.question}\nA: ${row.answer}${lock}${media}`) + 2;
 }
 
 // Drops from the back of the least important pack until it fits. Pinned rows
-// are pulled out of the drop pool entirely rather than being reordered, so an
-// entry that survives trimming still sits where the client put it.
+// are never dropped. Runs in a single pass over the rows: compute the total
+// once, then subtract each dropped row's cost.
 function trimToBudget(groups, budgetTokens) {
   const working = groups.map((g) => ({ pack: g.pack, rows: [...g.rows] }));
+  // Headings and separators add a little overhead per group; approximate it so
+  // we do not systematically run over budget.
+  const overheadPerGroup = 6;
+  let total = working.reduce(
+    (sum, g) => sum + overheadPerGroup + g.rows.reduce((s, r) => s + rowTokens(r), 0),
+    0,
+  );
   let dropped = 0;
 
-  while (estimateTokens(render(working)) > budgetTokens) {
-    let removed = false;
-    for (let i = working.length - 1; i >= 0 && !removed; i -= 1) {
-      const rows = working[i].rows;
-      for (let j = rows.length - 1; j >= 0; j -= 1) {
-        if (!rows[j].pinned) {
-          rows.splice(j, 1);
-          dropped += 1;
-          removed = true;
-          break;
-        }
+  for (let i = working.length - 1; i >= 0 && total > budgetTokens; i -= 1) {
+    const rows = working[i].rows;
+    for (let j = rows.length - 1; j >= 0 && total > budgetTokens; j -= 1) {
+      if (!rows[j].pinned) {
+        total -= rowTokens(rows[j]);
+        rows.splice(j, 1);
+        dropped += 1;
       }
     }
-    // Everything left is pinned, so the budget cannot be met without dropping
-    // something the client marked as always required. Keep it and go over.
-    if (!removed) break;
   }
 
   return { groups: working.filter((g) => g.rows.length > 0), dropped };

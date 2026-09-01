@@ -34,6 +34,21 @@ let savedListScroll = 0;
 // what caused duplicate toasts.
 const alertedPendingIds = new Set();
 
+// Unions two message arrays by id, newest copy of a row winning (so a refresh
+// carrying an updated status replaces the stale one), then sorts ascending by
+// the same key the server pages on. Lets a refresh keep older pages the agent
+// scrolled up to load instead of throwing them away.
+function mergeMessages(a, b) {
+  const byId = new Map();
+  for (const m of a) byId.set(m.id, m);
+  for (const m of b) byId.set(m.id, m);
+  return [...byId.values()].sort((x, y) => {
+    const tx = new Date(x.sent_at || x.created_at).getTime();
+    const ty = new Date(y.sent_at || y.created_at).getTime();
+    return tx - ty || x.id - y.id;
+  });
+}
+
 // Helpers
 function daysSince(dateStr) {
   if (!dateStr) return null;
@@ -335,22 +350,48 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
 
   const fetchCounter = useRef(0);
   const loadThreadRef = useRef(null);
+  const threadRef = useRef(null);
+  useEffect(() => { threadRef.current = thread; }, [thread]);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
     const currentFetch = ++fetchCounter.current;
     try {
-      const data = await api.conversation(id);
-      if (currentFetch === fetchCounter.current) {
-        setThread(data);
-        loadList(true);
-      }
+      const data = await api.conversation(id); // { conversation, messages, hasMore }
+      if (currentFetch !== fetchCounter.current) return;
+      setThread((prev) => {
+        // Same conversation refreshing: merge the newest page into whatever is
+        // already loaded (including older pages the agent scrolled up for) so a
+        // refresh does not discard them. Switching conversation: replace.
+        if (prev && prev !== 'error' && prev.conversation?.id === data.conversation.id) {
+          return {
+            conversation: data.conversation,
+            messages: mergeMessages(prev.messages, data.messages),
+            hasMore: prev.hasMore,
+          };
+        }
+        return data;
+      });
+      loadList(true);
     } catch {
       // show error state only when it's the current conversation
       if (currentFetch === fetchCounter.current) setThread('error');
     }
   }, [loadList]);
   useEffect(() => { loadThreadRef.current = loadThread; }, [loadThread]);
+
+  // Fetches the previous page of messages for the open thread and prepends it.
+  const loadOlder = useCallback(async () => {
+    const t = threadRef.current;
+    if (!t || t === 'error' || !t.hasMore || !t.messages?.length) return;
+    const oldestId = t.messages[0].id;
+    try {
+      const { messages: older, hasMore } = await api.olderMessages(t.conversation.id, oldestId);
+      setThread((prev) => (prev && prev !== 'error' && prev.conversation?.id === t.conversation.id)
+        ? { ...prev, messages: mergeMessages(older, prev.messages), hasMore }
+        : prev);
+    } catch { /* leave the thread as-is on a failed older-page fetch */ }
+  }, []);
 
   useEffect(() => {
     loadList();
@@ -397,8 +438,29 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
       ws.onopen = () => { setWsOffline(false); delay = 1000; };
-      // Coalesce a burst of events into one refetch instead of one per event.
-      ws.onmessage = () => { scheduleReload(); };
+      ws.onmessage = (ev) => {
+        let msg = null;
+        try { msg = JSON.parse(ev.data); } catch { /* non-JSON, treat as a plain refresh */ }
+        // A delivery/read tick only changes one message's status. Patch it in
+        // place instead of refetching the whole thread and list.
+        if (msg?.type === 'status' && msg.wamid) {
+          setThread((prev) => {
+            if (!prev || prev === 'error') return prev;
+            let changed = false;
+            const messages = prev.messages.map((m) => {
+              if (m.wa_message_id === msg.wamid && m.status !== msg.status) {
+                changed = true;
+                return { ...m, status: msg.status };
+              }
+              return m;
+            });
+            return changed ? { ...prev, messages } : prev;
+          });
+          return;
+        }
+        // Everything else: coalesce a burst of events into one refetch.
+        scheduleReload();
+      };
       ws.onclose = () => {
         setWsOffline(true);
         delay = Math.min(delay * 2, 30000);
@@ -577,6 +639,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               templates={templates}
               onSync={syncTemplates}
               onChanged={() => { loadThread(selected); loadList(true); }}
+              onLoadOlder={loadOlder}
               showContext={showContext}
               onToggleContext={() => setShowContext(v => !v)}
               wsOffline={wsOffline}
@@ -991,8 +1054,8 @@ function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
 }
 
 // Chat Thread
-function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext, onBack, wsOffline }) {
-  const { conversation, messages } = thread;
+function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showContext, onToggleContext, onBack, wsOffline }) {
+  const { conversation, messages, hasMore } = thread;
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [showLibrary, setShowLibrary]     = useState(false);
@@ -1027,6 +1090,28 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
     setShowNewMsg(false);
     setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50);
   }, [conversation.id]);
+
+  // Infinite scroll-up: near the top, pull the previous page. Record the
+  // scroll height first so the layout effect below can hold the viewport in
+  // place once older messages are prepended (no jump).
+  const loadingOlderRef = useRef(false);
+  const prevScrollHeightRef = useRef(0);
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollTop < 80 && hasMore && !loadingOlderRef.current && onLoadOlder) {
+      loadingOlderRef.current = true;
+      prevScrollHeightRef.current = el.scrollHeight;
+      Promise.resolve(onLoadOlder()).finally(() => { loadingOlderRef.current = false; });
+    }
+  };
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !prevScrollHeightRef.current) return;
+    const diff = el.scrollHeight - prevScrollHeightRef.current;
+    if (diff > 0) el.scrollTop = el.scrollTop + diff;
+    prevScrollHeightRef.current = 0;
+  }, [messages.length]);
 
   const act = async (fn, successMsg) => {
     try {
@@ -1171,10 +1256,16 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
       {/* Messages */}
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-3 md:px-5 py-4 md:py-5 chat-bg flex flex-col gap-1 min-w-0 relative"
         role="log"
         aria-live="polite"
       >
+        {hasMore && (
+          <div className="flex justify-center py-2">
+            <span className="text-xs text-gray-400">Loading earlier messages…</span>
+          </div>
+        )}
         {groups.map((g) => (
           <React.Fragment key={g.label}>
             {/* Day divider */}

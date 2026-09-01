@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { runMigrations } from '../../../src/db/migrate.js';
 import { invalidateSettings } from '../../../src/settings.js';
+import { bustFaqCache } from '../../../src/knowledge/faqCache.js';
 
 // A test database, kept separate from the dev one. Override with TEST_DATABASE_URL.
 const testDatabaseUrl =
@@ -42,6 +43,9 @@ export async function resetTables(pool) {
     'update learning_state set last_message_id = 0, last_handoff_id = 0, last_run_at = null where id = 1',
   );
   invalidateSettings();
+  // The FAQ context cache is keyed by pack, not by row contents, so a table
+  // truncate must clear it or a later test could read a previous test's answers.
+  bustFaqCache();
 }
 
 // Records outbound sends instead of calling Meta.

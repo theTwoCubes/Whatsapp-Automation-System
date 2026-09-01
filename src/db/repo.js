@@ -391,9 +391,14 @@ export async function getConversationById(pool, id) {
   return res.rows[0] ?? null;
 }
 
-export async function getConversationMessages(pool, id, limit = 200) {
+// Returns a page of messages newest-first from the database, reversed to
+// ascending for display, plus whether older messages remain. Keyset paginated
+// on the display sort key (sent_at, id) so a late-arriving message can't cause
+// a page to skip or repeat a row. Pass beforeId (the oldest message already
+// loaded) to fetch the previous page.
+export async function getConversationMessages(pool, id, { limit = 50, beforeId = null } = {}) {
   const res = await pool.query(
-    `select id, direction, type, body, status, created_at,
+    `select id, wa_message_id, direction, type, body, status, created_at,
             coalesce(sent_at, created_at) as sent_at,
             coalesce(
               raw->'document'->>'filename',
@@ -409,11 +414,18 @@ export async function getConversationMessages(pool, id, limit = 200) {
               raw->'voice'->>'mime_type',
               raw->'sticker'->>'mime_type'
             ) as media_mime
-     from messages where conversation_id = $1
-     order by created_at, id limit $2`,
-    [id, limit],
+     from messages
+     where conversation_id = $1
+       and ($2::bigint is null or
+            (coalesce(sent_at, created_at), id) <
+            (select coalesce(sent_at, created_at), id from messages where id = $2))
+     order by coalesce(sent_at, created_at) desc, id desc
+     limit $3`,
+    [id, beforeId, limit],
   );
-  return res.rows;
+  const hasMore = res.rows.length === limit;
+  // Reverse to ascending (oldest first) for the thread view.
+  return { messages: res.rows.reverse(), hasMore };
 }
 
 export async function listTemplates(pool) {

@@ -49,6 +49,7 @@ export const api = {
   blockConversation: (id, on) => req(`/conversations/${id}/block`, { method: 'POST', body: JSON.stringify({ on }) }),
   deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
   conversation: (id) => req(`/conversations/${id}`),
+  olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
   takeover: (id) => req(`/conversations/${id}/takeover`, { method: 'POST' }),
   handback: (id) => req(`/conversations/${id}/handback`, { method: 'POST' }),

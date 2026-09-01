@@ -200,8 +200,8 @@ export function registerApi(app, deps) {
   app.get('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
-    const messages = await getConversationMessages(pool, req.params.id);
-    
+    const { messages, hasMore } = await getConversationMessages(pool, req.params.id, { limit: 50 });
+
     const readWamid = await markInboundRead(pool, req.params.id);
     if (readWamid) {
       meta.markRead(readWamid).catch(err => req.log.error({ err, wamid: readWamid }, 'failed to mark message read on meta'));
@@ -214,7 +214,20 @@ export function registerApi(app, deps) {
         window_open: windowOpen(conversation),
       },
       messages,
+      hasMore,
     };
+  });
+
+  // Older page for infinite scroll-up. before is the oldest message id the
+  // client already holds.
+  app.get('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req) => {
+    const before = req.query?.before ? Number(req.query.before) : null;
+    const limit = Math.min(Number(req.query?.limit) || 50, 100);
+    const { messages, hasMore } = await getConversationMessages(pool, req.params.id, {
+      limit,
+      beforeId: Number.isInteger(before) ? before : null,
+    });
+    return { messages, hasMore };
   });
 
   app.post('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req, reply) => {
