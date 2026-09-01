@@ -230,6 +230,7 @@ export default function App() {
           isAdmin={isAdmin}
           threadOpen={threadOpen}
           setThreadOpen={setThreadOpen}
+          openConversationRef={openConversationRef}
         />
       </ToastProvider>
     </BrandContext.Provider>
@@ -242,7 +243,7 @@ function AppInner({
   pushState, showBanner, dismissBanner,
   deniedModalOpen, setDeniedModalOpen,
   pendingCount, setConversations, logout, isAdmin,
-  threadOpen, setThreadOpen, setPushState
+  threadOpen, setThreadOpen, setPushState, openConversationRef
 }) {
   const toast = useToast();
 
