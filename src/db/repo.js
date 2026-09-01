@@ -44,6 +44,9 @@ export async function recordInbound(pool, m) {
        on conflict (contact_id) do update set
          campaign_id = coalesce(conversations.campaign_id, excluded.campaign_id),
          window_expires_at = now() + interval '24 hours',
+         -- A new inbound pulls the chat back out of the archive, the way
+         -- WhatsApp does. Mute is intentionally left alone.
+         archived_at = null,
          updated_at = now()
        returning id, state, campaign_id`,
       [contactId, campaignId],

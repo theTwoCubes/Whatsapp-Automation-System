@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Check, X } from 'lucide-react';
 import { api } from '../../api.js';
 import { shortTime } from '../../lib.js';
@@ -12,7 +13,29 @@ export default function NotificationBell({ onOpenConversation }) {
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [coords, setCoords] = useState(null);
   const panelRef = useRef(null);
+  const buttonRef = useRef(null);
+
+  // Position the portal panel from the button's on-screen rect. The bell can
+  // sit in the sidebar footer (bottom of the viewport) or the mobile top bar,
+  // so we open upward when the button is in the lower half and clamp inside
+  // the viewport. Rendering in a portal means no parent can clip it.
+  const place = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const width = Math.min(320, window.innerWidth - 24);
+    const openUp = r.top > window.innerHeight / 2;
+    const left = Math.min(Math.max(12, r.right - width), window.innerWidth - width - 12);
+    setCoords({
+      left,
+      width,
+      openUp,
+      top: openUp ? undefined : r.bottom + 8,
+      bottom: openUp ? window.innerHeight - r.top + 8 : undefined,
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,13 +57,28 @@ export default function NotificationBell({ onOpenConversation }) {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
   }, [load]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    place();
+  }, [open, place]);
+
   useEffect(() => {
     if (!open) return;
     load();
-    const onDown = (e) => { if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false); };
+    const onDown = (e) => {
+      if (buttonRef.current?.contains(e.target)) return;
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
+    };
+    const onReflow = () => place();
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open, load]);
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('scroll', onReflow, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onReflow, true);
+    };
+  }, [open, load, place]);
 
   const onClickRow = async (n) => {
     if (!n.read_at) {
@@ -59,26 +97,13 @@ export default function NotificationBell({ onOpenConversation }) {
     setUnread(0);
   };
 
-  return (
-    <div className="relative" ref={panelRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Notifications"
-        aria-expanded={open}
-        className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 text-gray-700"
-        title="Notifications"
-      >
-        <Bell size={18} />
-        {unread > 0 && (
-          <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-bold px-1 flex items-center justify-center">
-            {unread > 9 ? '9+' : unread}
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-11 w-[320px] max-w-[calc(100vw-32px)] bg-white rounded-xl shadow-lg border border-gray-200 z-50 overflow-hidden">
+  const panel = open && coords ? createPortal(
+    <div
+      ref={panelRef}
+      className="fixed z-[9998] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden"
+      style={{ left: coords.left, top: coords.top, bottom: coords.bottom, width: coords.width }}
+    >
+      <div className="flex flex-col max-h-[70vh]">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
             <div className="text-sm font-bold text-gray-900">Notifications</div>
             <div className="flex items-center gap-1">
@@ -103,7 +128,7 @@ export default function NotificationBell({ onOpenConversation }) {
             </div>
           </div>
 
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="overflow-y-auto">
             {loading && items.length === 0 && (
               <div className="px-4 py-6 text-sm text-gray-500 text-center">Loading…</div>
             )}
@@ -126,8 +151,30 @@ export default function NotificationBell({ onOpenConversation }) {
               </button>
             ))}
           </div>
-        </div>
-      )}
-    </div>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Notifications"
+        aria-expanded={open}
+        className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 text-gray-700"
+        title="Notifications"
+      >
+        <Bell size={18} />
+        {unread > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-bold px-1 flex items-center justify-center">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+      {panel}
+    </>
   );
 }

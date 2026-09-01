@@ -1,12 +1,13 @@
 import React, {
-  useCallback, useContext, useEffect, useMemo, useRef, useState,
+  useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search, Paperclip, Library, Send, Clock, AlertCircle,
   CheckCheck, Check, ChevronRight, X, MessageSquare,
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
-  Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell,
+  Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -25,6 +26,12 @@ import { useToast } from './components/ui/Toast.jsx';
 // Module-scoped so the value persists across Console mount/unmount cycles
 // (e.g. when the agent navigates to Admin and back).
 let savedListScroll = 0;
+
+// Ids we have already raised a handoff toast for, kept at module scope and
+// mutated synchronously the moment an id is seen. Two loadList calls racing on
+// the same websocket burst can no longer both toast the same chat, which is
+// what caused duplicate toasts.
+const alertedPendingIds = new Set();
 
 // Helpers
 function daysSince(dateStr) {
@@ -278,26 +285,34 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       setConversations(list);
       onConversationsChange?.(list);
 
-      const pending = new Set(
-        list.filter((c) => c.state === 'pending').map((c) => c.id),
-      );
+      const pending = list.filter((c) => c.state === 'pending');
+      const pendingIds = new Set(pending.map((c) => c.id));
+
       if (knownPendingRef.current == null) {
-        // First load, do not fire a chime for the backlog.
-        knownPendingRef.current = pending;
+        // First load: seed the alerted set with the backlog so we don't chime
+        // for chats that were already waiting when the tab opened.
+        for (const id of pendingIds) alertedPendingIds.add(id);
+        knownPendingRef.current = pendingIds;
       } else {
-        const fresh = [...pending].filter((id) => !knownPendingRef.current.has(id));
+        // Synchronously claim each fresh id before any further await, so a
+        // concurrent loadList cannot toast the same chat a second time.
+        const fresh = pending.filter((c) => !alertedPendingIds.has(c.id));
+        for (const c of fresh) alertedPendingIds.add(c.id);
         if (fresh.length > 0) {
           playChime();
-          for (const id of fresh) {
-            const c = list.find((x) => x.id === id);
-            if (!c) continue;
+          for (const c of fresh) {
             const name = c.name || c.wa_id;
             toast.warning(`${name} needs a person${c.handoff_reason ? ` · ${c.handoff_reason}` : ''}`, 8000);
           }
         }
-        knownPendingRef.current = pending;
+        knownPendingRef.current = pendingIds;
       }
-      applyBadge(pending.size);
+      // Drop ids that are no longer pending so a chat that comes back later
+      // re-alerts. Keeps the set from growing without bound.
+      for (const id of [...alertedPendingIds]) {
+        if (!pendingIds.has(id)) alertedPendingIds.delete(id);
+      }
+      applyBadge(pending.length);
     } catch (err) {
       if (err.message !== 'unauthorized') toast.error('Could not load conversations');
     } finally {
@@ -305,15 +320,28 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     }
   }, [toast, onConversationsChange, filter]);
 
+  // Coalesce bursts of websocket events into a single refetch. Without this a
+  // single handoff (message insert + status + refresh events) triggered three
+  // full reloads back to back.
+  const reloadTimerRef = useRef(null);
+  const scheduleReload = useCallback(() => {
+    clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      loadList(true);
+      if (selectedRef.current) loadThreadRef.current?.(selectedRef.current);
+    }, 150);
+  }, [loadList]);
+
   const fetchCounter = useRef(0);
+  const loadThreadRef = useRef(null);
 
   const loadThread = useCallback(async (id) => {
     if (!id) return;
     const currentFetch = ++fetchCounter.current;
-    try { 
+    try {
       const data = await api.conversation(id);
       if (currentFetch === fetchCounter.current) {
-        setThread(data); 
+        setThread(data);
         loadList(true);
       }
     } catch {
@@ -321,6 +349,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       if (currentFetch === fetchCounter.current) setThread('error');
     }
   }, [loadList]);
+  useEffect(() => { loadThreadRef.current = loadThread; }, [loadThread]);
 
   useEffect(() => {
     loadList();
@@ -367,10 +396,8 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
       ws.onopen = () => { setWsOffline(false); delay = 1000; };
-      ws.onmessage = () => {
-        loadList(true);
-        if (selectedRef.current) loadThread(selectedRef.current);
-      };
+      // Coalesce a burst of events into one refetch instead of one per event.
+      ws.onmessage = () => { scheduleReload(); };
       ws.onclose = () => {
         setWsOffline(true);
         delay = Math.min(delay * 2, 30000);
@@ -378,8 +405,8 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       };
     }
     connect();
-    return () => { clearTimeout(wsRetryRef.current); ws?.close(); };
-  }, [loadList, loadThread]);
+    return () => { clearTimeout(wsRetryRef.current); clearTimeout(reloadTimerRef.current); ws?.close(); };
+  }, [scheduleReload]);
 
   const filtered = useMemo(() => {
     let list = conversations;
@@ -836,6 +863,110 @@ function ContextRow({ label, children }) {
   );
 }
 
+// Overflow menu for per-chat actions (pin, mute, archive, and — added in
+// phase 2 — block and delete). Works the same on mobile and desktop, which is
+// what makes unpin/unmute/unarchive reachable on a phone. Renders through a
+// portal positioned off the trigger so no ancestor can clip it.
+function ChatActionsMenu({ conversation, act, onChanged, toast }) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const muted = conversation.muted_until && new Date(conversation.muted_until) > new Date();
+  const pinned = Boolean(conversation.pinned_at);
+  const archived = Boolean(conversation.archived_at);
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = 220;
+    const openUp = r.top > window.innerHeight / 2;
+    const left = Math.min(Math.max(12, r.right - width), window.innerWidth - width - 12);
+    setCoords({
+      left, width, openUp,
+      top: openUp ? undefined : r.bottom + 6,
+      bottom: openUp ? window.innerHeight - r.top + 6 : undefined,
+    });
+  }, []);
+
+  useLayoutEffect(() => { if (open) place(); }, [open, place]);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (btnRef.current?.contains(e.target)) return;
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    };
+    const reflow = () => place();
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', reflow);
+    window.addEventListener('scroll', reflow, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', reflow);
+      window.removeEventListener('scroll', reflow, true);
+    };
+  }, [open, place]);
+
+  const run = (fn, msg) => { setOpen(false); act(fn, msg); };
+
+  const Item = ({ icon: Icon, label, onClick, danger }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-3.5 py-2.5 text-sm text-left hover:bg-gray-50 ${danger ? 'text-red-600' : 'text-gray-700'}`}
+    >
+      <Icon size={16} className="flex-shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+
+  const menu = open && coords ? createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[9998] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden py-1"
+      style={{ left: coords.left, top: coords.top, bottom: coords.bottom, width: coords.width }}
+    >
+      <Item icon={pinned ? PinOff : Pin} label={pinned ? 'Unpin' : 'Pin to top'}
+        onClick={() => run(() => api.pinConversation(conversation.id, !pinned), pinned ? 'Unpinned' : 'Pinned')} />
+      {muted ? (
+        <Item icon={Bell} label="Unmute"
+          onClick={() => run(() => api.muteConversation(conversation.id, 0), 'Unmuted')} />
+      ) : (
+        <>
+          <Item icon={BellOff} label="Mute 8 hours"
+            onClick={() => run(() => api.muteConversation(conversation.id, 8), 'Muted for 8 hours')} />
+          <Item icon={BellOff} label="Mute 1 week"
+            onClick={() => run(() => api.muteConversation(conversation.id, 24 * 7), 'Muted for 1 week')} />
+          <Item icon={BellOff} label="Mute always"
+            onClick={() => run(() => api.muteConversation(conversation.id, 24 * 365 * 10), 'Muted')} />
+        </>
+      )}
+      <Item icon={archived ? ArchiveRestore : Archive} label={archived ? 'Unarchive' : 'Archive'}
+        onClick={() => run(() => api.archiveConversation(conversation.id, !archived), archived ? 'Unarchived' : 'Archived')} />
+    </div>,
+    document.body,
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Chat actions"
+        aria-expanded={open}
+        className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${open ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+        title="More actions"
+      >
+        <MoreVertical size={18} />
+      </button>
+      {menu}
+    </>
+  );
+}
+
 // Chat Thread
 function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggleContext, onBack, wsOffline }) {
   const { conversation, messages } = thread;
@@ -974,35 +1105,6 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             </Button>
           )}
           <div className="w-px h-8 bg-gray-200 mx-1 hidden md:block" />
-          {/* Pin, archive, mute — small icon-only controls so the header
-              stays terse. State drives icon (Pin vs PinOff etc.). */}
-          <button
-            onClick={() => act(() => api.pinConversation(conversation.id, !conversation.pinned_at),
-              conversation.pinned_at ? 'Unpinned' : 'Pinned')}
-            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.pinned_at ? 'bg-amber-100 text-amber-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
-            title={conversation.pinned_at ? 'Unpin' : 'Pin to top'}
-            aria-label={conversation.pinned_at ? 'Unpin' : 'Pin'}
-          >
-            {conversation.pinned_at ? <PinOff size={18} /> : <Pin size={18} />}
-          </button>
-          <button
-            onClick={() => act(() => api.muteConversation(conversation.id, conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 0 : 8),
-              conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'Unmuted' : 'Muted for 8h')}
-            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
-            title={conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'Unmute' : 'Mute for 8 hours'}
-            aria-label="Mute"
-          >
-            {conversation.muted_until && new Date(conversation.muted_until) > new Date() ? <BellOff size={18} /> : <Bell size={18} />}
-          </button>
-          <button
-            onClick={() => act(() => api.archiveConversation(conversation.id, !conversation.archived_at),
-              conversation.archived_at ? 'Unarchived' : 'Archived')}
-            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.archived_at ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
-            title={conversation.archived_at ? 'Unarchive' : 'Archive'}
-            aria-label={conversation.archived_at ? 'Unarchive' : 'Archive'}
-          >
-            {conversation.archived_at ? <ArchiveRestore size={18} /> : <Archive size={18} />}
-          </button>
           <button
             onClick={onToggleContext}
             className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
@@ -1010,6 +1112,7 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
           >
             <LayoutList size={18} />
           </button>
+          <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} toast={toast} />
         </div>
       </div>
 
