@@ -6,6 +6,7 @@ import {
   CheckCheck, Check, ChevronRight, X, MessageSquare,
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
+  Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -273,7 +274,7 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
   const loadList = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const { conversations: list } = await api.conversations();
+      const { conversations: list } = await api.conversations({ archived: filter === 'archived' });
       setConversations(list);
       onConversationsChange?.(list);
 
@@ -382,7 +383,9 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
 
   const filtered = useMemo(() => {
     let list = conversations;
-    if (filter !== 'all') list = list.filter((c) => c.state === filter);
+    // 'archived' pulls its own list from the server, so the state filter does
+    // not apply to it — everything the server returned should show.
+    if (filter !== 'all' && filter !== 'archived') list = list.filter((c) => c.state === filter);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) =>
       (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q)
@@ -402,11 +405,16 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
     setTemplates(d.templates || []);
   }, []);
 
+  // Reload the list when the filter switches between archived and any other
+  // filter, since the two hit different server slices.
+  useEffect(() => { loadList(true); /* eslint-disable-next-line */ }, [filter === 'archived']);
+
   const FILTERS = [
     { key: 'all',     label: 'All' },
     { key: 'pending', label: 'Pending' },
     { key: 'bot',     label: 'AI' },
     { key: 'human',   label: 'Agent' },
+    { key: 'archived', label: 'Archived' },
   ];
 
   // Scroll restoration for mobile list. Position lives in a module-
@@ -589,7 +597,10 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       <Avatar name={name} waId={c.wa_id} size="xl" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <span className="text-base md:text-lg font-bold text-gray-900 truncate">{name}</span>
+          <span className="text-base md:text-lg font-bold text-gray-900 truncate flex items-center gap-1.5">
+            {c.pinned_at && <Pin size={12} className="text-amber-600 flex-shrink-0" aria-label="Pinned" />}
+            <span className="truncate">{name}</span>
+          </span>
           <span className="text-xs md:text-base font-medium text-gray-400 flex-shrink-0">{shortTime(c.last_at)}</span>
         </div>
         <div className="flex items-center justify-between gap-2">
@@ -928,6 +939,35 @@ function ChatThread({ thread, templates, onSync, onChanged, showContext, onToggl
             </Button>
           )}
           <div className="w-px h-8 bg-gray-200 mx-1 hidden md:block" />
+          {/* Pin, archive, mute — small icon-only controls so the header
+              stays terse. State drives icon (Pin vs PinOff etc.). */}
+          <button
+            onClick={() => act(() => api.pinConversation(conversation.id, !conversation.pinned_at),
+              conversation.pinned_at ? 'Unpinned' : 'Pinned')}
+            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.pinned_at ? 'bg-amber-100 text-amber-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            title={conversation.pinned_at ? 'Unpin' : 'Pin to top'}
+            aria-label={conversation.pinned_at ? 'Unpin' : 'Pin'}
+          >
+            {conversation.pinned_at ? <PinOff size={18} /> : <Pin size={18} />}
+          </button>
+          <button
+            onClick={() => act(() => api.muteConversation(conversation.id, conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 0 : 8),
+              conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'Unmuted' : 'Muted for 8h')}
+            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            title={conversation.muted_until && new Date(conversation.muted_until) > new Date() ? 'Unmute' : 'Mute for 8 hours'}
+            aria-label="Mute"
+          >
+            {conversation.muted_until && new Date(conversation.muted_until) > new Date() ? <BellOff size={18} /> : <Bell size={18} />}
+          </button>
+          <button
+            onClick={() => act(() => api.archiveConversation(conversation.id, !conversation.archived_at),
+              conversation.archived_at ? 'Unarchived' : 'Archived')}
+            className={`hidden md:flex items-center justify-center w-10 h-10 rounded-lg transition-colors flex-shrink-0 ${conversation.archived_at ? 'bg-gray-200 text-gray-700' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}
+            title={conversation.archived_at ? 'Unarchive' : 'Archive'}
+            aria-label={conversation.archived_at ? 'Unarchive' : 'Archive'}
+          >
+            {conversation.archived_at ? <ArchiveRestore size={18} /> : <Archive size={18} />}
+          </button>
           <button
             onClick={onToggleContext}
             className={`flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-lg transition-colors flex-shrink-0 ${showContext ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'}`}

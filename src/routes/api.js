@@ -28,6 +28,8 @@ import { saveSubscription, removeSubscription, getVapidPublicKey, getPushStatus,
 import {
   getAgentByEmail,
   listConversations,
+  setConversationFlag,
+  muteConversation,
   getConversationById,
   getConversationMessages,
   listTemplates,
@@ -134,9 +136,37 @@ export function registerApi(app, deps) {
     return { token, agent: { id: agent.id, email: agent.email, name: agent.name } };
   });
 
-  app.get('/api/conversations', { preHandler: auth }, async () => ({
-    conversations: await listConversations(pool),
+  app.get('/api/conversations', { preHandler: auth }, async (req) => ({
+    conversations: await listConversations(pool, {
+      includeArchived: req.query?.archived === '1',
+    }),
   }));
+
+  app.post('/api/conversations/:id/pin', { preHandler: auth, schema: idParams }, async (req) => {
+    const on = req.body?.on !== false;
+    await setConversationFlag(pool, req.params.id, 'pin', on);
+    await audit(req, on ? 'pin' : 'unpin', `conversation ${req.params.id}`);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true };
+  });
+
+  app.post('/api/conversations/:id/archive', { preHandler: auth, schema: idParams }, async (req) => {
+    const on = req.body?.on !== false;
+    await setConversationFlag(pool, req.params.id, 'archive', on);
+    await audit(req, on ? 'archive' : 'unarchive', `conversation ${req.params.id}`);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true };
+  });
+
+  app.post('/api/conversations/:id/mute', { preHandler: auth, schema: idParams }, async (req) => {
+    // hours: number of hours to mute for; 0 or missing to unmute.
+    const hours = Number(req.body?.hours) || 0;
+    const until = hours > 0 ? new Date(Date.now() + hours * 3600 * 1000) : null;
+    await muteConversation(pool, req.params.id, until);
+    await audit(req, until ? `mute ${hours}h` : 'unmute', `conversation ${req.params.id}`);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true, until };
+  });
 
   app.get('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);

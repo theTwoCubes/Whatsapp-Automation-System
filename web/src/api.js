@@ -42,7 +42,10 @@ async function req(path, opts = {}) {
 
 export const api = {
   login: (email, password) => req('/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  conversations: () => req('/conversations'),
+  conversations: (opts = {}) => req(`/conversations${opts.archived ? '?archived=1' : ''}`),
+  pinConversation: (id, on) => req(`/conversations/${id}/pin`, { method: 'POST', body: JSON.stringify({ on }) }),
+  archiveConversation: (id, on) => req(`/conversations/${id}/archive`, { method: 'POST', body: JSON.stringify({ on }) }),
+  muteConversation: (id, hours) => req(`/conversations/${id}/mute`, { method: 'POST', body: JSON.stringify({ hours }) }),
   conversation: (id) => req(`/conversations/${id}`),
   send: (id, body) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
   takeover: (id) => req(`/conversations/${id}/takeover`, { method: 'POST' }),

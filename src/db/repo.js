@@ -278,9 +278,10 @@ export async function createAgent(pool, a) {
   );
 }
 
-export async function listConversations(pool) {
+export async function listConversations(pool, { includeArchived = false } = {}) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
+            c.pinned_at, c.archived_at, c.muted_until,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, coalesce(m.sent_at, m.created_at) as last_at,
             (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count
@@ -291,10 +292,32 @@ export async function listConversations(pool) {
        select body, sent_at, created_at from messages
        where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
-     order by coalesce(m.sent_at, m.created_at) desc nulls last
+     where ($1::boolean or c.archived_at is null)
+     order by (c.pinned_at is not null) desc, c.pinned_at desc nulls last,
+              coalesce(m.sent_at, m.created_at) desc nulls last
      limit 200`,
+    [includeArchived],
   );
   return res.rows;
+}
+
+export async function setConversationFlag(pool, conversationId, flag, value) {
+  const columns = { pin: 'pinned_at', archive: 'archived_at' };
+  const column = columns[flag];
+  if (!column) throw new Error('unknown flag');
+  // value === true sets to now(), false clears.
+  const sql = value
+    ? `update conversations set ${column} = now(), updated_at = now() where id = $1`
+    : `update conversations set ${column} = null, updated_at = now() where id = $1`;
+  await pool.query(sql, [conversationId]);
+}
+
+export async function muteConversation(pool, conversationId, until) {
+  // until is a Date (or null to unmute).
+  await pool.query(
+    `update conversations set muted_until = $2, updated_at = now() where id = $1`,
+    [conversationId, until],
+  );
 }
 
 export async function getConversationById(pool, id) {

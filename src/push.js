@@ -96,6 +96,14 @@ export async function removeSubscription(pool, endpoint) {
 // suppresses it so we don't nag them for a message they're already reading.
 export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, log }) {
   configure();
+
+  // Muted chats do not fan out to push. They still write to the in-app inbox
+  // below, so a returning agent can catch up without being pinged live.
+  const muted = (await pool.query(
+    'select muted_until > now() as m from conversations where id = $1',
+    [conversationId],
+  )).rows[0]?.m === true;
+
   const rows = (await pool.query('select * from push_subscriptions')).rows;
 
   const notifTitle = title || `${name || waId} needs a person`;
@@ -114,6 +122,7 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     ).catch((err) => log?.warn({ err }, 'failed to write in-app notification'));
   }
 
+  if (muted) return;
   if (!configured) return;
   if (rows.length === 0) return;
 
