@@ -71,6 +71,8 @@ export default function App() {
   const threadOpenRef = useRef(threadOpen);
   useEffect(() => { viewRef.current = view; }, [view]);
   useEffect(() => { threadOpenRef.current = threadOpen; }, [threadOpen]);
+  // Ref populated by Console so notification clicks can open a specific chat.
+  const openConversationRef = useRef(null);
 
   // Load branding
   useEffect(() => {
@@ -158,9 +160,20 @@ export default function App() {
         };
       }).catch(() => {});
     } catch { /* unsupported */ }
+
+    // Handle OPEN_CONVERSATION messages from the service worker (notification click).
+    const onSwMessage = (event) => {
+      if (event.data?.type === 'OPEN_CONVERSATION') {
+        setView('conversations');
+        openConversationRef.current?.(event.data.conversationId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+
     return () => { 
       if (permStatus) permStatus.onchange = null; 
       if (backListener) backListener.then(l => l.remove());
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
     };
   }, [authed]);
 
@@ -373,6 +386,7 @@ function AppInner({
             <Console
               onConversationsChange={setConversations}
               onThreadOpen={setThreadOpen}
+              onOpenConversation={openConversationRef}
             />
           )}
           {isAdmin && (

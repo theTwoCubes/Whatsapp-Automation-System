@@ -55,8 +55,8 @@ self.addEventListener('push', (event) => {
     const options = {
       body: data.body || '',
       tag: data.tag || 'handoff',
-      icon: '/Icon192.png',
-      badge: '/Icon192.png',
+      icon: '/CompanyLogo192.png',
+      badge: '/CompanyLogo192.png',
       renotify: true,
       requireInteraction: false,
       data: { conversationId: data.conversationId || null },
@@ -66,18 +66,20 @@ self.addEventListener('push', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
+  const conversationId = event.notification.data?.conversationId ?? null;
   event.notification.close();
-  // Bring the app to front so the agent can act on the message. We do not
-  // deep-link to the specific chat — per product spec, the click just
-  // dismisses in terms of navigation, but focusing the shell matches user
-  // expectations across every other messaging app they know.
   event.waitUntil((async () => {
     const cs = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+    let client;
     if (cs.length > 0) {
-      const c = cs.find((w) => w.focused) || cs[0];
-      try { await c.focus(); } catch { /* ignore */ }
+      client = cs.find((w) => w.focused) || cs[0];
+      try { await client.focus(); } catch { /* ignore */ }
     } else {
-      try { await self.clients.openWindow('/'); } catch { /* ignore */ }
+      try { client = await self.clients.openWindow('/'); } catch { /* ignore */ }
+    }
+    // Tell the app which conversation to open.
+    if (client && conversationId != null) {
+      try { client.postMessage({ type: 'OPEN_CONVERSATION', conversationId }); } catch { /* ignore */ }
     }
   })());
 });

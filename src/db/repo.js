@@ -292,7 +292,8 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
        select body, sent_at, created_at from messages
        where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
-     where ($1::boolean or c.archived_at is null)
+     where ($1::boolean and c.archived_at is not null)
+        or (not $1::boolean and c.archived_at is null)
      order by (c.pinned_at is not null) desc, c.pinned_at desc nulls last,
               coalesce(m.sent_at, m.created_at) desc nulls last
      limit 200`,

@@ -254,7 +254,7 @@ function Ticks({ status }) {
 }
 
 // Console Root
-export default function Console({ onConversationsChange, onThreadOpen }) {
+export default function Console({ onConversationsChange, onThreadOpen, onOpenConversation }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected]           = useState(null);
   const [thread, setThread]               = useState(null);
@@ -408,6 +408,18 @@ export default function Console({ onConversationsChange, onThreadOpen }) {
   // Reload the list when the filter switches between archived and any other
   // filter, since the two hit different server slices.
   useEffect(() => { loadList(true); /* eslint-disable-next-line */ }, [filter === 'archived']);
+
+  // Allow external callers (e.g. notification click) to open a conversation by id.
+  useEffect(() => {
+    if (!onOpenConversation) return;
+    onOpenConversation.current = (id) => {
+      const numId = Number(id);
+      setFilter('all');
+      setSelected(numId);
+    };
+    return () => { if (onOpenConversation) onOpenConversation.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onOpenConversation]);
 
   const FILTERS = [
     { key: 'all',     label: 'All' },
