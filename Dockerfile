@@ -14,6 +14,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY src ./src
+COPY scripts ./scripts
 COPY --from=web /web/dist ./web/dist
 RUN chown -R node:node /app
 USER node
