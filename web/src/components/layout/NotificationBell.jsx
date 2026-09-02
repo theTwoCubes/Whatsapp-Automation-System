@@ -59,7 +59,7 @@ export default function NotificationBell({ onOpenConversation }) {
       window.removeEventListener('resize', onReflow);
       window.removeEventListener('scroll', onReflow, true);
     };
-  }, [open, load, place]);
+  }, [open, place]);
 
   const onClickRow = (n) => {
     if (!n.read_at) storeMarkRead(n.id);
