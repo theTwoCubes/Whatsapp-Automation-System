@@ -56,7 +56,9 @@ import {
   addAudit,
   listAudit,
   getMessageRaw,
+  opsStats,
 } from '../db/repo.js';
+import { getStats as getTelemetryStats } from '../ai/telemetry.js';
 
 // Pulls the media id out of an inbound message payload.
 function mediaIdFromRaw(raw) {
@@ -1021,6 +1023,24 @@ export function registerApi(app, deps) {
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }
+  });
+
+  // Admin ops health panel: DB queue stats + in-process telemetry.
+  // Admin-only so operational internals are not exposed to regular agents.
+  app.get('/api/admin/ops', { preHandler: adminAuth }, async () => {
+    const [db, tele] = await Promise.all([opsStats(pool), Promise.resolve(getTelemetryStats())]);
+    return {
+      db,
+      process: {
+        ...tele,
+        wsClients: realtime.size(),
+        uptimeSeconds: Math.round(process.uptime()),
+        memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        poolTotal: pool.totalCount,
+        poolIdle: pool.idleCount,
+        poolWaiting: pool.waitingCount,
+      },
+    };
   });
 
   // Live updates. Prefers a short-lived ticket (issued from /api/ws-ticket

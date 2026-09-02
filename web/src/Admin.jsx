@@ -4,6 +4,7 @@ import Knowledge  from './views/admin/Knowledge.jsx';
 import Followups  from './views/admin/Followups.jsx';
 import Setup      from './views/admin/Setup.jsx';
 import TeamAccess from './views/admin/TeamAccess.jsx';
+import Ops        from './views/admin/Ops.jsx';
 
 const views = {
   dashboard: Dashboard,
@@ -11,6 +12,7 @@ const views = {
   followups:  Followups,
   setup:      Setup,
   team:       TeamAccess,
+  ops:        Ops,
 };
 
 export default function Admin({ activeTab }) {

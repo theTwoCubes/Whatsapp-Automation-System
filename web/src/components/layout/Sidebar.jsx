@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import {
   MessageSquare, LayoutDashboard, Brain, Mail, Settings, Users, LogOut,
-  Bell, BellOff,
+  Bell, BellOff, Activity,
 } from 'lucide-react';
 import { BrandContext } from '../../brand.js';
 import { getAgentRole } from '../../api.js';
@@ -14,6 +14,7 @@ const NAV = [
   { key: 'dashboard', label: 'Dashboard',    icon: LayoutDashboard },
   { key: 'knowledge',  label: 'AI Knowledge', icon: Brain },
   { key: 'followups',  label: 'Follow-ups',   icon: Mail },
+  { key: 'ops',        label: 'Ops',          icon: Activity },
   { key: 'setup',      label: 'Setup',        icon: Settings },
   { key: 'team',       label: 'Team & Access', icon: Users },
 ];

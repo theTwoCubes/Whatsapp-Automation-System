@@ -3,11 +3,41 @@ import { buildFaqContext } from '../knowledge/context.js';
 import { packCatalog } from '../knowledge/packs.js';
 import { humanize } from './sanitize.js';
 
+// Pure greeting/filler patterns. When a message matches, skip the AI call and
+// reply with a canned opener — saves ~2s and one API credit per greeting.
+const greetingPattern = /^[\s\W]*(hi+|hey+|hello+|hola|namaste|namaskar|good\s*(morning|evening|afternoon|night)|howdy|howdy|sup|what'?s\s*up|👋|🙏|🫡|ok|okay|alright|sure|noted|got\s*it|thanks|thank\s*(you|u)|great|cool|nice|perfect|sounds\s*good|haha|hehe|lol|😊|😄|😃|😁|👍|🙌)[!.?\s]*$/i;
+
+export function isSimpleGreeting(text) {
+  if (!text) return false;
+  return greetingPattern.test(text.trim());
+}
+
+// Maps a free-text handoff reason to one of the known categories so the
+// "why do we hand off?" admin chart can group events meaningfully.
+const reasonCategoryMap = [
+  ['price_negotiation', /price|cost|discount|rate|budget|expensive|cheap|negotiat/i],
+  ['custom_quote',      /quote|quotation|custom|project|brief|spec|requirement/i],
+  ['complaint',         /complaint|problem|issue|bad|wrong|not happy|unhappy|frustrat|disappoint/i],
+  ['personal_meeting',  /meet|call|office|visit|appointment|speak on|zoom|video/i],
+  ['explicit_request',  /human|person|agent|representative|talk to|speak to|someone|colleague/i],
+  ['attachment',        /attachment|image|document|photo|file|sent a|sticker|video|audio/i],
+  ['unsure_answer',     /unsure|not sure|don.t know|cannot answer|beyond|outside/i],
+  ['unknown_service',   /unknown service|what do you|don.t offer|we don.t/i],
+];
+
+export function categorizeHandoffReason(reason) {
+  if (!reason) return 'other';
+  for (const [cat, re] of reasonCategoryMap) {
+    if (re.test(reason)) return cat;
+  }
+  return 'other';
+}
+
 // A cheap keyword backstop. The AI decides handoff on its own too, this just
 // catches the obvious asks instantly without spending a call.
 const handoffPatterns = [
-  /talk to (a )?(human|person|agent|someone|representative)/i,
-  /speak (to|with) (a )?(human|person|agent|someone|representative)/i,
+  /talk to (an? )?(human|person|agent|someone|representative)/i,
+  /speak (to|with) (an? )?(human|person|agent|someone|representative)/i,
   /real (human|person)/i,
   /customer (care|support|service)/i,
   /human agent/i,

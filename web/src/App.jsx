@@ -214,7 +214,7 @@ export default function App() {
     );
   }
 
-  const adminViews = ['dashboard', 'knowledge', 'followups', 'setup', 'team'];
+  const adminViews = ['dashboard', 'knowledge', 'followups', 'setup', 'team', 'ops'];
   const isAdminUser = getAgentRole() === 'admin';
   // Only render the admin surface when the current view is admin AND the
   // caller is allowed there. A stray non-admin URL falls back silently.

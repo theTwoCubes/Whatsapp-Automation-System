@@ -17,10 +17,17 @@ export class AiClient {
     if (!this.enabled) {
       throw new Error('AI disabled: no provider key configured');
     }
+    const timeoutMs = options.timeoutMs ?? 25000;
     let lastError;
     for (const name of this.order) {
       try {
-        return await this.providers[name].complete(messages, options);
+        const result = await Promise.race([
+          this.providers[name].complete(messages, options),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`ai timeout after ${timeoutMs}ms`)), timeoutMs),
+          ),
+        ]);
+        return result;
       } catch (err) {
         lastError = err;
         this.log.warn({ provider: name, err: err.message }, 'ai provider failed, trying the next one');

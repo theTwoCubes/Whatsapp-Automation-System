@@ -14,7 +14,8 @@ import {
   isConversationBlocked,
   deadLetterWebhook,
 } from '../db/repo.js';
-import { buildReply, wantsHuman } from '../ai/reply.js';
+import { buildReply, wantsHuman, isSimpleGreeting, categorizeHandoffReason } from '../ai/reply.js';
+import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { handToPending } from '../handoff.js';
@@ -71,6 +72,7 @@ function getBatcher(config) {
 export async function processWebhook(body, deps) {
   const { meta, ai, pool, config, realtime, log } = deps;
 
+  recordWebhook();
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
@@ -219,17 +221,19 @@ async function respondToLead(deps, conversationId, items) {
   // The lead asked for a person. Hand off, stop the drip follow ups, and let the
   // team take it from here.
   if (wantsHuman(text)) {
-    await handToPending(pool, conversationId, 'Lead asked to speak with a person');
+    const reason = 'Lead asked to speak with a person';
+    await handToPending(pool, conversationId, reason);
     await recordHandoff(pool, {
       conversationId,
       source: 'lead',
-      reason: 'Lead asked to speak with a person',
+      reason,
+      reasonCategory: 'explicit_request',
       topicId,
     });
     await cancelDrips(pool, conversationId);
     log.info({ conversationId }, 'queued conversation for a human on request');
     await sendAndRecord(deps, to, conversationId, settings.handoffMessage);
-    await pushHandoff(pool, conversationId, 'Lead asked to speak with a person', log);
+    await pushHandoff(pool, conversationId, reason, log);
     return;
   }
 
@@ -239,10 +243,12 @@ async function respondToLead(deps, conversationId, items) {
   // by name from the catalog, in which case we pull it in and call back once.
   const packs = await assemblePacks(pool, conversationId, topicId, text);
   let decision;
+  const aiStart = Date.now();
   try {
     decision = await buildReply(pool, ai, settings, conversationId, {
       packs,
       faqBudgetTokens: config.faqBudgetTokens,
+      text,
     });
     // The model asked for extra packs. Add them, mark them sticky for the rest
     // of the conversation, and call back once with pack requests disabled so a
@@ -256,8 +262,13 @@ async function respondToLead(deps, conversationId, items) {
         allowPackRequests: false,
       });
     }
+    const aiMs = Date.now() - aiStart;
+    recordAiSuccess(aiMs);
+    log.info({ conversationId, aiMs, handoff: decision?.handoff }, 'ai reply built');
   } catch (err) {
-    log.warn({ conversationId, err }, 'ai reply unavailable, using fallback');
+    const aiMs = Date.now() - aiStart;
+    recordAiError();
+    log.warn({ conversationId, aiMs, err }, 'ai reply unavailable, using fallback');
     decision = {
       handoff: true,
       reason: 'AI service unavailable',
@@ -268,10 +279,11 @@ async function respondToLead(deps, conversationId, items) {
   // The AI decided this needs a person.
   if (decision?.handoff) {
     const reason = decision.reason || 'The ai judged this needs a person';
+    const reasonCategory = categorizeHandoffReason(reason);
     await handToPending(pool, conversationId, reason);
-    await recordHandoff(pool, { conversationId, source: 'ai', reason, topicId });
+    await recordHandoff(pool, { conversationId, source: 'ai', reason, reasonCategory, topicId });
     await cancelDrips(pool, conversationId);
-    log.info({ conversationId, reason: decision.reason }, 'ai queued conversation for a human');
+    log.info({ conversationId, reason, reasonCategory }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);
     await pushHandoff(pool, conversationId, reason, log);
     return;
@@ -354,7 +366,7 @@ async function maybeSendFaqMedia(deps, conversationId, to, faqId) {
   }
 }
 
-async function sendAndRecord(deps, to, conversationId, body) {
+async function sendAndRecord(deps, to, conversationId, body, { aiMs = null } = {}) {
   const { meta, pool, realtime, log } = deps;
   try {
     const readWamid = await markInboundRead(pool, conversationId);
@@ -362,11 +374,16 @@ async function sendAndRecord(deps, to, conversationId, body) {
       meta.markRead(readWamid).catch(err => log.error({ err, wamid: readWamid }, 'failed to mark message read on meta before bot reply'));
     }
 
+    const metaStart = Date.now();
     const wamid = await meta.sendText(to, body);
+    const metaMs = Date.now() - metaStart;
+    recordMetaLatency(metaMs);
+
     if (wamid) {
-      await recordOutbound(pool, { conversationId, waMessageId: wamid, body });
+      await recordOutbound(pool, { conversationId, waMessageId: wamid, body, aiMs, metaMs });
       realtime?.emit({ type: 'refresh', conversationId });
     }
+    log.info({ conversationId, metaMs }, 'reply sent to meta');
   } catch (err) {
     log.error({ conversationId, to, err }, 'failed to send reply');
   }

@@ -100,10 +100,11 @@ export async function recordOutbound(pool, o) {
   // thread can resolve both directions the same way.
   const raw = o.context ? JSON.stringify({ context: { id: o.context.message_id } }) : null;
   await pool.query(
-    `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id, raw)
-     values ($1, $2, 'outbound', $3, $4, 'sent', $5, $6)
+    `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id, raw, ai_ms, meta_ms)
+     values ($1, $2, 'outbound', $3, $4, 'sent', $5, $6, $7, $8)
      on conflict (wa_message_id) do nothing`,
-    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null, o.mediaAssetId ?? null, raw],
+    [o.conversationId, o.waMessageId, o.type ?? 'text', o.body ?? null, o.mediaAssetId ?? null, raw,
+     o.aiMs ?? null, o.metaMs ?? null],
   );
 }
 
@@ -134,7 +135,7 @@ export async function markInboundRead(pool, conversationId) {
 // id and see exactly what the bot could not answer. source picks apart the
 // kind of handoff: 'ai' means the model itself judged the chat needed a
 // person, which is the only signal that indicates a real knowledge gap.
-export async function recordHandoff(pool, { conversationId, source, reason = null, topicId = null }) {
+export async function recordHandoff(pool, { conversationId, source, reason = null, reasonCategory = null, topicId = null }) {
   const messageIdRow = await pool.query(
     `select id from messages where conversation_id = $1 and direction = 'inbound'
      order by created_at desc, id desc limit 1`,
@@ -142,9 +143,9 @@ export async function recordHandoff(pool, { conversationId, source, reason = nul
   );
   const messageId = messageIdRow.rows[0]?.id ?? null;
   await pool.query(
-    `insert into handoff_events (conversation_id, message_id, source, reason, topic_id)
-     values ($1, $2, $3, $4, $5)`,
-    [conversationId, messageId, source, reason, topicId],
+    `insert into handoff_events (conversation_id, message_id, source, reason, reason_category, topic_id)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [conversationId, messageId, source, reason, reasonCategory ?? null, topicId],
   );
 }
 
@@ -679,6 +680,30 @@ export async function getMediaAsset(pool, id) {
   return (
     await pool.query('select id, meta_media_id, filename, mime_type, kind, caption from media_assets where id = $1', [id])
   ).rows[0] ?? null;
+}
+
+// Ops panel stats: DB-side counters for the admin health panel.
+export async function opsStats(pool) {
+  const r = await pool.query(
+    `select
+       (select count(*) from conversations where state = 'pending') as pending_chats,
+       (select count(*) from conversations where state = 'bot')     as bot_chats,
+       (select count(*) from conversations where state = 'human')   as human_chats,
+       (select count(*) from webhook_dead_letter where replayed_at is null) as dead_letter_depth,
+       (select round(avg(ai_ms)) from messages where ai_ms is not null and created_at > now() - interval '1 hour') as ai_ms_p50_1h,
+       (select round(avg(meta_ms)) from messages where meta_ms is not null and created_at > now() - interval '1 hour') as meta_ms_p50_1h,
+       (select count(*) from handoff_events where created_at > now() - interval '24 hours') as handoffs_24h,
+       (select count(*) from messages where direction = 'outbound' and created_at > now() - interval '24 hours') as replies_24h`,
+  );
+  const handoffBreakdown = await pool.query(
+    `select reason_category, count(*)::int as count
+     from handoff_events
+     where created_at > now() - interval '7 days'
+       and reason_category is not null
+     group by reason_category
+     order by count desc`,
+  );
+  return { ...r.rows[0], handoff_breakdown: handoffBreakdown.rows };
 }
 
 // Stalled chats to hand back to the bot: either an agent has gone quiet on a

@@ -130,6 +130,7 @@ export const api = {
   pushStatus: () => req('/push/status'),
   pushTest: () => req('/push/test', { method: 'POST' }),
   wsTicket: () => req('/ws-ticket', { method: 'POST' }),
+  ops: () => req('/admin/ops'),
   notifications: () => req('/notifications'),
   markNotificationRead: (id) => req(`/notifications/${id}/read`, { method: 'POST' }),
   markAllNotificationsRead: () => req('/notifications/read-all', { method: 'POST' }),
