@@ -1,14 +1,13 @@
 import React from 'react';
 
-// variant → [bg, text, border] Tailwind classes
 const variantMap = {
-  bot:     'text-gray-800',
-  pending: 'text-amber-600',
-  human:   'text-gray-800',
+  bot:     'text-green-700',
+  pending: 'text-stone-600',
+  human:   'text-slate-600',
   neutral: 'text-gray-600',
-  success: 'text-gray-800',
+  success: 'text-green-700',
   error:   'text-red-600',
-  warning: 'text-amber-600',
+  warning: 'text-stone-600',
 };
 
 export default function Badge({ variant = 'neutral', children, className = '', ...props }) {

@@ -21,10 +21,12 @@ export default {
           sunken: '#f9fafb',
         },
         state: {
-          bot:     '#16a34a',
-          'bot-bg':'#f0fdf4',
-          pending: '#d97706',
-          human:   '#2563eb',
+          bot:        '#15803d',
+          'bot-bg':   '#f0fdf4',
+          pending:    '#78716c',
+          'pending-bg':'#fafaf9',
+          human:      '#475569',
+          'human-bg': '#f8fafc',
         },
       },
       fontFamily: {

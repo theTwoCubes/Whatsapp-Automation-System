@@ -30,5 +30,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      // Capacitor plugin packages are resolved at runtime by the WebView,
+      // not bundled by Rollup. Add any @capacitor/* plugin used via dynamic
+      // import here so the production build does not fail on missing packages.
+      external: [
+        '@capacitor/haptics',
+      ],
+    },
   },
 });

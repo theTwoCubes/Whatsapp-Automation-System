@@ -383,19 +383,20 @@ function AppInner({
 
         {/* Notification banner — only on web, only when list is visible */}
         {showBanner && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-900 flex-shrink-0">
+          <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 text-gray-700 flex-shrink-0">
             <span className="flex-1 min-w-0 text-xs truncate">
               Get notified when a lead needs help
             </span>
             <button
               onClick={turnOnPush}
-              className="h-7 px-3 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex-shrink-0 transition-colors"
+              className="h-7 px-3 rounded-md text-white text-xs font-semibold flex-shrink-0 transition-colors"
+              style={{ background: 'var(--accent)' }}
             >
               Turn on
             </button>
             <button
               onClick={dismissBanner}
-              className="text-amber-700 text-lg leading-none px-1 flex-shrink-0"
+              className="text-gray-400 hover:text-gray-600 text-lg leading-none px-1 flex-shrink-0"
               aria-label="Dismiss"
             >
               ×

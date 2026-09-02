@@ -39,20 +39,22 @@
   --border-strong: var(--gray-300);
 
   /* Conversation state colors — fixed, not brand-dependent */
-  --state-bot:        #16a34a;
+  --state-bot:        #15803d;
   --state-bot-bg:     #f0fdf4;
   --state-bot-border: #bbf7d0;
   --state-bot-text:   #15803d;
 
-  --state-pending:        #d97706;
-  --state-pending-bg:     #fffbeb;
-  --state-pending-border: #fde68a;
-  --state-pending-text:   #b45309;
+  /* Pending: warm stone — not amber/orange */
+  --state-pending:        #78716c;
+  --state-pending-bg:     #fafaf9;
+  --state-pending-border: #e7e5e3;
+  --state-pending-text:   #44403c;
 
-  --state-human:        #2563eb;
-  --state-human-bg:     #eff6ff;
-  --state-human-border: #bfdbfe;
-  --state-human-text:   #1d4ed8;
+  /* Human: neutral slate — not indigo */
+  --state-human:        #475569;
+  --state-human-bg:     #f8fafc;
+  --state-human-border: #e2e8f0;
+  --state-human-text:   #334155;
 
   /* Feedback colors */
   --error:        #dc2626;
@@ -114,4 +116,34 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast:   120ms;
   --duration-normal: 200ms;
+}
+
+/* Dark mode — CSS variable overrides.
+   Applied when the user has toggled the theme (data-theme="dark") or when
+   the OS prefers dark and no explicit override is set.
+   Tailwind dark: variants are not wired yet; full component pass is a
+   separate task. The variables here drive the surfaces that already
+   reference them (chat-bg, surface-*, text-*, border). */
+[data-theme="dark"],
+:root:not([data-theme="light"]):is(.os-dark) {
+  color-scheme: dark;
+
+  --surface-page:    #0b141a;
+  --surface-panel:   #111b21;
+  --surface-raised:  #1f2c34;
+  --surface-sunken:  #0d1418;
+
+  --text-primary:    #e9edef;
+  --text-secondary:  #aebac1;
+  --text-muted:      #667781;
+  --text-disabled:   #374151;
+  --text-inverse:    #111b21;
+
+  --border:          #1e2a30;
+  --border-strong:   #2a3942;
+
+  --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.30);
+  --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.40), 0 1px 2px -1px rgba(0,0,0,0.30);
+  --shadow-md: 0 4px 8px -2px rgba(0,0,0,0.40), 0 2px 4px -2px rgba(0,0,0,0.30);
+  --shadow-lg: 0 12px 24px -4px rgba(0,0,0,0.50), 0 4px 8px -2px rgba(0,0,0,0.30);
 }

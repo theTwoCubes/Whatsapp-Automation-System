@@ -25,6 +25,16 @@ import { ChatRowSkeleton } from './components/ui/Skeleton.jsx';
 import Modal from './components/ui/Modal.jsx';
 import { useToast } from './components/ui/Toast.jsx';
 
+// Trigger a light haptic on native Android. Dynamic import so the web build
+// never tries to bundle @capacitor/haptics (resolved at runtime by the WebView).
+async function haptic(style = 'Light') {
+  if (!window.Capacitor?.isNativePlatform?.()) return;
+  try {
+    const { Haptics, ImpactStyle } = await import(/* @vite-ignore */ '@capacitor/haptics');
+    await Haptics.impact({ style: ImpactStyle[style] });
+  } catch { /* plugin not installed or unavailable */ }
+}
+
 // Module-scoped so the value persists across Console mount/unmount cycles
 // (e.g. when the agent navigates to Admin and back).
 let savedListScroll = 0;
@@ -215,11 +225,7 @@ function InboundAttachment({ message }) {
       <div className="relative h-24 overflow-hidden">
         <div
           className="absolute inset-0"
-          style={{
-            background: 'linear-gradient(135deg, #d9e5df 0%, #9fbdb1 45%, #6f8f83 100%)',
-            filter: 'blur(14px)',
-            transform: 'scale(1.2)',
-          }}
+          style={{ background: '#c4b5a0' }}
         />
         <div className="absolute inset-0 flex items-center justify-center">
           <button
@@ -306,6 +312,8 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [filter, setFilter]               = useState('all');
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
+  const [ptrDist, setPtrDist]             = useState(0);
+  const ptrStartY                         = useRef(null);
   const selectedRef                        = useRef(null);
   const toast                              = useToast();
 
@@ -641,7 +649,29 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
           role="list"
           ref={listScrollRef}
           onScroll={() => { listPosRef.current = listScrollRef.current?.scrollTop ?? 0; }}
+          onTouchStart={(e) => {
+            if (listScrollRef.current?.scrollTop === 0)
+              ptrStartY.current = e.touches[0].clientY;
+          }}
+          onTouchMove={(e) => {
+            if (ptrStartY.current === null) return;
+            const d = e.touches[0].clientY - ptrStartY.current;
+            if (d > 0) setPtrDist(Math.min(56, d * 0.45));
+          }}
+          onTouchEnd={() => {
+            if (ptrDist > 38) loadList(true);
+            ptrStartY.current = null;
+            setPtrDist(0);
+          }}
         >
+          {ptrDist > 0 && (
+            <div
+              className="flex items-end justify-center text-xs text-gray-400 overflow-hidden transition-[height] duration-150"
+              style={{ height: ptrDist }}
+            >
+              <span className="pb-1.5">{ptrDist > 38 ? 'Release to refresh' : 'Pull to refresh'}</span>
+            </div>
+          )}
           {loading && Array.from({ length: 6 }).map((_, i) => <ChatRowSkeleton key={i} />)}
           {!loading && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center h-40 text-sm text-gray-400 px-6 text-center">
@@ -723,8 +753,8 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
   // State-tinted left rail: amber for pending handoff, indigo while a human
   // is in the chat, transparent otherwise. Visible at a glance in a long list.
   const railColor =
-    c.state === 'pending' ? 'bg-amber-500' :
-    c.state === 'human'   ? 'bg-indigo-500' :
+    c.state === 'pending' ? 'bg-[var(--accent)]' :
+    c.state === 'human'   ? 'bg-slate-400' :
     'bg-transparent';
   return (
     <button
@@ -733,11 +763,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       aria-current={isActive ? 'true' : undefined}
       className={`
         relative w-full flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 md:py-4 border-b border-gray-100 text-left transition-colors duration-100 cursor-pointer
-        ${isActive
-          ? 'bg-gray-100'
-          : c.state === 'pending'
-            ? 'bg-amber-50/50 hover:bg-amber-50'
-            : 'hover:bg-gray-50'}
+        ${isActive ? 'bg-gray-100' : 'hover:bg-gray-50'}
       `}
     >
       <span aria-hidden="true" className={`absolute left-0 top-0 bottom-0 w-1 ${railColor}`} />
@@ -760,14 +786,14 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
           </span>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {c.state === 'human' && (
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full">You</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full">You</span>
             )}
             {c.unread_count > 0 ? (
-              <span className="min-w-[22px] h-[22px] rounded-full flex items-center justify-center bg-amber-500 text-white text-xs font-bold px-1.5" aria-label={`${c.unread_count} unread`}>
+              <span className="min-w-[22px] h-[22px] rounded-full flex items-center justify-center text-white text-xs font-bold px-1.5" style={{ background: 'var(--accent)' }} aria-label={`${c.unread_count} unread`}>
                 {c.unread_count}
               </span>
             ) : c.state === 'pending' ? (
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" aria-label="Needs attention" />
+              <span className="w-2.5 h-2.5 rounded-full bg-stone-400" aria-label="Needs attention" />
             ) : null}
           </div>
         </div>
@@ -896,9 +922,9 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         </ContextRow>
         <ContextRow label="Started"><span className="text-sm font-medium text-gray-700">{daysSince(c.created_at)}</span></ContextRow>
         {c.handoff_reason && (
-          <div className="flex flex-col gap-1 bg-amber-50 rounded-lg px-3 py-2">
-            <span className="text-xs font-semibold text-amber-700">Reason flagged</span>
-            <span className="text-xs text-amber-800 italic">"{c.handoff_reason}"</span>
+          <div className="flex flex-col gap-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <span className="text-xs font-semibold text-gray-600">Reason flagged</span>
+            <span className="text-xs text-gray-700 italic">"{c.handoff_reason}"</span>
           </div>
         )}
       </div>
@@ -1174,6 +1200,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
 
   const send = () => {
     if (!text.trim()) return;
+    haptic('Light');
     const replyWamid = replyTo?.wa_message_id || null;
     act(() => api.send(conversation.id, text.trim(), replyWamid), 'Message sent');
     setReplyTo(null);
@@ -1208,8 +1235,8 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
     <div className="flex flex-col flex-1 min-h-0">
       {/* WS offline indicator */}
       {wsOffline && (
-        <div className="flex items-center justify-center gap-2 bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-xs py-1.5 px-4">
-          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+        <div className="flex items-center justify-center gap-2 bg-gray-900 text-gray-200 text-xs py-1.5 px-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
           Reconnecting...
         </div>
       )}
