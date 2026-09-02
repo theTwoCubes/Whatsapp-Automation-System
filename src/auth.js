@@ -1,5 +1,5 @@
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
-import { getAgentByEmail, createAgent } from './db/repo.js';
+import { getAgentByEmail, createAgent, setAgentRole } from './db/repo.js';
 
 // Passwords are stored as salt:hash using scrypt, no external dependency.
 export function hashPassword(password) {
@@ -20,11 +20,19 @@ export function verifyPassword(password, stored) {
 export async function seedAdmin(pool, config, log) {
   if (!config.adminEmail || !config.adminPassword) return;
   const existing = await getAgentByEmail(pool, config.adminEmail);
-  if (existing) return;
-  await createAgent(pool, {
-    email: config.adminEmail,
-    name: 'Admin',
-    passwordHash: hashPassword(config.adminPassword),
-  });
-  log.info({ email: config.adminEmail }, 'seeded admin agent');
+  if (!existing) {
+    await createAgent(pool, {
+      email: config.adminEmail,
+      name: 'Admin',
+      passwordHash: hashPassword(config.adminPassword),
+      role: 'admin',
+    });
+    log.info({ email: config.adminEmail }, 'seeded admin agent');
+    return;
+  }
+  // The seed account is always an admin, in case someone downgraded it.
+  if (existing.role !== 'admin') {
+    await setAgentRole(pool, config.adminEmail, 'admin');
+    log.info({ email: config.adminEmail }, 're-promoted seed account to admin');
+  }
 }

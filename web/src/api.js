@@ -21,6 +21,20 @@ export function getAgentEmail() {
   }
 }
 
+// Reads the role claim baked into the JWT so the shell can hide admin-only
+// nav from an ordinary agent. The server is still the source of truth: it
+// returns 403 on any admin route regardless of what the JWT claims.
+export function getAgentRole() {
+  try {
+    const token = getToken();
+    if (!token) return null;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.role || 'admin';
+  } catch {
+    return null;
+  }
+}
+
 async function req(path, opts = {}) {
   const token = getToken();
   const res = await fetch(`/api${path}`, {
@@ -36,7 +50,15 @@ async function req(path, opts = {}) {
     throw new Error('unauthorized');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'request failed');
+  if (!res.ok) {
+    // Attach the server's code and status so callers can react to specific
+    // conditions (e.g. an assignment conflict prompts a confirm dialog).
+    const err = new Error(data.error || 'request failed');
+    err.status = res.status;
+    err.code = data.code;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -51,7 +73,8 @@ export const api = {
   conversation: (id) => req(`/conversations/${id}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),
-  takeover: (id) => req(`/conversations/${id}/takeover`, { method: 'POST' }),
+  takeover: (id, override = false) =>
+    req(`/conversations/${id}/takeover`, { method: 'POST', body: JSON.stringify({ override }) }),
   handback: (id) => req(`/conversations/${id}/handback`, { method: 'POST' }),
   acceptHandoff: (id) => req(`/conversations/${id}/accept`, { method: 'POST' }),
   rejectHandoff: (id) => req(`/conversations/${id}/reject`, { method: 'POST' }),
@@ -106,6 +129,7 @@ export const api = {
   pushUnsubscribe: (endpoint) => req('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
   pushStatus: () => req('/push/status'),
   pushTest: () => req('/push/test', { method: 'POST' }),
+  wsTicket: () => req('/ws-ticket', { method: 'POST' }),
   notifications: () => req('/notifications'),
   markNotificationRead: (id) => req(`/notifications/${id}/read`, { method: 'POST' }),
   markAllNotificationsRead: () => req('/notifications/read-all', { method: 'POST' }),

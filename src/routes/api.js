@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { verifyPassword, hashPassword } from '../auth.js';
 import { handToHuman, handToBot } from '../handoff.js';
 import {
@@ -44,6 +45,7 @@ import {
   listAgents,
   createAgent,
   deleteAgent,
+  setAgentRole,
   overview,
   campaignStats,
   linkCampaignTopic,
@@ -102,6 +104,9 @@ function bodyComponents(params) {
 export function registerApi(app, deps) {
   const { pool, meta, realtime } = deps;
   const loginLimiter = createRateLimiter({ max: 8, windowMs: 60000 });
+  // Per-agent write throttle so a runaway client (or a stolen token) cannot
+  // hammer the DB. Reads are not counted; only mutating requests are.
+  const writeLimiter = createRateLimiter({ max: 120, windowMs: 60000 });
 
   const auth = async (req, reply) => {
     try {
@@ -110,6 +115,48 @@ export function registerApi(app, deps) {
       return reply.code(401).send({ error: 'unauthorized' });
     }
   };
+
+  // Only lets a caller through when the JWT says role=admin. Used to gate
+  // Settings, Team, Knowledge, Templates and Audit — anything an ordinary
+  // agent should not be able to change.
+  const requireAdmin = async (req, reply) => {
+    if (req.user?.role !== 'admin') {
+      return reply.code(403).send({ error: 'admin only' });
+    }
+  };
+  const adminAuth = [auth, requireAdmin];
+
+  // Per-token+IP write rate limit. Attached as a preHandler on write routes.
+  const writeLimit = async (req, reply) => {
+    const key = `${req.user?.email || 'anon'}@${req.ip}`;
+    const gate = writeLimiter(key);
+    if (!gate.ok) {
+      return reply.code(429).send({ error: 'too many requests, slow down', retryAfter: gate.retryAfter });
+    }
+  };
+
+  // Short-lived tickets for the websocket. Browsers cannot set auth headers on
+  // ws:// upgrades, and passing a bearer JWT in the URL means the token ends
+  // up in access logs and browser history. We hand out one-use tickets that
+  // expire in 30 seconds instead.
+  const wsTickets = new Map();
+  const issueWsTicket = (email) => {
+    const ticket = randomBytes(24).toString('hex');
+    wsTickets.set(ticket, { email, expires: Date.now() + 30_000 });
+    return ticket;
+  };
+  const consumeWsTicket = (ticket) => {
+    const row = wsTickets.get(ticket);
+    if (!row) return null;
+    wsTickets.delete(ticket);
+    if (Date.now() > row.expires) return null;
+    return row;
+  };
+  // Sweep expired tickets so the map does not grow.
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of wsTickets) if (now > v.expires) wsTickets.delete(k);
+  }, 60_000).unref?.();
 
   // Records who did what, best effort so it never blocks the action.
   const audit = (req, action, target, detail) =>
@@ -127,7 +174,19 @@ export function registerApi(app, deps) {
     return Promise.all([handToHuman(pool, conversation.id, email), cancelDrips(pool, conversation.id)]);
   };
 
-  app.post('/api/login', async (req, reply) => {
+  app.post('/api/login', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          email: { type: 'string', minLength: 3, maxLength: 254 },
+          password: { type: 'string', minLength: 1, maxLength: 200 },
+        },
+        required: ['email', 'password'],
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
     const limit = loginLimiter(req.ip);
     if (!limit.ok) {
       return reply.code(429).send({ error: 'too many attempts, try again shortly', retryAfter: limit.retryAfter });
@@ -137,8 +196,16 @@ export function registerApi(app, deps) {
     if (!agent || !verifyPassword(password ?? '', agent.password_hash)) {
       return reply.code(401).send({ error: 'invalid email or password' });
     }
-    const token = app.jwt.sign({ id: agent.id, email: agent.email }, { expiresIn: '12h' });
-    return { token, agent: { id: agent.id, email: agent.email, name: agent.name } };
+    const role = agent.role === 'agent' ? 'agent' : 'admin';
+    const token = app.jwt.sign({ id: agent.id, email: agent.email, role }, { expiresIn: '12h' });
+    return { token, agent: { id: agent.id, email: agent.email, name: agent.name, role } };
+  });
+
+  // Exchange the auth header for a short-lived ticket the websocket can use.
+  // The ticket goes on the ws URL, so it stays out of the browser's stored
+  // JWT and rotates on every reconnect.
+  app.post('/api/ws-ticket', { preHandler: auth }, async (req) => {
+    return { ticket: issueWsTicket(req.user.email) };
   });
 
   app.get('/api/conversations', { preHandler: auth }, async (req) => ({
@@ -233,7 +300,23 @@ export function registerApi(app, deps) {
     return { messages, hasMore };
   });
 
-  app.post('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/messages', {
+    preHandler: [auth, writeLimit],
+    schema: {
+      ...idParams,
+      body: {
+        type: 'object',
+        properties: {
+          // WhatsApp caps text at 4096 chars; anything longer would be rejected
+          // downstream anyway.
+          body: { type: 'string', minLength: 1, maxLength: 4096 },
+          replyTo: { type: ['string', 'null'], maxLength: 128 },
+        },
+        required: ['body'],
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
     const body = (req.body?.body ?? '').trim();
     if (!body) return reply.code(400).send({ error: 'body is required' });
     const conversation = await getConversationById(pool, req.params.id);
@@ -271,7 +354,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/conversations/:id/template', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/template', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const name = (req.body?.name ?? '').trim();
     if (!name) return reply.code(400).send({ error: 'template name is required' });
     const conversation = await getConversationById(pool, req.params.id);
@@ -301,10 +384,23 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/conversations/:id/takeover', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/conversations/:id/takeover', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
+    // If a different agent is already in this chat, refuse unless the caller
+    // explicitly says to override. Prevents two agents from silently stomping
+    // on each other's replies.
+    const current = await getConversationById(pool, req.params.id);
+    if (!current) return reply.code(404).send({ error: 'not found' });
+    if (current.state === 'human' && current.assignee && current.assignee !== req.user.email && !req.body?.override) {
+      return reply.code(409).send({
+        error: `${current.assignee} is already in this chat. Pass override to take it anyway.`,
+        code: 'already_assigned',
+        assignee: current.assignee,
+      });
+    }
     await handToHuman(pool, req.params.id, req.user.email);
     await cancelDrips(pool, req.params.id);
-    await audit(req, 'takeover', `conversation ${req.params.id}`);
+    await audit(req, current.assignee && current.assignee !== req.user.email ? 'takeover (override)' : 'takeover',
+      `conversation ${req.params.id}`, current.assignee || null);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
@@ -345,7 +441,7 @@ export function registerApi(app, deps) {
   app.get('/api/templates', { preHandler: auth }, async () => ({ templates: await listTemplates(pool) }));
 
   // Pulls the latest approved templates from Meta so the console list is current.
-  app.post('/api/templates/sync', { preHandler: auth }, async (_req, reply) => {
+  app.post('/api/templates/sync', { preHandler: adminAuth }, async (_req, reply) => {
     try {
       const templates = await meta.fetchTemplates();
       await syncTemplates(pool, templates);
@@ -364,7 +460,7 @@ export function registerApi(app, deps) {
 
   // Links a campaign to a knowledge Topic, so replies for that campaign's
   // leads get boosted toward the right service pack.
-  app.put('/api/campaigns/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.put('/api/campaigns/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     await linkCampaignTopic(pool, req.params.id, topicId);
     await audit(req, 'campaign topic linked', `campaign ${req.params.id}`);
@@ -376,7 +472,7 @@ export function registerApi(app, deps) {
     settings: await getEditableSettings(pool, deps.config),
   }));
 
-  app.put('/api/settings', { preHandler: auth }, async (req) => {
+  app.put('/api/settings', { preHandler: adminAuth }, async (req) => {
     const entries = {};
     for (const key of editableKeys) {
       if (req.body && key in req.body) entries[key] = req.body[key];
@@ -387,7 +483,7 @@ export function registerApi(app, deps) {
     return { settings: await getEditableSettings(pool, deps.config) };
   });
 
-  app.get('/api/audit', { preHandler: auth }, async () => ({ audit: await listAudit(pool, 150) }));
+  app.get('/api/audit', { preHandler: adminAuth }, async () => ({ audit: await listAudit(pool, 150) }));
 
   // Public branding for the console shell, no auth so the login page can theme.
   app.get('/api/branding', async () => ({ branding: await getBranding(pool, deps.config) }));
@@ -476,7 +572,7 @@ export function registerApi(app, deps) {
   });
 
   // Create a template from the console. It still needs Meta approval before use.
-  app.post('/api/templates/create', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/templates/create', { preHandler: adminAuth }, async (req, reply) => {
     const name = (req.body?.name ?? '').trim();
     const bodyText = (req.body?.bodyText ?? '').trim();
     if (!name || !bodyText) return reply.code(400).send({ error: 'name and body are required' });
@@ -519,7 +615,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.put('/api/profile', { preHandler: auth }, async (req, reply) => {
+  app.put('/api/profile', { preHandler: adminAuth }, async (req, reply) => {
     const allowed = ['about', 'address', 'description', 'email', 'vertical', 'websites'];
     const fields = {};
     for (const key of allowed) {
@@ -546,7 +642,7 @@ export function registerApi(app, deps) {
     return { faqs: await listFaqs(pool, { pack }) };
   });
 
-  app.post('/api/faqs', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs', { preHandler: adminAuth }, async (req, reply) => {
     try {
       const faq = await createFaq(
         pool,
@@ -567,7 +663,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.put('/api/faqs/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.put('/api/faqs/:id', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
     const fields = {};
     for (const key of ['question', 'answer', 'verbatim', 'pinned', 'active']) {
       if (req.body && key in req.body) fields[key] = req.body[key];
@@ -591,7 +687,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.delete('/api/faqs/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.delete('/api/faqs/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     await deleteFaq(pool, req.params.id);
     await audit(req, 'faq deleted', `faq ${req.params.id}`);
     return { ok: true };
@@ -606,7 +702,7 @@ export function registerApi(app, deps) {
 
   // Bulk activate, deactivate or delete. Wrapped in a transaction inside so a
   // partial success cannot leave the list mid update.
-  app.post('/api/faqs/bulk', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs/bulk', { preHandler: adminAuth }, async (req, reply) => {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
     const action = req.body?.action;
     if (ids.length === 0) return reply.code(400).send({ error: 'ids are required' });
@@ -667,7 +763,7 @@ export function registerApi(app, deps) {
     return { exported_at: new Date().toISOString(), packs: out };
   });
 
-  app.post('/api/faqs/reorder', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs/reorder', { preHandler: adminAuth }, async (req, reply) => {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
     if (ids.length === 0) return reply.code(400).send({ error: 'ids are required' });
     await reorderFaqs(pool, ids);
@@ -679,7 +775,7 @@ export function registerApi(app, deps) {
     versions: await listFaqVersions(pool, req.params.id),
   }));
 
-  app.post('/api/faqs/versions/:id/rollback', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/faqs/versions/:id/rollback', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
     try {
       const faq = await rollbackFaq(pool, req.params.id, req.user.email);
       await audit(req, 'faq rolled back', `faq ${faq.id}`, `to version ${req.params.id}`);
@@ -694,7 +790,7 @@ export function registerApi(app, deps) {
   // Topics.
   app.get('/api/topics', { preHandler: auth }, async () => ({ topics: await listTopics(pool) }));
 
-  app.post('/api/topics', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/topics', { preHandler: adminAuth }, async (req, reply) => {
     const name = (req.body?.name ?? '').trim();
     const slug = (req.body?.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     const description = (req.body?.description ?? '').trim() || null;
@@ -705,7 +801,7 @@ export function registerApi(app, deps) {
     return { topic };
   });
 
-  app.put('/api/topics/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.put('/api/topics/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     const fields = {};
     if (req.body && 'name' in req.body) fields.name = req.body.name;
     if (req.body && 'description' in req.body) fields.description = req.body.description ?? null;
@@ -716,7 +812,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.delete('/api/topics/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.delete('/api/topics/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     const result = await deleteTopic(pool, req.params.id);
     await audit(req, 'pack deleted', `topic ${req.params.id}`);
     return { ok: true, movedFaqs: result.movedFaqs };
@@ -724,7 +820,7 @@ export function registerApi(app, deps) {
 
   // Runs the refinement pass on demand instead of waiting for the weekly
   // schedule. Everything it finds lands as a proposal the client reviews.
-  app.post('/api/faqs/refine', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs/refine', { preHandler: adminAuth }, async (req, reply) => {
     try {
       const res = await runWeeklyRefinement(pool, deps.ai);
       await audit(req, 'refinement pass run', null,
@@ -746,7 +842,7 @@ export function registerApi(app, deps) {
   // Approving a gap proposal creates a real FAQ from it. Anything the client
   // edits before hitting approve is what actually gets stored, so the model's
   // draft is a starting point rather than a commitment.
-  app.post('/api/faqs/proposals/:id/approve', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/faqs/proposals/:id/approve', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
     const question = (req.body?.question ?? '').trim();
     const answer = (req.body?.answer ?? '').trim();
     const topicId = req.body?.topicId !== undefined
@@ -776,7 +872,7 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.post('/api/faqs/proposals/:id/dismiss', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/faqs/proposals/:id/dismiss', { preHandler: adminAuth, schema: idParams }, async (req) => {
     await dismissProposal(pool, req.params.id, req.user.email);
     await audit(req, 'proposal dismissed', `proposal ${req.params.id}`);
     return { ok: true };
@@ -784,7 +880,7 @@ export function registerApi(app, deps) {
 
   // Bulk import: paste an FAQ document or raw notes and split it into entries
   // in a pack. Duplicates are skipped by comparing the question text.
-  app.post('/api/faqs/import', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs/import', { preHandler: adminAuth }, async (req, reply) => {
     const text = (req.body?.text ?? '').trim();
     const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     if (!text) return reply.code(400).send({ error: 'text is required' });
@@ -800,18 +896,40 @@ export function registerApi(app, deps) {
   // Console agents.
   app.get('/api/agents', { preHandler: auth }, async () => ({ agents: await listAgents(pool) }));
 
-  app.post('/api/agents', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/agents', { preHandler: adminAuth }, async (req, reply) => {
     const email = (req.body?.email ?? '').trim().toLowerCase();
     const password = req.body?.password ?? '';
     if (!email || password.length < 6) {
       return reply.code(400).send({ error: 'email and a password of at least 6 characters are required' });
     }
-    await createAgent(pool, { email, name: req.body?.name ?? null, passwordHash: hashPassword(password) });
-    await audit(req, 'agent added', email);
+    const role = req.body?.role === 'agent' ? 'agent' : 'admin';
+    await createAgent(pool, { email, name: req.body?.name ?? null, passwordHash: hashPassword(password), role });
+    await audit(req, 'agent added', email, `role=${role}`);
     return { ok: true };
   });
 
-  app.delete('/api/agents/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.put('/api/agents/:id/role', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
+    const role = req.body?.role;
+    if (role !== 'admin' && role !== 'agent') {
+      return reply.code(400).send({ error: 'role must be admin or agent' });
+    }
+    // Look the agent up to know the email (role setter is keyed by email).
+    const rows = (await pool.query('select email from agents where id = $1', [req.params.id])).rows;
+    if (rows.length === 0) return reply.code(404).send({ error: 'not found' });
+    // Guard: never let the last admin be demoted.
+    if (role === 'agent') {
+      const admins = (await pool.query("select count(*)::int as n from agents where role = 'admin'")).rows[0].n;
+      const current = (await pool.query('select role from agents where id = $1', [req.params.id])).rows[0]?.role;
+      if (current === 'admin' && admins <= 1) {
+        return reply.code(409).send({ error: 'cannot demote the last admin' });
+      }
+    }
+    await setAgentRole(pool, rows[0].email, role);
+    await audit(req, 'agent role changed', `agent ${req.params.id}`, `role=${role}`);
+    return { ok: true };
+  });
+
+  app.delete('/api/agents/:id', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
     if (String(req.user.id) === String(req.params.id)) {
       return reply.code(400).send({ error: 'you cannot remove your own login' });
     }
@@ -827,7 +945,7 @@ export function registerApi(app, deps) {
     return { media: await listMediaAssets(pool, { topicId }) };
   });
 
-  app.post('/api/media', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/media', { preHandler: adminAuth }, async (req, reply) => {
     let file = null;
     let topicId = null;
     let description = null;
@@ -864,13 +982,13 @@ export function registerApi(app, deps) {
     }
   });
 
-  app.delete('/api/media/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.delete('/api/media/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     await deleteMediaAsset(pool, req.params.id);
     await audit(req, 'media removed', `asset ${req.params.id}`);
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/media', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     if (!windowOpen(conversation)) {
@@ -905,16 +1023,20 @@ export function registerApi(app, deps) {
     }
   });
 
-  // Live updates. The token comes in as a query param since a browser websocket
-  // cannot set an auth header.
+  // Live updates. Prefers a short-lived ticket (issued from /api/ws-ticket
+  // over an authenticated request), falling back to a JWT for older clients.
+  // Tickets are one-use and expire in 30s, so they never leak the way a raw
+  // JWT in the URL would.
   app.get('/api/stream', { websocket: true }, (socket, req) => {
+    const ticket = req.query?.ticket;
     const token = req.query?.token;
-    try {
-      app.jwt.verify(token);
-    } catch {
-      socket.close();
-      return;
+    let ok = false;
+    if (ticket && consumeWsTicket(ticket)) {
+      ok = true;
+    } else if (token) {
+      try { app.jwt.verify(token); ok = true; } catch { /* fall through */ }
     }
+    if (!ok) { socket.close(); return; }
     realtime.add(socket);
   });
 }

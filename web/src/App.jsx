@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, clearToken, getToken, getAgentEmail } from './api.js';
+import { api, clearToken, getToken, getAgentEmail, getAgentRole } from './api.js';
 import { BrandContext } from './brand.js';
 import { ToastProvider, useToast } from './components/ui/Toast.jsx';
 import Sidebar, { PushPill } from './components/layout/Sidebar.jsx';
@@ -215,7 +215,10 @@ export default function App() {
   }
 
   const adminViews = ['dashboard', 'knowledge', 'followups', 'setup', 'team'];
-  const isAdmin    = adminViews.includes(view);
+  const isAdminUser = getAgentRole() === 'admin';
+  // Only render the admin surface when the current view is admin AND the
+  // caller is allowed there. A stray non-admin URL falls back silently.
+  const isAdmin = isAdminUser && adminViews.includes(view);
   // Show banner only on web (not Capacitor), and only when on conversations view
   const showBanner = !isCapacitor() && pushState === 'default' && pushAvailable() && !threadOpen;
 

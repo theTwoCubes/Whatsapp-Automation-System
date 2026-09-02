@@ -39,6 +39,25 @@ const alertedPendingIds = new Set();
 // carrying an updated status replaces the stale one), then sorts ascending by
 // the same key the server pages on. Lets a refresh keep older pages the agent
 // scrolled up to load instead of throwing them away.
+// Takes over a chat, and if the server says a different agent already has it
+// (409 already_assigned), asks the caller to confirm before retrying with
+// override. Named so it can be reused from both the details drawer and the
+// thread header.
+async function takeoverWithConfirm(conversationId) {
+  try {
+    return await api.takeover(conversationId);
+  } catch (err) {
+    if (err?.code === 'already_assigned') {
+      const who = err.data?.assignee || 'another agent';
+      if (window.confirm(`${who} is already in this chat. Take over anyway?`)) {
+        return api.takeover(conversationId, true);
+      }
+      throw new Error('takeover cancelled');
+    }
+    throw err;
+  }
+}
+
 function mergeMessages(a, b) {
   const byId = new Map();
   for (const m of a) byId.set(m.id, m);
@@ -438,9 +457,22 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   useEffect(() => {
     let delay = 1000;
     let ws;
-    function connect() {
+    let cancelled = false;
+    async function connect() {
+      if (cancelled) return;
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/api/stream?token=${getToken()}`);
+      // Prefer a short-lived ticket so the JWT never lands in the URL, which
+      // would leak into access logs and browser history. Fall back to the raw
+      // token during rollout if the server has not yet been upgraded.
+      let query;
+      try {
+        const { ticket } = await api.wsTicket();
+        query = `ticket=${encodeURIComponent(ticket)}`;
+      } catch {
+        query = `token=${encodeURIComponent(getToken() || '')}`;
+      }
+      if (cancelled) return;
+      ws = new WebSocket(`${proto}://${location.host}/api/stream?${query}`);
       ws.onopen = () => { setWsOffline(false); delay = 1000; };
       ws.onmessage = (ev) => {
         let msg = null;
@@ -475,7 +507,12 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       };
     }
     connect();
-    return () => { clearTimeout(wsRetryRef.current); clearTimeout(reloadTimerRef.current); ws?.close(); };
+    return () => {
+      cancelled = true;
+      clearTimeout(wsRetryRef.current);
+      clearTimeout(reloadTimerRef.current);
+      ws?.close();
+    };
   }, [scheduleReload]);
 
   const filtered = useMemo(() => {
@@ -920,7 +957,7 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         )}
         {isBot && (
           <Button variant="secondary" size="lg" className="w-full justify-center"
-            onClick={() => act(() => api.takeover(c.id), 'You have taken over this conversation')}>
+            onClick={() => act(() => takeoverWithConfirm(c.id), 'You have taken over this conversation')}>
             Take over
           </Button>
         )}
@@ -1238,7 +1275,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
           )}
           {!isHuman && !isPending && (
             <Button variant="secondary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
-              onClick={() => act(() => api.takeover(conversation.id), 'You have taken over this conversation')}>
+              onClick={() => act(() => takeoverWithConfirm(conversation.id), 'You have taken over this conversation')}>
               <span className="hidden sm:inline">Take over</span>
               <UserRound size={16} className="sm:hidden" aria-label="Take over" />
             </Button>

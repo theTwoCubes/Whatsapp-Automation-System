@@ -4,6 +4,7 @@ import {
   Bell, BellOff,
 } from 'lucide-react';
 import { BrandContext } from '../../brand.js';
+import { getAgentRole } from '../../api.js';
 import Avatar from '../ui/Avatar.jsx';
 import NotificationBell from './NotificationBell.jsx';
 
@@ -74,6 +75,13 @@ export default function Sidebar({
   const brand     = useContext(BrandContext);
   const brandName = brand?.name || 'Console';
   const initials  = brandName.slice(0, 2).toUpperCase();
+  const role      = getAgentRole();
+  // Hide the whole Admin section from non-admin agents. The server rejects
+  // admin routes with 403 either way; this just keeps the nav honest.
+  const adminKeys = new Set(['dashboard', 'knowledge', 'followups', 'setup', 'team']);
+  const nav = role === 'admin'
+    ? NAV
+    : NAV.filter((it) => !(it.section === 'Admin' || adminKeys.has(it.key)));
 
   return (
     <>
@@ -118,7 +126,7 @@ export default function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 flex flex-col gap-1 px-3">
-        {NAV.map((item, idx) => {
+        {nav.map((item, idx) => {
           // Section label
           if (item.section !== undefined && !item.key) {
             return (

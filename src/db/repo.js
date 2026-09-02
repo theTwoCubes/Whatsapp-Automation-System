@@ -283,15 +283,24 @@ export async function markDrip(pool, id, status) {
 // Console side reads and writes.
 
 export async function getAgentByEmail(pool, email) {
-  const res = await pool.query('select id, email, name, password_hash from agents where email = $1', [email]);
+  const res = await pool.query('select id, email, name, password_hash, role from agents where email = $1', [email]);
   return res.rows[0] ?? null;
 }
 
 export async function createAgent(pool, a) {
+  const role = a.role === 'agent' ? 'agent' : 'admin';
   await pool.query(
-    'insert into agents (email, name, password_hash) values ($1, $2, $3) on conflict (email) do nothing',
-    [a.email, a.name ?? null, a.passwordHash],
+    'insert into agents (email, name, password_hash, role) values ($1, $2, $3, $4) on conflict (email) do nothing',
+    [a.email, a.name ?? null, a.passwordHash, role],
   );
+}
+
+// Promote or demote an agent. Used both by the admin console and by the boot
+// seed to make sure the ADMIN_EMAIL account is always admin, even if it was
+// previously downgraded.
+export async function setAgentRole(pool, email, role) {
+  if (role !== 'admin' && role !== 'agent') throw new Error('unknown role');
+  await pool.query('update agents set role = $2 where email = $1', [email, role]);
 }
 
 export async function listConversations(pool, { includeArchived = false } = {}) {
@@ -505,7 +514,7 @@ export async function setSettings(pool, entries) {
 }
 
 export async function listAgents(pool) {
-  return (await pool.query('select id, email, name, created_at from agents order by id')).rows;
+  return (await pool.query('select id, email, name, role, created_at from agents order by id')).rows;
 }
 
 export async function deleteAgent(pool, id) {
