@@ -90,11 +90,11 @@ function SimulatorModal({ packs, onClose }) {
             <div className="px-4 py-4">
               {result.decision ? (
                 result.decision.handoff ? (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-                    <strong className="text-amber-800">Would hand off to a team member.</strong>
-                    <div className="mt-1 text-amber-700">Reason: {result.decision.reason || 'not given'}</div>
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    <strong className="text-gray-800">Would hand off to a team member.</strong>
+                    <div className="mt-1 text-gray-600">Reason: {result.decision.reason || 'not given'}</div>
                     {result.decision.reply && (
-                      <div className="mt-1 text-amber-700 italic">Holding message: "{result.decision.reply}"</div>
+                      <div className="mt-1 text-gray-600 italic">Holding message: "{result.decision.reply}"</div>
                     )}
                   </div>
                 ) : (

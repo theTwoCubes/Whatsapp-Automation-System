@@ -296,7 +296,7 @@ function Ticks({ status }) {
   if (status === 'delivered')
     return <span className="text-white inline-flex"><CheckCheck size={16} /></span>;
   if (status === 'read')
-    return <span className="text-red-500 inline-flex"><CheckCheck size={16} /></span>;
+    return <span className="text-[#53bdeb] inline-flex"><CheckCheck size={16} /></span>;
   if (status === 'failed')
     return <span className="text-red-500 inline-flex" title="Failed to send"><AlertCircle size={16} /></span>;
   return null;
@@ -750,7 +750,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
 function ConversationRow({ conversation: c, isActive, onSelect }) {
   const alias = useAlias(c.wa_id);
   const name = alias || c.name || c.wa_id;
-  // State-tinted left rail: amber for pending handoff, indigo while a human
+  // State-tinted left rail: accent for pending handoff, slate while a human
   // is in the chat, transparent otherwise. Visible at a glance in a long list.
   const railColor =
     c.state === 'pending' ? 'bg-[var(--accent)]' :
@@ -772,7 +772,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
         <div className="flex items-center justify-between gap-2 mb-1">
           <span className="text-base md:text-lg font-bold text-gray-900 truncate flex items-center gap-1.5">
             {c.blocked_at && <ShieldBan size={12} className="text-red-500 flex-shrink-0" aria-label="Blocked" />}
-            {c.pinned_at && <Pin size={12} className="text-amber-600 flex-shrink-0" aria-label="Pinned" />}
+            {c.pinned_at && <Pin size={12} className="text-gray-400 flex-shrink-0" aria-label="Pinned" />}
             <span className="truncate">{name}</span>
           </span>
           <span className="flex items-center gap-1 text-xs md:text-base font-medium text-gray-400 flex-shrink-0">
