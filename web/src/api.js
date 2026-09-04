@@ -70,6 +70,7 @@ export const api = {
   muteConversation: (id, hours) => req(`/conversations/${id}/mute`, { method: 'POST', body: JSON.stringify({ hours }) }),
   blockConversation: (id, on) => req(`/conversations/${id}/block`, { method: 'POST', body: JSON.stringify({ on }) }),
   deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
+  clearChat: (id) => req(`/conversations/${id}/clear`, { method: 'POST' }),
   conversation: (id) => req(`/conversations/${id}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),

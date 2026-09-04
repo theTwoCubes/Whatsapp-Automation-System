@@ -33,6 +33,7 @@ import {
   muteConversation,
   setConversationBlocked,
   softDeleteConversation,
+  clearChat,
   getConversationById,
   getConversationMessages,
   listTemplates,
@@ -267,6 +268,15 @@ export function registerApi(app, deps) {
     await cancelDrips(pool, req.params.id);
     await audit(req, 'delete', `conversation ${req.params.id}`, conversation.wa_id);
     realtime.emit({ type: 'refresh' });
+    return { ok: true };
+  });
+
+  app.post('/api/conversations/:id/clear', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    await clearChat(pool, req.params.id);
+    await audit(req, 'clear', `conversation ${req.params.id}`, conversation.wa_id);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });
 

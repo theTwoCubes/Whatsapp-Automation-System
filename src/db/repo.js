@@ -196,6 +196,7 @@ export async function getConversationHistory(pool, conversationId, limit = 12) {
   const res = await pool.query(
     `select direction, body from messages
      where conversation_id = $1 and body is not null
+       and created_at > coalesce((select cleared_at from conversations where id = $1), '1970-01-01')
      order by created_at desc, id desc
      limit $2`,
     [conversationId, limit],
@@ -210,7 +211,8 @@ export async function getConversationContext(pool, conversationId) {
   const res = await pool.query(
     `select ct.name as contact_name, c.created_at,
             t.name as topic_name,
-            (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound') as turn_count
+            (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
+             and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
@@ -365,11 +367,18 @@ export async function setConversationBlocked(pool, conversationId, blocked) {
   );
 }
 
+export async function clearChat(pool, conversationId) {
+  await pool.query(
+    `update conversations set cleared_at = now(), updated_at = now() where id = $1`,
+    [conversationId],
+  );
+}
+
 // Soft delete. Row stays for 30 days so a misclick can be undone, then a
-// nightly job removes it for good.
+// nightly job removes it for good. Also clears the chat history marker.
 export async function softDeleteConversation(pool, conversationId) {
   await pool.query(
-    `update conversations set deleted_at = now(), state = 'bot', assignee = null, handoff_reason = null,
+    `update conversations set deleted_at = now(), cleared_at = now(), state = 'bot', assignee = null, handoff_reason = null,
      blocked_at = null, archived_at = null, pinned_at = null, updated_at = now() where id = $1`,
     [conversationId],
   );
@@ -447,6 +456,7 @@ export async function getConversationMessages(pool, id, { limit = 50, beforeId =
             ) as media_mime
      from messages
      where conversation_id = $1
+       and created_at > coalesce((select cleared_at from conversations where id = $1), '1970-01-01')
        and ($2::bigint is null or
             (coalesce(sent_at, created_at), id) <
             (select coalesce(sent_at, created_at), id from messages where id = $2))

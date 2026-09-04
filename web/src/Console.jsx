@@ -8,7 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2, Reply,
+  ShieldBan, ShieldCheck, Trash2, Reply, Eraser,
 } from 'lucide-react';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
@@ -1091,6 +1091,13 @@ function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
           const verb = blocked ? 'Unblock' : 'Block';
           if (window.confirm(`${verb} this contact?${blocked ? '' : ' The bot will stop replying to them.'}`)) {
             act(() => api.blockConversation(conversation.id, !blocked), blocked ? 'Unblocked' : 'Blocked');
+          }
+        }} />
+      <Item icon={Eraser} label="Clear chat"
+        onClick={async () => {
+          setOpen(false);
+          if (window.confirm('Clear all messages? The chat stays but the AI starts fresh.')) {
+            await act(() => api.clearChat(conversation.id), 'Chat cleared');
           }
         }} />
       <Item icon={Trash2} label="Delete chat" danger
