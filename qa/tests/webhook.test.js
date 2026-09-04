@@ -79,18 +79,23 @@ test('rapid fire messages in the same conversation are coalesced into one ai cal
 });
 
 test('asking for a human queues the conversation and stops the bot', async () => {
-  const d = deps();
+  const ai = new FakeAi(
+    JSON.stringify({ action: 'handoff', reply: 'Let me connect you with someone.', reason: 'customer asked for a person' }),
+  );
+  const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
 
   const conv = await pool.query('select state, handoff_reason from conversations limit 1');
   assert.equal(conv.rows[0].state, 'pending');
   assert.ok(conv.rows[0].handoff_reason, 'a reason is recorded for the agent');
-  assert.equal(d.ai.calls, 0, 'ai not called on handoff');
-  assert.equal(d.meta.sends[0].body, testConfig.handoffMessage);
+  assert.equal(d.meta.sends[0].body, 'Let me connect you with someone.');
 });
 
 test('once a handoff is pending the bot stays quiet', async () => {
-  const d = deps();
+  const ai = new FakeAi(
+    JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }),
+  );
+  const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.H2', body: 'talk to a person' }), d);
   const sendsAfterHandoff = d.meta.sends.length;
 

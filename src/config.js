@@ -47,7 +47,7 @@ export function loadConfig() {
     openaiApiKey: process.env.OPENAI_API_KEY?.trim() || '',
     openaiModel: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
     geminiApiKey: process.env.GEMINI_API_KEY?.trim() || '',
-    geminiModel: process.env.GEMINI_MODEL?.trim() || 'gemini-1.5-flash',
+    geminiModel: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
 
     // Embeddings are only used to match media to what a lead asked about.
     // Answers are not embedded, the whole pack is given to the model as text.

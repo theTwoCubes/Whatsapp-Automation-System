@@ -12,9 +12,10 @@ import {
   wasMediaSentRecently,
   markInboundRead,
   isConversationBlocked,
+  setConversationBlocked,
   deadLetterWebhook,
 } from '../db/repo.js';
-import { buildReply, wantsHuman, isSimpleGreeting, categorizeHandoffReason } from '../ai/reply.js';
+import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
@@ -218,31 +219,6 @@ async function respondToLead(deps, conversationId, items) {
   const text = items.map((i) => i.text).join('\n');
   const settings = await getSettings(pool, config);
 
-  if (isSimpleGreeting(text)) {
-    const greeting = `Hi, thanks for reaching out to ${settings.businessName || config.businessName}! How can we help you today?`;
-    const sent = await sendAndRecord(deps, to, conversationId, greeting);
-    if (sent) await scheduleDrips(pool, conversationId, settings.dripSteps);
-    log.info({ conversationId }, 'simple greeting, replied with opener');
-    return;
-  }
-
-  if (wantsHuman(text)) {
-    const reason = 'Lead asked to speak with a person';
-    await handToPending(pool, conversationId, reason);
-    await recordHandoff(pool, {
-      conversationId,
-      source: 'lead',
-      reason,
-      reasonCategory: 'explicit_request',
-      topicId,
-    });
-    await cancelDrips(pool, conversationId);
-    log.info({ conversationId }, 'queued conversation for a human on request');
-    await sendAndRecord(deps, to, conversationId, settings.handoffMessage);
-    await pushHandoff(pool, conversationId, reason, log);
-    return;
-  }
-
   // AI reply. The bot is given the base pack, the lead's own service pack, any
   // packs the conversation has previously pulled in, and any pack whose name or
   // keywords match the text of this message. It can also ask for one more pack
@@ -292,6 +268,15 @@ async function respondToLead(deps, conversationId, items) {
     log.info({ conversationId, reason, reasonCategory }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);
     await pushHandoff(pool, conversationId, reason, log);
+    return;
+  }
+
+  if (decision?.block) {
+    const reply = decision.reply || 'This conversation has been closed.';
+    await sendAndRecord(deps, to, conversationId, reply);
+    await setConversationBlocked(pool, conversationId, true);
+    await cancelDrips(pool, conversationId);
+    log.info({ conversationId, reason: decision.reason }, 'ai blocked conversation');
     return;
   }
 

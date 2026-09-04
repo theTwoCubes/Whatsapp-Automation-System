@@ -48,9 +48,10 @@ async function tokenFor(app) {
 }
 
 async function pendingConversation() {
+  const ai = new FakeAi(JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }));
   await processWebhook(inboundText({ id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), {
     meta: new FakeMeta(),
-    ai: new FakeAi(),
+    ai,
     pool,
     config: testConfig,
     log: silentLog,

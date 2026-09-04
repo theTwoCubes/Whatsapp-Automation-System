@@ -99,7 +99,7 @@ test('the prompt carries the pack answers and the rule against inventing figures
   assert.match(system, /20000 rupees plus GST/, 'the answer itself is in the prompt');
   assert.match(system, /Monday to Saturday/, 'the base pack is there too');
   assert.match(system, /quote this answer exactly/, 'the verbatim marker survives into the prompt');
-  assert.match(system, /Never state a number, price, amount, duration, date or deadline that does not appear/);
+  assert.match(system, /do not make them up/, 'the rule against inventing specifics is there');
   assert.match(system, /"action": "handoff"/, 'the contract is spelled out');
 });
 
@@ -123,7 +123,7 @@ test('with no answers written yet the bot is told to hand everything over', asyn
   const id = await conversation();
   const ai = new SpyAi();
   await buildReply(pool, ai, testConfig, id, {});
-  assert.match(ai.lastMessages[0].content, /There are no approved answers yet/);
+  assert.match(ai.lastMessages[0].content, /No specific FAQ answers have been added yet/);
 });
 
 test('the catalog of other packs the model can ask for is in the prompt', async () => {
@@ -169,7 +169,7 @@ test('a request for a pack the catalog does not offer is treated as a handoff, n
   assert.deepEqual(decision.requestedPackIds, []);
 });
 
-test('with pack requests disabled the model is told there are only two shapes', async () => {
+test('with pack requests disabled the need_packs action is not offered', async () => {
   await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
   const id = await conversation();
   const ai = new SpyAi();
@@ -179,6 +179,8 @@ test('with pack requests disabled the model is told there are only two shapes', 
   assert.doesNotMatch(system, /need_packs/);
   assert.match(system, /"action": "answer"/);
   assert.match(system, /"action": "handoff"/);
+  assert.match(system, /"action": "warn"/);
+  assert.match(system, /"action": "block"/);
 });
 
 test('faqs with a file attached are flagged in the prompt and the id is shown', async () => {

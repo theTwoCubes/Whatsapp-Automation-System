@@ -51,10 +51,12 @@ test('a new lead message resets the drip schedule', async () => {
 });
 
 test('handing off to a human cancels the drips', async () => {
-  const d = deps();
+  const ai = new FakeAi();
+  const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.G1', body: 'hi' }), d);
   assert.equal(await pending(), 3);
 
+  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G2', body: 'can I talk to a human' }), d);
   assert.equal(await pending(), 0, 'no follow ups once a human is involved');
 });
@@ -79,7 +81,8 @@ test('a due follow up sends its template and is marked sent', async () => {
 });
 
 test('due follow ups are skipped once a human owns the conversation', async () => {
-  const d = deps();
+  const ai = new FakeAi(JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }));
+  const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.G1', body: 'talk to a human' }), d);
   const conv = await firstConversation();
   await pool.query(
