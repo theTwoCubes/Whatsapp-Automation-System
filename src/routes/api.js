@@ -264,6 +264,7 @@ export function registerApi(app, deps) {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     await softDeleteConversation(pool, req.params.id);
+    await cancelDrips(pool, req.params.id);
     await audit(req, 'delete', `conversation ${req.params.id}`, conversation.wa_id);
     realtime.emit({ type: 'refresh' });
     return { ok: true };

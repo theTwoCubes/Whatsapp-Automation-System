@@ -44,9 +44,15 @@ export async function recordInbound(pool, m) {
        on conflict (contact_id) do update set
          campaign_id = coalesce(conversations.campaign_id, excluded.campaign_id),
          window_expires_at = now() + interval '24 hours',
-         -- A new inbound pulls the chat back out of the archive, the way
-         -- WhatsApp does. Mute is intentionally left alone.
+         -- A new inbound pulls the chat back out of the archive or soft
+         -- delete, the way WhatsApp does. A deleted chat comes back fresh
+         -- under the bot. Mute is intentionally left alone.
          archived_at = null,
+         deleted_at = null,
+         state = case when conversations.deleted_at is not null then 'bot' else conversations.state end,
+         assignee = case when conversations.deleted_at is not null then null else conversations.assignee end,
+         handoff_reason = case when conversations.deleted_at is not null then null else conversations.handoff_reason end,
+         blocked_at = case when conversations.deleted_at is not null then null else conversations.blocked_at end,
          updated_at = now()
        returning id, state, campaign_id`,
       [contactId, campaignId],
@@ -363,7 +369,8 @@ export async function setConversationBlocked(pool, conversationId, blocked) {
 // nightly job removes it for good.
 export async function softDeleteConversation(pool, conversationId) {
   await pool.query(
-    `update conversations set deleted_at = now(), archived_at = null, pinned_at = null, updated_at = now() where id = $1`,
+    `update conversations set deleted_at = now(), state = 'bot', assignee = null, handoff_reason = null,
+     blocked_at = null, archived_at = null, pinned_at = null, updated_at = now() where id = $1`,
     [conversationId],
   );
 }
