@@ -138,7 +138,6 @@ function SkeletonStat() {
 
 // Dashboard
 export default function Dashboard() {
-  const [data, setCampaigns]     = useState(null);  // renamed below
   const [overview, setOverview]  = useState(null);
   const [campaigns, setCampaignData] = useState(null);
   const [topics, setTopics]      = useState([]);

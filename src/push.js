@@ -160,8 +160,8 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
         await getMessaging().send({
           token: row.endpoint,
           notification: {
-            title: JSON.parse(payload).title,
-            body: JSON.parse(payload).body,
+            title: notifTitle,
+            body: notifBody,
           },
           data: { conversationId: String(conversationId || '') },
           android: { priority: 'high' },

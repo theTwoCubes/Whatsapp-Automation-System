@@ -1368,11 +1368,11 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
             <div className="text-xs text-gray-600 mt-0.5 break-words">{conversation.handoff_reason}</div>
             <div className="flex gap-2 mt-3">
               <Button variant="primary" size="sm"
-                onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted').then(() => onChanged())}>
+                onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted')}>
                 Accept
               </Button>
               <Button variant="secondary" size="sm"
-                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected, AI taking over').then(() => onChanged())}>
+                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected, AI taking over')}>
                 Reject
               </Button>
             </div>

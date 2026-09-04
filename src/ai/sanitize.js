@@ -12,6 +12,7 @@ export function humanize(text) {
   t = t.replace(/`([^`]+)`/g, '$1'); // `code`
   t = t.replace(/^\s{0,3}#{1,6}\s+/gm, ''); // # headings
   t = t.replace(/^\s*[-*+]\s+/gm, ''); // bullet markers
+  t = t.replace(/^\s*\d+\.\s+/gm, ''); // numbered list markers
   t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'); // [text](url) -> text
   t = t.replace(/\s*—\s*/g, ' - '); // em dash
   t = t.replace(/\s*–\s*/g, ' - '); // en dash

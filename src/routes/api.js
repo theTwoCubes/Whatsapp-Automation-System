@@ -496,7 +496,7 @@ export function registerApi(app, deps) {
 
   app.post('/api/push/subscribe', { preHandler: auth }, async (req, reply) => {
     const sub = req.body?.subscription;
-    const meta = req.body?.meta || {};
+    const pushMeta = req.body?.meta || {};
     const email = req.user?.email;
     if (!sub || !email) return reply.code(400).send({ error: 'subscription and login required' });
     try {
@@ -506,7 +506,7 @@ export function registerApi(app, deps) {
         : `web:${String(sub.endpoint || '').slice(-20)}`;
       req.log.info({ email, transport, token: tokenPreview }, 'push subscription saved');
       await saveSubscription(pool, email, sub, {
-        platform: meta.platform,
+        platform: pushMeta.platform,
         userAgent: req.headers['user-agent'],
       });
       return { ok: true };

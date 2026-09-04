@@ -182,7 +182,7 @@ export default function App() {
 
     return () => { 
       if (permStatus) permStatus.onchange = null; 
-      if (backListener) backListener.then(l => l.remove());
+      if (backListener) backListener.remove?.();
       navigator.serviceWorker?.removeEventListener('message', onSwMessage);
     };
   }, [authed]);

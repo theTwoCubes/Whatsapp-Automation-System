@@ -1,7 +1,7 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext } from 'react';
 import {
   MessageSquare, LayoutDashboard, Brain, Mail, Settings, Users, LogOut,
-  Bell, BellOff, Activity, Moon, Sun,
+  Bell, BellOff, Activity,
 } from 'lucide-react';
 import { BrandContext } from '../../brand.js';
 import { getAgentRole } from '../../api.js';
@@ -68,39 +68,6 @@ export function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo, compac
   return null;
 }
 
-function useTheme() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('wa_theme') || 'system');
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.setAttribute('data-theme', 'dark');
-    } else if (theme === 'light') {
-      root.setAttribute('data-theme', 'light');
-    } else {
-      root.removeAttribute('data-theme');
-      // Mirror system preference onto the os-dark class so CSS selectors work
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      document.documentElement.classList.toggle('os-dark', mq.matches);
-    }
-    localStorage.setItem('wa_theme', theme);
-  }, [theme]);
-
-  // Track system preference changes when in system mode
-  useEffect(() => {
-    if (theme !== 'system') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e) => document.documentElement.classList.toggle('os-dark', e.matches);
-    mq.addEventListener('change', handler);
-    document.documentElement.classList.toggle('os-dark', mq.matches);
-    return () => mq.removeEventListener('change', handler);
-  }, [theme]);
-
-  const toggle = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  return { isDark, toggle };
-}
-
 export default function Sidebar({
   view, onNavigate, onLogout, pendingCount = 0, agentEmail,
   mobileOpen, onCloseMobile,
@@ -108,12 +75,11 @@ export default function Sidebar({
 }) {
   const brand     = useContext(BrandContext);
   const brandName = brand?.name || 'Console';
-  const { isDark, toggle: toggleTheme } = useTheme();
   const initials  = brandName.slice(0, 2).toUpperCase();
   const role      = getAgentRole();
   // Hide the whole Admin section from non-admin agents. The server rejects
   // admin routes with 403 either way; this just keeps the nav honest.
-  const adminKeys = new Set(['dashboard', 'knowledge', 'followups', 'setup', 'team']);
+  const adminKeys = new Set(['dashboard', 'knowledge', 'followups', 'ops', 'setup', 'team']);
   const nav = role === 'admin'
     ? NAV
     : NAV.filter((it) => !(it.section === 'Admin' || adminKeys.has(it.key)));
@@ -234,14 +200,6 @@ export default function Sidebar({
           onEnablePush={onEnablePush}
           onDeniedInfo={onPushDeniedInfo}
         />
-        <button
-          onClick={toggleTheme}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors p-2 rounded-lg"
-        >
-          {isDark ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
         <button
           onClick={onLogout}
           title="Sign out"

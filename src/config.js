@@ -7,6 +7,7 @@ const required = [
   'META_APP_SECRET',
   'WEBHOOK_VERIFY_TOKEN',
   'DATABASE_URL',
+  'JWT_SECRET',
 ];
 
 // Reads the environment and fails loudly if anything required is missing,

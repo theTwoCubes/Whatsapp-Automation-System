@@ -167,6 +167,9 @@ function DripFollowups() {
       <Card>
         <CardBody>
           <FormStack>
+            <datalist id="template-options">
+              {templates.map(t => <option key={t.name} value={t.name} />)}
+            </datalist>
             {steps.length === 0 && (
               <p className="text-sm text-gray-500">No follow-ups set up yet. Add one below.</p>
             )}
@@ -186,9 +189,6 @@ function DripFollowups() {
                     value={s.template}
                     onChange={(e) => updateStep(i, 'template', e.target.value)}
                   />
-                  <datalist id="template-options">
-                    {templates.map(t => <option key={t.name} value={t.name} />)}
-                  </datalist>
                 </div>
                 <div className="flex items-center gap-2 pl-11 md:pl-0">
                   <span className="text-sm text-gray-500 flex-shrink-0">Wait</span>

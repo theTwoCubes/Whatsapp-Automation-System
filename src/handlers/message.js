@@ -220,8 +220,8 @@ async function respondToLead(deps, conversationId, items) {
 
   if (isSimpleGreeting(text)) {
     const greeting = `Hi, thanks for reaching out to ${settings.businessName || config.businessName}! How can we help you today?`;
-    await sendAndRecord(deps, to, conversationId, greeting);
-    await scheduleDrips(pool, conversationId, settings.dripSteps);
+    const sent = await sendAndRecord(deps, to, conversationId, greeting);
+    if (sent) await scheduleDrips(pool, conversationId, settings.dripSteps);
     log.info({ conversationId }, 'simple greeting, replied with opener');
     return;
   }
@@ -296,13 +296,14 @@ async function respondToLead(deps, conversationId, items) {
   }
 
   const reply = decision?.reply || settings.fallbackMessage;
-  await sendAndRecord(deps, to, conversationId, reply);
-  if (decision?.sendFaqId) {
+  const sent = await sendAndRecord(deps, to, conversationId, reply);
+  if (sent && decision?.sendFaqId) {
     await maybeSendFaqMedia(deps, conversationId, to, decision.sendFaqId);
   }
 
-  // The lead is active, so reset the follow up schedule from now.
-  await scheduleDrips(pool, conversationId, settings.dripSteps);
+  if (sent) {
+    await scheduleDrips(pool, conversationId, settings.dripSteps);
+  }
 }
 
 // The packs going into this reply: base is always there, the lead's own
@@ -390,8 +391,10 @@ async function sendAndRecord(deps, to, conversationId, body, { aiMs = null } = {
       realtime?.emit({ type: 'refresh', conversationId });
     }
     log.info({ conversationId, metaMs }, 'reply sent to meta');
+    return true;
   } catch (err) {
     log.error({ conversationId, to, err }, 'failed to send reply');
+    return false;
   }
 }
 

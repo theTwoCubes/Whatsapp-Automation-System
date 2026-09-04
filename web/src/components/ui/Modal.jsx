@@ -51,9 +51,11 @@ export default function Modal({
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2">
-          <Button variant="secondary" size="md" onClick={onClose} disabled={busy}>
-            {cancelLabel}
-          </Button>
+          {cancelLabel && (
+            <Button variant="secondary" size="md" onClick={onClose} disabled={busy}>
+              {cancelLabel}
+            </Button>
+          )}
           <Button variant={variant} size="md" onClick={onConfirm} disabled={busy}>
             {busy ? 'Working…' : confirmLabel}
           </Button>
