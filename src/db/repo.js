@@ -689,7 +689,7 @@ export async function opsStats(pool) {
        (select count(*) from conversations where state = 'pending') as pending_chats,
        (select count(*) from conversations where state = 'bot')     as bot_chats,
        (select count(*) from conversations where state = 'human')   as human_chats,
-       (select count(*) from webhook_dead_letter where replayed_at is null) as dead_letter_depth,
+       (select count(*) from webhook_dead_letter where resolved_at is null) as dead_letter_depth,
        (select round(avg(ai_ms)) from messages where ai_ms is not null and created_at > now() - interval '1 hour') as ai_ms_p50_1h,
        (select round(avg(meta_ms)) from messages where meta_ms is not null and created_at > now() - interval '1 hour') as meta_ms_p50_1h,
        (select count(*) from handoff_events where created_at > now() - interval '24 hours') as handoffs_24h,

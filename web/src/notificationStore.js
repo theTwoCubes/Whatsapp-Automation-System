@@ -74,3 +74,31 @@ export async function markAll() {
   emit();
   try { await api.markAllNotificationsRead(); } catch { /* will reconcile on next poll */ }
 }
+
+export async function deleteOne(id) {
+  const was = state.items.find((n) => n.id === id);
+  state = {
+    ...state,
+    items: state.items.filter((n) => n.id !== id),
+    unread: was && !was.read_at ? Math.max(0, state.unread - 1) : state.unread,
+  };
+  emit();
+  try { await api.deleteNotification(id); } catch { /* reconcile on next poll */ }
+}
+
+export async function deleteAll() {
+  state = { ...state, items: [], unread: 0 };
+  emit();
+  try { await api.deleteAllNotifications(); } catch { /* reconcile on next poll */ }
+}
+
+export async function toggleSave(id) {
+  state = {
+    ...state,
+    items: state.items.map((n) =>
+      n.id === id ? { ...n, saved_at: n.saved_at ? null : new Date().toISOString() } : n,
+    ),
+  };
+  emit();
+  try { await api.toggleSaveNotification(id); } catch { /* reconcile on next poll */ }
+}

@@ -542,7 +542,7 @@ export function registerApi(app, deps) {
   // The in-app notification inbox. The bell in the console reads this.
   app.get('/api/notifications', { preHandler: auth }, async (req) => {
     const rows = (await pool.query(
-      `select id, kind, conversation_id, title, body, read_at, created_at
+      `select id, kind, conversation_id, title, body, read_at, saved_at, created_at
        from notifications where agent_email = $1
        order by created_at desc limit 50`,
       [req.user.email],
@@ -569,6 +569,28 @@ export function registerApi(app, deps) {
       `update notifications set read_at = now()
        where agent_email = $1 and read_at is null`,
       [req.user.email],
+    );
+    return { ok: true };
+  });
+
+  app.delete('/api/notifications/:id', { preHandler: auth, schema: idParams }, async (req) => {
+    await pool.query(
+      'delete from notifications where id = $1 and agent_email = $2',
+      [req.params.id, req.user.email],
+    );
+    return { ok: true };
+  });
+
+  app.delete('/api/notifications', { preHandler: auth }, async (req) => {
+    await pool.query('delete from notifications where agent_email = $1', [req.user.email]);
+    return { ok: true };
+  });
+
+  app.post('/api/notifications/:id/save', { preHandler: auth, schema: idParams }, async (req) => {
+    await pool.query(
+      `update notifications set saved_at = case when saved_at is null then now() else null end
+       where id = $1 and agent_email = $2`,
+      [req.params.id, req.user.email],
     );
     return { ok: true };
   });

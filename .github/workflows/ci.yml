@@ -37,6 +37,14 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U whatsapp && exit 0
+            sleep 2
+          done
+          echo "Postgres did not become ready in time" && exit 1
+
       - name: Install dependencies
         run: npm ci
 

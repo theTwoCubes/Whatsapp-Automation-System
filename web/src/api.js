@@ -134,6 +134,9 @@ export const api = {
   notifications: () => req('/notifications'),
   markNotificationRead: (id) => req(`/notifications/${id}/read`, { method: 'POST' }),
   markAllNotificationsRead: () => req('/notifications/read-all', { method: 'POST' }),
+  deleteNotification: (id) => req(`/notifications/${id}`, { method: 'DELETE' }),
+  deleteAllNotifications: () => req('/notifications', { method: 'DELETE' }),
+  toggleSaveNotification: (id) => req(`/notifications/${id}/save`, { method: 'POST' }),
   branding: () =>
     fetch('/api/branding')
       .then((r) => r.json())

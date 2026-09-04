@@ -232,7 +232,7 @@ function instructions(config, faqText, catalog, allowPackRequests) {
     mediaGuidance,
     '',
     'Approved answers:',
-    faqText || 'There are no approved answers yet. Hand every chat to a person.',
+    faqText || 'There are no approved answers yet. You can still greet the customer and ask what they need, but hand off to a person once they ask a specific question you cannot answer from the list above.',
   ]
     .filter((line) => line !== undefined)
     .join('\n');

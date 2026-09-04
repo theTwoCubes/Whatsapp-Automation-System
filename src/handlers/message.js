@@ -218,8 +218,14 @@ async function respondToLead(deps, conversationId, items) {
   const text = items.map((i) => i.text).join('\n');
   const settings = await getSettings(pool, config);
 
-  // The lead asked for a person. Hand off, stop the drip follow ups, and let the
-  // team take it from here.
+  if (isSimpleGreeting(text)) {
+    const greeting = `Hi, thanks for reaching out to ${settings.businessName || config.businessName}! How can we help you today?`;
+    await sendAndRecord(deps, to, conversationId, greeting);
+    await scheduleDrips(pool, conversationId, settings.dripSteps);
+    log.info({ conversationId }, 'simple greeting, replied with opener');
+    return;
+  }
+
   if (wantsHuman(text)) {
     const reason = 'Lead asked to speak with a person';
     await handToPending(pool, conversationId, reason);
