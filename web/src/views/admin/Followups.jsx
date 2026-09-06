@@ -36,7 +36,7 @@ function Templates() {
   return (
     <Section
       title="Approved messages"
-      subtitle="Templates you've created and had approved in WhatsApp Manager. Sync here whenever you add or change one so the follow-up schedules below can use it."
+      subtitle="Templates you've created and had approved in Meta WhatsApp Manager."
     >
       <div className="flex items-center justify-end mb-3">
         <Button variant="secondary" size="sm" onClick={sync} disabled={syncing}>
@@ -107,7 +107,7 @@ function StepsEditor({ steps, templates, media, onChange }) {
                   value={s.template}
                   onChange={(e) => updateStep(i, 'template', e.target.value)}
                 >
-                  <option value="">Choose an approved message…</option>
+                  <option value="">Choose a message</option>
                   {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
                   {s.template && !templates.some((t) => t.name === s.template) && (
                     <option value={s.template}>{s.template} (not currently synced)</option>
@@ -217,14 +217,14 @@ function DripFollowups() {
 
   const audiences = [
     { id: 'general', label: 'General', helper: 'Leads not tied to a specific service.' },
-    ...topics.map((t) => ({ id: String(t.id), label: t.name, helper: `Leads linked to "${t.name}".` })),
+    ...topics.map((t) => ({ id: String(t.id), label: t.name, helper: `Leads tied to ${t.name}.` })),
   ];
   const current = audiences.find((a) => a.id === audience) || audiences[0];
 
   return (
     <Section
-      title="Chase quiet leads automatically"
-      subtitle="When a lead goes silent, the system sends a follow-up from your approved templates. Pick a message and how many days to wait. The clock resets the moment they reply."
+      title="Message Templates"
+      subtitle="When a lead goes silent, the system sends a follow-up from your approved templates."
     >
       <Card>
         <CardHeader title="Which leads is this for?" />
@@ -255,7 +255,7 @@ export default function Followups() {
   return (
     <AdminPage
       title="Follow-ups"
-      subtitle="Nudge quiet leads back into a conversation. Set the messages you want sent and the days they should go out."
+      subtitle="Automatic messages whenever a lead goes silent."
     >
       <Templates />
       <Divider />

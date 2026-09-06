@@ -167,7 +167,7 @@ function AIBehaviour() {
               placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
               {...bind('handoff_message')} />
             <InputField label="When a customer sends a file" textarea
-              helper="Photos, documents and voice notes always go to a person — this is the acknowledgement."
+              helper="Photos, documents and voice notes always go to a person."
               placeholder="Thanks for sending that over! Someone will take a look and reply soon."
               {...bind('attachment_message')} />
           </FormStack>
@@ -208,7 +208,7 @@ export default function Setup() {
   return (
     <AdminPage
       title="Setup"
-      subtitle="Tune the AI's voice, your WhatsApp business profile, and when the AI should step in."
+      subtitle="Configure the AI's rule, WhatsApp business profile, and when the AI should step in."
     >
       <TabPills
         tabs={[

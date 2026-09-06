@@ -411,6 +411,15 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   }, [loadList]);
   useEffect(() => { loadThreadRef.current = loadThread; }, [loadThread]);
 
+  // Clearing a chat does not delete messages, it just moves the cutoff the
+  // server filters on - a normal refresh would still show them because
+  // loadThread merges instead of replacing. Wipe the open thread locally too.
+  const clearThreadMessages = useCallback((conversationId) => {
+    setThread((prev) => (prev && prev !== 'error' && prev.conversation?.id === conversationId)
+      ? { ...prev, messages: [], hasMore: false }
+      : prev);
+  }, []);
+
   // Fetches the previous page of messages for the open thread and prepends it.
   const loadOlder = useCallback(async () => {
     const t = threadRef.current;
@@ -713,6 +722,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               templates={templates}
               onSync={syncTemplates}
               onChanged={() => { loadThread(selected); loadList(true); }}
+              onCleared={clearThreadMessages}
               onLoadOlder={loadOlder}
               showContext={showContext}
               onToggleContext={() => setShowContext(v => !v)}
@@ -1005,7 +1015,7 @@ function ContextRow({ label, children }) {
 // phase 2 — block and delete). Works the same on mobile and desktop, which is
 // what makes unpin/unmute/unarchive reachable on a phone. Renders through a
 // portal positioned off the trigger so no ancestor can clip it.
-function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
+function ChatActionsMenu({ conversation, act, onChanged, onCleared, toast, onClose }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
   const btnRef = useRef(null);
@@ -1098,6 +1108,7 @@ function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
           setOpen(false);
           if (window.confirm('Clear all messages? The chat stays but the AI starts fresh.')) {
             await act(() => api.clearChat(conversation.id), 'Chat cleared');
+            onCleared?.(conversation.id);
           }
         }} />
       <Item icon={Trash2} label="Delete chat" danger
@@ -1131,7 +1142,7 @@ function ChatActionsMenu({ conversation, act, onChanged, toast, onClose }) {
 }
 
 // Chat Thread
-function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showContext, onToggleContext, onBack, wsOffline }) {
+function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOlder, showContext, onToggleContext, onBack, wsOffline }) {
   const { conversation, messages, hasMore } = thread;
   const [text, setText]               = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
@@ -1330,7 +1341,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onLoadOlder, showCon
           >
             <LayoutList size={18} />
           </button>
-          <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} toast={toast} onClose={onBack} />
+          <ChatActionsMenu conversation={conversation} act={act} onChanged={onChanged} onCleared={onCleared} toast={toast} onClose={onBack} />
         </div>
       </div>
 

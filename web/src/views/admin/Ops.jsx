@@ -90,7 +90,7 @@ export default function Ops() {
           <h1 className="text-xl font-bold text-gray-900">Ops health</h1>
           {lastRefresh && (
             <p className="text-xs text-gray-400 mt-0.5">
-              Updated {lastRefresh.toLocaleTimeString()} — auto-refreshes every 30s
+              Auto refreshes every 30s
             </p>
           )}
         </div>
