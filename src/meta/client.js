@@ -52,13 +52,18 @@ export class MetaClient {
     if (!res.ok || data.error) {
       throw new MetaApiError(data.error?.message ?? `Cloud API returned HTTP ${res.status}`, data.error?.code);
     }
-    return (data.data ?? []).map((t) => ({
-      name: t.name,
-      language: t.language,
-      category: t.category,
-      status: t.status,
-      body: (t.components ?? []).find((c) => c.type === 'BODY')?.text ?? null,
-    }));
+    return (data.data ?? []).map((t) => {
+      const header = (t.components ?? []).find((c) => c.type === 'HEADER');
+      return {
+        name: t.name,
+        language: t.language,
+        category: t.category,
+        status: t.status,
+        body: (t.components ?? []).find((c) => c.type === 'BODY')?.text ?? null,
+        // DOCUMENT, IMAGE, VIDEO, TEXT, or null when there is no header at all.
+        headerType: header?.format ?? null,
+      };
+    });
   }
 
   // Reads the WhatsApp business profile so the client can manage it from the

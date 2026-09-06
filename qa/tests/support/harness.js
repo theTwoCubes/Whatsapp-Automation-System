@@ -67,6 +67,7 @@ export class FakeMeta {
   async fetchTemplates() {
     return [
       { name: 'drip_day3', language: 'en', category: 'MARKETING', status: 'APPROVED', body: 'Hi {{1}}, still thinking it over?' },
+      { name: 'drip_logo_day3', language: 'en', category: 'MARKETING', status: 'APPROVED', body: 'Hi {{1}}, here is our logo portfolio.', headerType: 'DOCUMENT' },
       { name: 'pending_one', language: 'en', category: 'UTILITY', status: 'PENDING', body: 'Your order {{1}}' },
     ];
   }

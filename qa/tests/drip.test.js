@@ -111,6 +111,48 @@ test('a due follow up sends its template and is marked sent', async () => {
   assert.equal(status, 'sent');
 });
 
+test('a drip step with a media asset sends it as the template header', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.M1', body: 'hi' }), d);
+  const conv = await firstConversation();
+  const asset = await pool.query(
+    `insert into media_assets (meta_media_id, filename, mime_type, kind)
+     values ('meta-media-1', 'logo-design-portfolio.pdf', 'application/pdf', 'document') returning id`,
+  );
+  await pool.query(
+    `insert into drip_jobs (conversation_id, step, template_name, media_asset_id, run_at)
+     values ($1, 9, 'drip_logo_day3', $2, now() - interval '1 minute')`,
+    [conv, asset.rows[0].id],
+  );
+
+  const processed = await runDueDrips({ pool, meta: d.meta, config: testConfig, log: silentLog });
+  assert.equal(processed, 1);
+  const sent = d.meta.templates[0];
+  assert.equal(sent.name, 'drip_logo_day3');
+  assert.deepEqual(sent.components, [
+    { type: 'header', parameters: [{ type: 'document', document: { id: 'meta-media-1', filename: 'logo-design-portfolio.pdf' } }] },
+  ]);
+});
+
+test('a drip step whose media kind cannot be a template header sends without it', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.M2', body: 'hi' }), d);
+  const conv = await firstConversation();
+  const asset = await pool.query(
+    `insert into media_assets (meta_media_id, filename, mime_type, kind)
+     values ('meta-media-2', 'voice.ogg', 'audio/ogg', 'audio') returning id`,
+  );
+  await pool.query(
+    `insert into drip_jobs (conversation_id, step, template_name, media_asset_id, run_at)
+     values ($1, 9, 'drip_day3', $2, now() - interval '1 minute')`,
+    [conv, asset.rows[0].id],
+  );
+
+  const processed = await runDueDrips({ pool, meta: d.meta, config: testConfig, log: silentLog });
+  assert.equal(processed, 1);
+  assert.equal(d.meta.templates[0].components, undefined);
+});
+
 test('due follow ups are skipped once a human owns the conversation', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }));
   const d = deps({ ai });

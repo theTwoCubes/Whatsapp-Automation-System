@@ -110,12 +110,19 @@ export function loadConfig() {
   };
 }
 
+// Each entry is template:days, or template:days:mediaAssetId when the
+// template's header needs a file attached (a portfolio PDF, for example).
 export function parseDripSteps(raw) {
   return raw
     .split(',')
     .map((part, index) => {
-      const [template, days] = part.split(':');
-      return { step: index + 1, template: template.trim(), days: Number(days) };
+      const [template, days, mediaAssetId] = part.split(':');
+      return {
+        step: index + 1,
+        template: template.trim(),
+        days: Number(days),
+        mediaAssetId: mediaAssetId ? Number(mediaAssetId) : null,
+      };
     })
     .filter((s) => s.template && Number.isFinite(s.days));
 }

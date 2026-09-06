@@ -105,13 +105,19 @@ export function groupByDay(messages) {
   return groups;
 }
 
-// Parses the raw drip_steps setting string (e.g. "template1:3,template2:7")
-// into an array of { step, template, days } objects for the UI.
+// Parses the raw drip_steps setting string (e.g. "template1:3,template2:7" or
+// "template1:3:42" when a media asset id is attached to that step) into an
+// array of { step, template, days, mediaAssetId } objects for the UI.
 export function parseDripSteps(raw) {
   if (!raw || !raw.trim()) return [];
   return raw.split(',').map((part, i) => {
-    const [template, days] = part.trim().split(':');
-    return { step: i + 1, template: template?.trim() || '', days: days?.trim() || '' };
+    const [template, days, mediaAssetId] = part.trim().split(':');
+    return {
+      step: i + 1,
+      template: template?.trim() || '',
+      days: days?.trim() || '',
+      mediaAssetId: mediaAssetId?.trim() || '',
+    };
   }).filter((s) => s.template);
 }
 

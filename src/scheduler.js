@@ -37,7 +37,8 @@ export async function runDueDrips(deps) {
 
   for (const job of jobs) {
     try {
-      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage);
+      const components = buildDripComponents(job, log);
+      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage, components);
       await markDrip(pool, job.id, 'sent');
       if (wamid) {
         await recordOutbound(pool, {
@@ -55,6 +56,22 @@ export async function runDueDrips(deps) {
   }
 
   return jobs.length;
+}
+
+// Builds the header component for a drip's template message when a media
+// asset is attached to the step. Reuses the same Meta media id already
+// uploaded for regular sends - no separate upload needed. Template headers
+// only support document, image, or video, so anything else (audio) is
+// skipped with a warning rather than sent with a mismatched header.
+function buildDripComponents(job, log) {
+  if (!job.media_asset_id || !job.meta_media_id) return undefined;
+  if (!['document', 'image', 'video'].includes(job.media_kind)) {
+    log.warn({ jobId: job.id, kind: job.media_kind }, 'drip media kind cannot be used as a template header, sending without it');
+    return undefined;
+  }
+  const media = { id: job.meta_media_id };
+  if (job.media_kind === 'document' && job.media_filename) media.filename = job.media_filename;
+  return [{ type: 'header', parameters: [{ type: job.media_kind, [job.media_kind]: media }] }];
 }
 
 // Hands chats back to the bot when a human has left the lead waiting too long,

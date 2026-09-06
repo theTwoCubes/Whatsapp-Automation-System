@@ -235,9 +235,9 @@ export async function scheduleDrips(pool, conversationId, steps) {
     );
     for (const s of steps) {
       await client.query(
-        `insert into drip_jobs (conversation_id, step, template_name, run_at)
-         values ($1, $2, $3, now() + make_interval(days => $4))`,
-        [conversationId, s.step, s.template, s.days],
+        `insert into drip_jobs (conversation_id, step, template_name, media_asset_id, run_at)
+         values ($1, $2, $3, $4, now() + make_interval(days => $5))`,
+        [conversationId, s.step, s.template, s.mediaAssetId ?? null, s.days],
       );
     }
     await client.query('commit');
@@ -274,12 +274,14 @@ export async function claimDueDrips(pool, limit = 20) {
      claimed as (
        update drip_jobs set status = 'sending'
        where id in (select id from due)
-       returning id, conversation_id, step, template_name
+       returning id, conversation_id, step, template_name, media_asset_id
      )
-     select cl.id, cl.conversation_id, cl.step, cl.template_name, ct.wa_id
+     select cl.id, cl.conversation_id, cl.step, cl.template_name, cl.media_asset_id, ct.wa_id,
+            m.meta_media_id, m.kind as media_kind, m.filename as media_filename
      from claimed cl
      join conversations c on c.id = cl.conversation_id
-     join contacts ct on ct.id = c.contact_id`,
+     join contacts ct on ct.id = c.contact_id
+     left join media_assets m on m.id = cl.media_asset_id`,
     [limit],
   );
   return res.rows;
@@ -471,7 +473,7 @@ export async function getConversationMessages(pool, id, { limit = 50, beforeId =
 
 export async function listTemplates(pool) {
   const res = await pool.query(
-    "select name, language, category, body, status from templates where active = true and (status is null or status = 'APPROVED') order by name",
+    "select name, language, category, body, status, header_type from templates where active = true and (status is null or status = 'APPROVED') order by name",
   );
   return res.rows;
 }
@@ -485,15 +487,16 @@ export async function syncTemplates(pool, templates) {
     await client.query('update templates set active = false');
     for (const t of templates) {
       await client.query(
-        `insert into templates (name, language, category, body, status, active)
-         values ($1, $2, $3, $4, $5, true)
+        `insert into templates (name, language, category, body, status, header_type, active)
+         values ($1, $2, $3, $4, $5, $6, true)
          on conflict (name) do update set
            language = excluded.language,
            category = excluded.category,
            body = excluded.body,
            status = excluded.status,
+           header_type = excluded.header_type,
            active = true`,
-        [t.name, t.language ?? 'en', t.category ?? null, t.body ?? null, t.status ?? null],
+        [t.name, t.language ?? 'en', t.category ?? null, t.body ?? null, t.status ?? null, t.headerType ?? null],
       );
     }
     await client.query('commit');

@@ -169,8 +169,11 @@ test('templates sync from meta and only approved ones are listed', async () => {
   const token = await tokenFor(app);
   const res = await app.inject({ method: 'POST', url: '/api/templates/sync', headers: { authorization: `Bearer ${token}` } });
   assert.equal(res.statusCode, 200);
-  const names = res.json().templates.map((t) => t.name);
+  const templates = res.json().templates;
+  const names = templates.map((t) => t.name);
   assert.ok(names.includes('drip_day3'));
   assert.ok(!names.includes('pending_one'), 'pending templates are hidden');
+  const withHeader = templates.find((t) => t.name === 'drip_logo_day3');
+  assert.equal(withHeader.header_type, 'DOCUMENT', 'header type is captured so the console knows a file is needed');
   await app.close();
 });
