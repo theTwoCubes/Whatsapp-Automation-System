@@ -114,6 +114,9 @@ export class FakeAi {
     if (this.fail) throw new Error('ai unavailable');
     return this.reply;
   }
+  reconfigure(config) {
+    this.lastReconfigure = config;
+  }
 }
 
 

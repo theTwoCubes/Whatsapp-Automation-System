@@ -7,6 +7,7 @@ import fastifyMultipart from '@fastify/multipart';
 
 import { registerApi } from '../../src/routes/api.js';
 import { createAgent, addMediaAsset } from '../../src/db/repo.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText, inboundImage } from './support/fixtures.js';
@@ -26,7 +27,7 @@ after(async () => {
 beforeEach(async () => {
   await resetTables(pool);
   await pool.query('truncate agents restart identity cascade');
-  await createAgent(pool, { email: 'a@b.com', name: 'A', passwordHash: hashPassword('secret') });
+  await createAgent(pool, { email: 'a@b.com', name: 'A', passwordHash: hashPassword('secret'), role: 'admin' });
 });
 
 async function buildApp(meta) {
@@ -128,6 +129,59 @@ test('agents can be created and removed but not yourself', async () => {
   await app.close();
 });
 
+test('a new team member defaults to the agent role unless admin is explicitly picked', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  await app.inject({ method: 'POST', url: '/api/agents', headers: auth(t), payload: { email: 'plain@x.com', password: 'secret1' } });
+  await app.inject({ method: 'POST', url: '/api/agents', headers: auth(t), payload: { email: 'boss@x.com', password: 'secret1', role: 'admin' } });
+
+  const list = (await app.inject({ method: 'GET', url: '/api/agents', headers: auth(t) })).json().agents;
+  assert.equal(list.find((a) => a.email === 'plain@x.com').role, 'agent', 'no role sent, defaults to the least privileged one');
+  assert.equal(list.find((a) => a.email === 'boss@x.com').role, 'admin', 'admin only when explicitly requested');
+  await app.close();
+});
+
+test('a plain agent cannot reach admin-only routes like AI settings', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  await app.inject({ method: 'POST', url: '/api/agents', headers: auth(t), payload: { email: 'plain@x.com', password: 'secret1' } });
+  const plainToken = (await app.inject({
+    method: 'POST', url: '/api/login', payload: { email: 'plain@x.com', password: 'secret1' },
+  })).json().token;
+
+  const res = await app.inject({ method: 'GET', url: '/api/ai-settings', headers: auth(plainToken) });
+  assert.equal(res.statusCode, 403);
+  await app.close();
+});
+
+test('AI settings are readable and writable by an admin, keys never sent back in full', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const before = (await app.inject({ method: 'GET', url: '/api/ai-settings', headers: auth(t) })).json().aiSettings;
+  assert.equal(before.geminiConfigured, false);
+
+  const save = await app.inject({
+    method: 'PUT', url: '/api/ai-settings', headers: auth(t),
+    payload: { aiProvider: 'gemini', geminiApiKey: 'super-secret-key-value', geminiModel: 'gemini-2.5-flash' },
+  });
+  assert.equal(save.statusCode, 200);
+  assert.doesNotMatch(JSON.stringify(save.json()), /super-secret-key-value/, 'the raw key never comes back in the response');
+
+  const after = (await app.inject({ method: 'GET', url: '/api/ai-settings', headers: auth(t) })).json().aiSettings;
+  assert.equal(after.aiProvider, 'gemini');
+  assert.equal(after.geminiConfigured, true);
+  assert.equal(after.geminiKeyHint, '••••alue');
+
+  const blankKey = await app.inject({
+    method: 'PUT', url: '/api/ai-settings', headers: auth(t),
+    payload: { geminiApiKey: '' },
+  });
+  const stillSet = blankKey.json().aiSettings;
+  assert.equal(stillSet.geminiConfigured, true, 'a blank key on save means keep the existing one');
+  await app.close();
+});
+
 test('editing settings changes the bot fallback message', async () => {
   const app = await buildApp(new FakeMeta());
   const t = await token(app);
@@ -174,6 +228,26 @@ test('a media asset can be sent to a lead inside the window', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(meta.media.at(-1).kind, 'image');
   assert.equal(meta.media.at(-1).opts.caption, 'here is a sample');
+  await app.close();
+});
+
+test('media can be filtered to general (no topic) files only', async () => {
+  const topic = await upsertTopic(pool, { slug: 'logo_design_media_test', name: 'Logo Design' });
+  await addMediaAsset(pool, { metaMediaId: 'media-general', filename: 'overview.pdf', mimeType: 'application/pdf', kind: 'document' });
+  await addMediaAsset(pool, { metaMediaId: 'media-topic', filename: 'logo-portfolio.pdf', mimeType: 'application/pdf', kind: 'document', topicId: topic.id });
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const general = await app.inject({ method: 'GET', url: '/api/media?topicId=general', headers: auth(t) });
+  const generalNames = general.json().media.map((m) => m.filename);
+  assert.deepEqual(generalNames, ['overview.pdf']);
+
+  const scoped = await app.inject({ method: 'GET', url: `/api/media?topicId=${topic.id}`, headers: auth(t) });
+  assert.deepEqual(scoped.json().media.map((m) => m.filename), ['logo-portfolio.pdf']);
+
+  const all = await app.inject({ method: 'GET', url: '/api/media', headers: auth(t) });
+  assert.equal(all.json().media.length, 2);
   await app.close();
 });
 

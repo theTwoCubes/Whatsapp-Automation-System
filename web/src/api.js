@@ -29,7 +29,7 @@ export function getAgentRole() {
     const token = getToken();
     if (!token) return null;
     const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.role || 'admin';
+    return payload.role === 'admin' ? 'admin' : 'agent';
   } catch {
     return null;
   }
@@ -115,9 +115,11 @@ export const api = {
   updateTopic: (id, body) => req(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteTopic: (id) => req(`/topics/${id}`, { method: 'DELETE' }),
   agents: () => req('/agents'),
-  addAgent: (email, name, password) =>
-    req('/agents', { method: 'POST', body: JSON.stringify({ email, name, password }) }),
+  addAgent: (email, name, password, role) =>
+    req('/agents', { method: 'POST', body: JSON.stringify({ email, name, password, role }) }),
   deleteAgent: (id) => req(`/agents/${id}`, { method: 'DELETE' }),
+  aiSettings: () => req('/ai-settings'),
+  saveAiSettings: (body) => req('/ai-settings', { method: 'PUT', body: JSON.stringify(body) }),
   media: (topicId = null) => req(`/media${topicId ? `?topicId=${topicId}` : ''}`),
   deleteMedia: (id) => req(`/media/${id}`, { method: 'DELETE' }),
   sendMedia: (id, assetId, caption) =>

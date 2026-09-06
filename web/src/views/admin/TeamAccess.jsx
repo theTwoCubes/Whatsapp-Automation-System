@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   UserPlus, Shield, Palette, History, Trash2, Check,
-  Users,
+  Users, KeyRound,
 } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
@@ -101,6 +101,7 @@ function Agents() {
   const [email, setEmail]       = useState('');
   const [name, setName]         = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole]         = useState('agent');
   const [removeId, setRemoveId] = useState(null);
   const [adding, setAdding]     = useState(false);
   const toast = useToast();
@@ -111,8 +112,8 @@ function Agents() {
   const add = async () => {
     setAdding(true);
     try {
-      await api.addAgent(email, name, password);
-      setEmail(''); setName(''); setPassword('');
+      await api.addAgent(email, name, password, role);
+      setEmail(''); setName(''); setPassword(''); setRole('agent');
       toast.success(`${name || email} added to the team`);
       reload();
     } catch (e) { toast.error(e.message); }
@@ -172,9 +173,11 @@ function Agents() {
             </div>
             <span
               className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0"
-              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+              style={a.role === 'admin'
+                ? { background: '#fef3c7', color: '#92400e' }
+                : { background: 'var(--accent-dim)', color: 'var(--accent)' }}
             >
-              Agent
+              {a.role === 'admin' ? 'Admin' : 'Team member'}
             </span>
             <button
               type="button"
@@ -218,6 +221,31 @@ function Agents() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          <div className="flex flex-col gap-2">
+            <div className="text-base font-medium text-gray-800">Role</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setRole('agent')}
+                className={`flex-1 text-left px-4 py-3 rounded-xl border transition-colors ${
+                  role === 'agent' ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="text-sm font-semibold text-gray-900">Team member</div>
+                <div className="text-xs text-gray-500 mt-0.5">Can reply to conversations only. No access to Settings, Team, Knowledge, or API keys.</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('admin')}
+                className={`flex-1 text-left px-4 py-3 rounded-xl border transition-colors ${
+                  role === 'admin' ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="text-sm font-semibold text-gray-900">Admin</div>
+                <div className="text-xs text-gray-500 mt-0.5">Full access, including Team & Access and API keys.</div>
+              </button>
+            </div>
+          </div>
           <div className="flex items-center justify-end pt-1">
             <Button
               variant="primary"
@@ -374,6 +402,116 @@ function Branding() {
   );
 }
 
+// AI provider and keys. Admin only - the whole Team & Access page already is,
+// and every route this talks to is separately gated on the backend too.
+function AiProvider() {
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  const reload = () => api.aiSettings().then((d) => {
+    setData(d.aiSettings);
+    setForm({ aiProvider: d.aiSettings.aiProvider, openaiModel: d.aiSettings.openaiModel, geminiModel: d.aiSettings.geminiModel });
+  }).catch(() => {});
+  useEffect(() => { reload(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.saveAiSettings(form);
+      toast.success('AI settings saved');
+      setForm((f) => ({ ...f, openaiApiKey: '', geminiApiKey: '' }));
+      reload();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!data) {
+    return (
+      <Panel>
+        <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-4">
+          <Skeleton height={20} width="60%" />
+          <Skeleton height={20} width="80%" />
+          <Skeleton height={20} width="70%" />
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Panel>
+        <PanelHeader
+          icon={KeyRound}
+          title="AI provider & keys"
+          subtitle="Choose which AI answers your leads and set the keys it uses. Only admins can see this page."
+        />
+        <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <div className="text-base font-medium text-gray-800">Primary provider</div>
+            <p className="text-xs text-gray-500">If the primary fails, the other one (when configured) is used automatically as a backup.</p>
+            <div className="flex gap-2">
+              {['gemini', 'openai'].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setForm({ ...form, aiProvider: p })}
+                  className={`flex-1 text-left px-4 py-3 rounded-xl border transition-colors capitalize ${
+                    form.aiProvider === p ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-sm font-semibold text-gray-900">{p === 'gemini' ? 'Google Gemini' : 'OpenAI'}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 pt-2 border-t border-gray-100">
+            <div className="text-base font-medium text-gray-800">Google Gemini</div>
+            <InputField
+              label="API key"
+              helper={data.geminiConfigured ? `A key is saved: ${data.geminiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
+              placeholder="AIza…"
+              value={form.geminiApiKey || ''}
+              onChange={(e) => setForm({ ...form, geminiApiKey: e.target.value })}
+            />
+            <InputField
+              label="Model"
+              placeholder="gemini-2.5-flash"
+              value={form.geminiModel || ''}
+              onChange={(e) => setForm({ ...form, geminiModel: e.target.value })}
+            />
+          </div>
+
+          <div className="flex flex-col gap-4 pt-2 border-t border-gray-100">
+            <div className="text-base font-medium text-gray-800">OpenAI</div>
+            <InputField
+              label="API key"
+              helper={data.openaiConfigured ? `A key is saved: ${data.openaiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
+              placeholder="sk-…"
+              value={form.openaiApiKey || ''}
+              onChange={(e) => setForm({ ...form, openaiApiKey: e.target.value })}
+            />
+            <InputField
+              label="Model"
+              placeholder="gpt-4o-mini"
+              value={form.openaiModel || ''}
+              onChange={(e) => setForm({ ...form, openaiModel: e.target.value })}
+            />
+          </div>
+
+          <div className="flex items-center justify-end pt-1">
+            <Button variant="primary" size="sm" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save AI settings'}
+            </Button>
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 // Audit log
 function actionAccent(action) {
   const a = (action || '').toLowerCase();
@@ -494,6 +632,7 @@ export default function TeamAccess() {
 
   const tabs = [
     { key: 'agents',   label: 'Team members', description: 'Who can sign in',       icon: Users },
+    { key: 'ai',       label: 'AI provider',  description: 'Model and API keys',    icon: KeyRound },
     { key: 'branding', label: 'Branding',     description: 'Name, colour, footer',  icon: Palette },
     { key: 'audit',    label: 'Audit log',    description: 'Recent activity',       icon: History },
   ];
@@ -537,6 +676,7 @@ export default function TeamAccess() {
         </aside>
         <div className="flex-1 min-w-0 w-full">
           {tab === 'agents'   && <Agents />}
+          {tab === 'ai'       && <AiProvider />}
           {tab === 'branding' && <Branding />}
           {tab === 'audit'    && <AuditLog />}
         </div>

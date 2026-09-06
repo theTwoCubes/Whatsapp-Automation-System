@@ -13,6 +13,14 @@ export class AiClient {
     this.enabled = this.order.length > 0;
   }
 
+  // Rebuilds providers and ordering in place, so a provider or key changed
+  // from the console takes effect on the very next call, without a restart.
+  reconfigure(config) {
+    this.providers = buildProviders(config);
+    this.order = orderProviders(config.aiProvider, this.providers);
+    this.enabled = this.order.length > 0;
+  }
+
   async complete(messages, options = {}) {
     if (!this.enabled) {
       throw new Error('AI disabled: no provider key configured');

@@ -752,6 +752,12 @@ function MediaPane({ topics }) {
         >
           All
         </button>
+        <button
+          onClick={() => setTopicId('general')}
+          className={`flex-shrink-0 whitespace-nowrap px-3 py-1 rounded-md text-sm font-medium transition-colors ${topicId === 'general' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          General
+        </button>
         {topics.map((t) => (
           <button
             key={t.id}

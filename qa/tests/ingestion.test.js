@@ -26,7 +26,7 @@ after(async () => {
 beforeEach(async () => {
   await resetTables(pool);
   await pool.query('truncate agents restart identity cascade');
-  await createAgent(pool, { email: 'a@b.com', name: 'A', passwordHash: hashPassword('secret') });
+  await createAgent(pool, { email: 'a@b.com', name: 'A', passwordHash: hashPassword('secret'), role: 'admin' });
 });
 
 async function buildApp() {

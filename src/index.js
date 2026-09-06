@@ -7,6 +7,7 @@ import { AiClient } from './ai/client.js';
 import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 import { pushConfigured } from './push.js';
+import { getSettings } from './settings.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -65,6 +66,8 @@ async function main() {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
+  // Pick up any AI provider or key saved from the console on a previous run.
+  ai.reconfigure(await getSettings(pool, config));
   const stopScheduler = startScheduler({ pool, meta, ai, config, realtime, log: app.log });
 
   let shuttingDown = false;

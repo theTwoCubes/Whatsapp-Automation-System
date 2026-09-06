@@ -57,3 +57,12 @@ test('order puts the primary first then the rest', () => {
   assert.deepEqual(orderProviders('openai', { openai: {}, gemini: {} }), ['openai', 'gemini']);
   assert.deepEqual(orderProviders('gemini', { openai: {} }), ['openai'], 'primary not configured, use what exists');
 });
+
+test('reconfigure swaps providers in place without a new instance', async () => {
+  const ai = new AiClient({ aiProvider: 'openai', openaiApiKey: '', geminiApiKey: '' }, silentLog);
+  assert.equal(ai.enabled, false, 'starts disabled with no keys');
+
+  ai.reconfigure({ aiProvider: 'gemini', openaiApiKey: '', geminiApiKey: 'a-real-key', geminiModel: 'gemini-2.5-flash' });
+  assert.equal(ai.enabled, true, 'enabled once a key is added');
+  assert.deepEqual(ai.order, ['gemini']);
+});

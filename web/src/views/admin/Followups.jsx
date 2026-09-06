@@ -229,23 +229,14 @@ function DripFollowups() {
       <Card>
         <CardHeader title="Which leads is this for?" />
         <CardBody>
-          <div className="flex flex-wrap gap-2 mb-1">
-            {audiences.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => setAudience(a.id)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                  a.id === audience
-                    ? 'text-white border-transparent'
-                    : 'text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-                style={a.id === audience ? { background: 'var(--accent)' } : undefined}
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-sm text-gray-500 mb-4">
+          <select
+            className="field-input w-full md:w-72 mb-1"
+            value={audience}
+            onChange={(e) => setAudience(e.target.value)}
+          >
+            {audiences.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </select>
+          <p className="text-sm text-gray-500 mb-4 mt-2">
             {current.helper}{' '}
             {audience !== 'general' && 'Leave this empty to use the General schedule instead.'}
           </p>

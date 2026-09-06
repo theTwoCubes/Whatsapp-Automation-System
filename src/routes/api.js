@@ -7,7 +7,7 @@ import {
   dismissProposal,
   markProposalApproved,
 } from '../knowledge/refinement.js';
-import { getEditableSettings, editableKeys, invalidateSettings, getBranding } from '../settings.js';
+import { getEditableSettings, editableKeys, invalidateSettings, getBranding, getAiSettings, saveAiSettings } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
 import { listTopics, upsertTopic, updateTopic, deleteTopic } from '../knowledge/topics.js';
 import { ingestText } from '../knowledge/ingestion.js';
@@ -199,7 +199,7 @@ export function registerApi(app, deps) {
     if (!agent || !verifyPassword(password ?? '', agent.password_hash)) {
       return reply.code(401).send({ error: 'invalid email or password' });
     }
-    const role = agent.role === 'agent' ? 'agent' : 'admin';
+    const role = agent.role === 'admin' ? 'admin' : 'agent';
     const token = app.jwt.sign({ id: agent.id, email: agent.email, role }, { expiresIn: '12h' });
     return { token, agent: { id: agent.id, email: agent.email, name: agent.name, role } };
   });
@@ -494,6 +494,25 @@ export function registerApi(app, deps) {
     invalidateSettings();
     await audit(req, 'settings updated', null, Object.keys(entries).join(', '));
     return { settings: await getEditableSettings(pool, deps.config) };
+  });
+
+  // AI provider config. Deliberately separate from /api/settings (which any
+  // signed-in agent can read) - only an admin can see or change which
+  // provider is used or its keys, and keys are never sent back in full.
+  app.get('/api/ai-settings', { preHandler: adminAuth }, async () => ({
+    aiSettings: await getAiSettings(pool, deps.config),
+  }));
+
+  app.put('/api/ai-settings', { preHandler: adminAuth }, async (req, reply) => {
+    const provider = req.body?.aiProvider;
+    if (provider && provider !== 'openai' && provider !== 'gemini') {
+      return reply.code(400).send({ error: 'aiProvider must be openai or gemini' });
+    }
+    await saveAiSettings(pool, req.body || {});
+    const settings = await getSettings(pool, deps.config);
+    deps.ai.reconfigure(settings);
+    await audit(req, 'ai settings updated', null, provider ? `provider=${provider}` : undefined);
+    return { aiSettings: await getAiSettings(pool, deps.config) };
   });
 
   app.get('/api/audit', { preHandler: adminAuth }, async () => ({ audit: await listAudit(pool, 150) }));
@@ -920,7 +939,7 @@ export function registerApi(app, deps) {
     if (!email || password.length < 6) {
       return reply.code(400).send({ error: 'email and a password of at least 6 characters are required' });
     }
-    const role = req.body?.role === 'agent' ? 'agent' : 'admin';
+    const role = req.body?.role === 'admin' ? 'admin' : 'agent';
     await createAgent(pool, { email, name: req.body?.name ?? null, passwordHash: hashPassword(password), role });
     await audit(req, 'agent added', email, `role=${role}`);
     return { ok: true };
@@ -959,7 +978,8 @@ export function registerApi(app, deps) {
   // Media library. Assets are tagged to a topic with a description so the bot
   // can find the right one by meaning, not just dump everything under a topic.
   app.get('/api/media', { preHandler: auth }, async (req) => {
-    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    const raw = req.query?.topicId;
+    const topicId = raw === 'general' ? 'general' : raw ? Number(raw) : null;
     return { media: await listMediaAssets(pool, { topicId }) };
   });
 

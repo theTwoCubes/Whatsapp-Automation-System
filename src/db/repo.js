@@ -299,7 +299,7 @@ export async function getAgentByEmail(pool, email) {
 }
 
 export async function createAgent(pool, a) {
-  const role = a.role === 'agent' ? 'agent' : 'admin';
+  const role = a.role === 'admin' ? 'admin' : 'agent';
   await pool.query(
     'insert into agents (email, name, password_hash, role) values ($1, $2, $3, $4) on conflict (email) do nothing',
     [a.email, a.name ?? null, a.passwordHash, role],
@@ -655,7 +655,17 @@ export async function addMediaAsset(pool, a) {
   return r.rows[0].id;
 }
 
+// topicId: a real id filters to that service, 'general' filters to files
+// with no topic (the ones any lead can be sent), omitted/null returns everything.
 export async function listMediaAssets(pool, { topicId = null } = {}) {
+  if (topicId === 'general') {
+    return (
+      await pool.query(
+        `select id, meta_media_id, filename, mime_type, kind, caption, topic_id, description, created_at
+         from media_assets where topic_id is null order by id desc limit 100`,
+      )
+    ).rows;
+  }
   if (topicId) {
     return (
       await pool.query(

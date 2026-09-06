@@ -1,4 +1,5 @@
 import { parseDripSteps } from './config.js';
+import { setSettings } from './db/repo.js';
 
 // Runtime settings the client edits from the console. They are stored in the
 // settings table and fall back to the env driven config defaults. Cached for a
@@ -82,9 +83,46 @@ function resolve(db, config) {
     dripSteps: parseDripSteps(dripRaw),
     dripLanguage: config.dripLanguage,
     resumeMinutes: db.resume_minutes != null ? Number(db.resume_minutes) : config.resumeMinutes,
+    aiProvider: db.ai_provider ?? config.aiProvider,
+    openaiApiKey: db.openai_api_key ?? config.openaiApiKey,
+    openaiModel: db.openai_model ?? config.openaiModel,
+    geminiApiKey: db.gemini_api_key ?? config.geminiApiKey,
+    geminiModel: db.gemini_model ?? config.geminiModel,
   };
 }
 
 function serializeDrip(steps) {
   return (steps || []).map((s) => `${s.template}:${s.days}`).join(',');
+}
+
+// Admin-only view of the AI provider config. Keys are never sent back to the
+// browser in full - only whether one is set and its last 4 characters, so the
+// form can show "a key is already saved" without the network tab leaking it.
+export async function getAiSettings(pool, config) {
+  const rows = (await pool.query('select key, value from settings')).rows;
+  const db = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const openaiApiKey = db.openai_api_key ?? config.openaiApiKey;
+  const geminiApiKey = db.gemini_api_key ?? config.geminiApiKey;
+  return {
+    aiProvider: db.ai_provider ?? config.aiProvider,
+    openaiModel: db.openai_model ?? config.openaiModel,
+    openaiConfigured: Boolean(openaiApiKey),
+    openaiKeyHint: openaiApiKey ? `••••${openaiApiKey.slice(-4)}` : null,
+    geminiModel: db.gemini_model ?? config.geminiModel,
+    geminiConfigured: Boolean(geminiApiKey),
+    geminiKeyHint: geminiApiKey ? `••••${geminiApiKey.slice(-4)}` : null,
+  };
+}
+
+// A blank or omitted key field means "keep the existing one" - the form never
+// has the real value to send back, so there is nothing else it could mean.
+export async function saveAiSettings(pool, fields) {
+  const entries = {};
+  if (fields.aiProvider === 'openai' || fields.aiProvider === 'gemini') entries.ai_provider = fields.aiProvider;
+  if (fields.openaiModel) entries.openai_model = fields.openaiModel;
+  if (fields.geminiModel) entries.gemini_model = fields.geminiModel;
+  if (fields.openaiApiKey) entries.openai_api_key = fields.openaiApiKey;
+  if (fields.geminiApiKey) entries.gemini_api_key = fields.geminiApiKey;
+  await setSettings(pool, entries);
+  invalidateSettings();
 }
