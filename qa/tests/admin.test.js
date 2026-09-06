@@ -190,20 +190,6 @@ test('branding is public and editable', async () => {
   await app.close();
 });
 
-test('a template can be created through the console', async () => {
-  const meta = new FakeMeta();
-  const app = await buildApp(meta);
-  const t = await token(app);
-  const res = await app.inject({
-    method: 'POST',
-    url: '/api/templates/create',
-    headers: auth(t),
-    payload: { name: 'welcome', bodyText: 'Hi there, thanks for reaching out.' },
-  });
-  assert.equal(res.statusCode, 200);
-  assert.equal(meta.created.at(-1).name, 'welcome');
-  await app.close();
-});
 
 test('inbound media is proxied from meta', async () => {
   await processWebhook(inboundImage({ id: 'wamid.IMG1' }), {

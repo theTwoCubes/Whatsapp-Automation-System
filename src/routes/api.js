@@ -606,25 +606,6 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Create a template from the console. It still needs Meta approval before use.
-  app.post('/api/templates/create', { preHandler: adminAuth }, async (req, reply) => {
-    const name = (req.body?.name ?? '').trim();
-    const bodyText = (req.body?.bodyText ?? '').trim();
-    if (!name || !bodyText) return reply.code(400).send({ error: 'name and body are required' });
-    try {
-      await meta.createTemplate({
-        name,
-        category: req.body?.category,
-        language: req.body?.language,
-        bodyText,
-      });
-      await audit(req, 'template created', name);
-      return { ok: true };
-    } catch (err) {
-      return reply.code(400).send({ error: err.message });
-    }
-  });
-
   // Streams media a lead sent, so the console can show it.
   app.get('/api/messages/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const message = await getMessageRaw(pool, req.params.id);

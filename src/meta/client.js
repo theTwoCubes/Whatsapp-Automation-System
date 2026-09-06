@@ -190,18 +190,6 @@ export class MetaClient {
     return data;
   }
 
-  // Creates a message template so the client can author templates from the
-  // console. It still has to be approved by Meta before it can be sent.
-  async createTemplate({ name, category, language, bodyText }) {
-    const url = `${this.baseUrl}/${this.config.wabaId}/message_templates`;
-    return this.postJson(url, {
-      name,
-      category: category || 'UTILITY',
-      language: language || 'en',
-      components: [{ type: 'BODY', text: bodyText }],
-    });
-  }
-
   // Resolves the short lived download url for a media id, used to view media a
   // lead has sent.
   async getMediaUrl(mediaId) {

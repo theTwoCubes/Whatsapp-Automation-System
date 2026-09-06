@@ -88,7 +88,7 @@ export function loadConfig() {
 
     // Drip follow ups. Each entry is templateName:days. The template names must
     // match approved templates in WhatsApp Manager.
-    dripSteps: parseDripSteps(process.env.DRIP_STEPS || 'drip_day3:3,drip_day5:5,drip_day8:8'),
+    dripSteps: parseDripSteps(process.env.DRIP_STEPS || ''),
     dripLanguage: process.env.DRIP_TEMPLATE_LANG?.trim() || 'en',
 
     // Console. The jwt secret signs agent logins. The admin pair seeds the first

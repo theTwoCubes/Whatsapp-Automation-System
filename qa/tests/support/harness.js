@@ -88,11 +88,6 @@ export class FakeMeta {
     this.media.push({ to, kind, opts, wamid });
     return wamid;
   }
-  async createTemplate(t) {
-    this.created = this.created ?? [];
-    this.created.push(t);
-    return { id: 'tpl-1', status: 'PENDING' };
-  }
   async getMediaUrl(id) {
     return `https://media.example/${id}`;
   }

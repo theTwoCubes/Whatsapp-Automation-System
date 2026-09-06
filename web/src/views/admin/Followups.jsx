@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
-import { InputField } from '../../components/ui/Field.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
@@ -12,13 +11,11 @@ import {
   FormStack, FormActions, Divider, EmptyState,
 } from './Dashboard.jsx';
 
-// Templates
+// Approved messages. Authoring happens in WhatsApp Manager - this only pulls
+// in the current approval status so the drip editor knows what it can offer.
 function Templates() {
-  const [data, setData]         = useState(null);
-  const [name, setName]         = useState('');
-  const [category, setCategory] = useState('UTILITY');
-  const [body, setBody]         = useState('');
-  const [syncing, setSyncing]   = useState(false);
+  const [data, setData]       = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const toast = useToast();
 
   const reload = () => api.templates().then(setData).catch(() => {});
@@ -34,20 +31,12 @@ function Templates() {
     finally { setSyncing(false); }
   };
 
-  const create = async () => {
-    try {
-      await api.createTemplate(name.trim(), category, body.trim());
-      toast.success('Submitted to Meta for approval. It will appear here once approved.');
-      setName(''); setBody('');
-    } catch (e) { toast.error(e.message); }
-  };
-
   const templates = data?.templates || [];
 
   return (
     <Section
       title="Approved messages"
-      subtitle="Ready-to-send messages that WhatsApp lets you use after 24 hours of silence. Meta must approve each one before it can be sent."
+      subtitle="Templates you've created and had approved in WhatsApp Manager. Sync here whenever you add or change one so the follow-up schedules below can use it."
     >
       <div className="flex items-center justify-end mb-3">
         <Button variant="secondary" size="sm" onClick={sync} disabled={syncing}>
@@ -58,9 +47,9 @@ function Templates() {
       {!data ? (
         <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
       ) : templates.length === 0 ? (
-        <EmptyState message="No approved templates yet. Create one below or click Sync to pull from Meta." />
+        <EmptyState message="No approved templates yet. Create one in WhatsApp Manager, then sync." />
       ) : (
-        <Card className="mb-5">
+        <Card>
           {templates.map((t) => (
             <div key={t.name} className="flex items-start gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
@@ -74,150 +63,165 @@ function Templates() {
           ))}
         </Card>
       )}
-
-      <Card>
-        <CardHeader title="Write a new message" />
-        <CardBody>
-          <FormStack>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              Use{' '}
-              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">{'{{1}}'}</code>
-              ,{' '}
-              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">{'{{2}}'}</code>
-              {' '}wherever you want to slot in a name or detail at send time. Meta will review before it goes live.
-            </p>
-            <InputField
-              label="Short name for this message"
-              helper="Lowercase with underscores. This is how you pick the message later."
-              placeholder="e.g. gentle_reminder"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <div className="flex flex-col gap-1.5">
-              <label className="text-base font-medium text-gray-800">Kind</label>
-              <select
-                className="field-input"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="UTILITY">Service update or follow-up</option>
-                <option value="MARKETING">Promotion or offer</option>
-              </select>
-            </div>
-            <InputField
-              label="What the message says"
-              textarea
-              placeholder={`Hi {{1}}, thanks for reaching out earlier. Are you still keen to move ahead?`}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
-            <FormActions>
-              <Button variant="primary" size="sm" onClick={create} disabled={!name.trim() || !body.trim()}>
-                Send to Meta for approval
-              </Button>
-            </FormActions>
-          </FormStack>
-        </CardBody>
-      </Card>
     </Section>
   );
 }
 
-// Drip Follow-ups
+// The step-list editor, shared by the general sequence and every per-service
+// one below. Templates are picked from a dropdown of what's actually synced
+// and approved - never typed by hand, so a typo can't silently break a drip.
+function StepsEditor({ steps, templates, onChange }) {
+  const updateStep = (i, field, value) =>
+    onChange(steps.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
+
+  const addStep    = () => onChange([...steps, { step: steps.length + 1, template: '', days: '' }]);
+  const removeStep = (i) =>
+    onChange(steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, step: idx + 1 })));
+
+  return (
+    <FormStack>
+      {steps.length === 0 && (
+        <p className="text-sm text-gray-500">No follow-ups set up yet. Add one below.</p>
+      )}
+      {steps.map((s, i) => (
+        <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 p-3 md:p-0 border border-gray-100 md:border-0 rounded-lg">
+          <div className="flex items-center gap-3 w-full md:w-auto md:flex-1">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
+              style={{ background: 'var(--accent)' }}
+            >
+              {i + 1}
+            </div>
+            <select
+              className="field-input w-full md:w-64"
+              value={s.template}
+              onChange={(e) => updateStep(i, 'template', e.target.value)}
+            >
+              <option value="">Choose an approved message…</option>
+              {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+              {s.template && !templates.some((t) => t.name === s.template) && (
+                <option value={s.template}>{s.template} (not currently synced)</option>
+              )}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 pl-11 md:pl-0">
+            <span className="text-sm text-gray-500 flex-shrink-0">Wait</span>
+            <input
+              type="number"
+              min="1"
+              className="field-input w-20 text-center"
+              placeholder="Days"
+              value={s.days}
+              onChange={(e) => updateStep(i, 'days', e.target.value)}
+            />
+            <span className="text-sm text-gray-500 whitespace-nowrap flex-1 md:flex-none">days of silence</span>
+            <button
+              onClick={() => removeStep(i)}
+              className="text-red-400 hover:text-red-600 transition-colors p-1.5 rounded flex-shrink-0"
+              title="Remove"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
+      <FormActions>
+        <Button variant="ghost" size="sm" onClick={addStep}>
+          <Plus size={14} /> Add another
+        </Button>
+      </FormActions>
+    </FormStack>
+  );
+}
+
+// Drip Follow-ups. One schedule for General (leads not tied to a specific
+// service) plus one per active service pack. Everything lives here now -
+// there is nothing to configure from the Knowledge section.
 function DripFollowups() {
-  const [settings, setSettings] = useState(null);
-  const [steps, setSteps]       = useState([]);
+  const [settings, setSettings]   = useState(null);
+  const [topics, setTopics]       = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [audience, setAudience]   = useState('general');
+  const [steps, setSteps]         = useState([]);
+  const [dirty, setDirty]         = useState(false);
   const toast = useToast();
 
+  const reload = () => Promise.all([api.getSettings(), api.topics(), api.templates()]).then(([s, t, tpl]) => {
+    setSettings(s.settings);
+    setTopics((t.topics || []).filter((x) => x.active));
+    setTemplates(tpl.templates || []);
+  }).catch(() => {});
+
+  useEffect(() => { reload(); }, []);
+
   useEffect(() => {
-    Promise.all([
-      api.getSettings(),
-      api.templates()
-    ]).then(([d, t]) => {
-      const s = d.settings;
-      setSettings(s);
-      setSteps(parseDripSteps(s.drip_steps || ''));
-      setTemplates(t.templates.filter(tmpl => tmpl.status === 'APPROVED') || []);
-    }).catch(() => {});
-  }, []);
+    if (!settings) return;
+    if (audience === 'general') {
+      setSteps(parseDripSteps(settings.drip_steps || ''));
+    } else {
+      const topic = topics.find((t) => String(t.id) === audience);
+      setSteps(parseDripSteps(topic?.drip_steps || ''));
+    }
+    setDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audience, settings, topics]);
+
+  const changeSteps = (next) => { setSteps(next); setDirty(true); };
 
   const save = async () => {
-    const raw = steps.map((s) => `${s.template}:${s.days}`).join(',');
+    const raw = steps.filter((s) => s.template && s.days).map((s) => `${s.template}:${s.days}`).join(',');
     try {
-      await api.saveSettings({ drip_steps: raw });
+      if (audience === 'general') {
+        await api.saveSettings({ drip_steps: raw });
+      } else {
+        await api.updateTopic(audience, { dripSteps: raw || null });
+      }
       toast.success('Follow-up schedule saved');
+      setDirty(false);
+      reload();
     } catch (e) { toast.error(e.message); }
   };
 
-  const updateStep = (i, field, value) =>
-    setSteps((prev) => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
-
-  const addStep    = () => setSteps((prev) => [...prev, { step: prev.length + 1, template: '', days: '' }]);
-  const removeStep = (i) =>
-    setSteps((prev) => prev.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, step: idx + 1 })));
-
   if (!settings) return <Skeleton height={14} width="60%" />;
+
+  const audiences = [
+    { id: 'general', label: 'General', helper: 'Leads not tied to a specific service.' },
+    ...topics.map((t) => ({ id: String(t.id), label: t.name, helper: `Leads linked to "${t.name}".` })),
+  ];
+  const current = audiences.find((a) => a.id === audience) || audiences[0];
 
   return (
     <Section
       title="Chase quiet leads automatically"
-      subtitle="When a lead goes silent, the system automatically sends a follow-up message from your approved templates. Simply pick the template to send, and how many days to wait. The clock resets the moment they reply, so no one gets chased twice."
+      subtitle="When a lead goes silent, the system sends a follow-up from your approved templates. Pick a message and how many days to wait. The clock resets the moment they reply."
     >
       <Card>
+        <CardHeader title="Which leads is this for?" />
         <CardBody>
-          <FormStack>
-            <datalist id="template-options">
-              {templates.map(t => <option key={t.name} value={t.name} />)}
-            </datalist>
-            {steps.length === 0 && (
-              <p className="text-sm text-gray-500">No follow-ups set up yet. Add one below.</p>
-            )}
-            {steps.map((s, i) => (
-              <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 p-3 md:p-0 border border-gray-100 md:border-0 rounded-lg">
-                <div className="flex items-center gap-3 w-full md:w-auto md:flex-1">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0"
-                    style={{ background: 'var(--accent)' }}
-                  >
-                    {i + 1}
-                  </div>
-                  <input
-                    className="field-input w-full md:w-64"
-                    list="template-options"
-                    placeholder="e.g. drip_day3"
-                    value={s.template}
-                    onChange={(e) => updateStep(i, 'template', e.target.value)}
-                  />
-                </div>
-                <div className="flex items-center gap-2 pl-11 md:pl-0">
-                  <span className="text-sm text-gray-500 flex-shrink-0">Wait</span>
-                  <input
-                    type="number"
-                    min="1"
-                    className="field-input w-20 text-center"
-                    placeholder="Days"
-                    value={s.days}
-                    onChange={(e) => updateStep(i, 'days', e.target.value)}
-                  />
-                  <span className="text-sm text-gray-500 whitespace-nowrap flex-1 md:flex-none">days of silence</span>
-                  <button
-                    onClick={() => removeStep(i)}
-                    className="text-red-400 hover:text-red-600 transition-colors p-1.5 rounded flex-shrink-0"
-                    title="Remove"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-2 mb-1">
+            {audiences.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => setAudience(a.id)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  a.id === audience
+                    ? 'text-white border-transparent'
+                    : 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                }`}
+                style={a.id === audience ? { background: 'var(--accent)' } : undefined}
+              >
+                {a.label}
+              </button>
             ))}
-            <FormActions>
-              <Button variant="ghost" size="sm" onClick={addStep}>
-                <Plus size={14} /> Add another
-              </Button>
-              <Button variant="primary" size="sm" onClick={save}>Save</Button>
-            </FormActions>
-          </FormStack>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            {current.helper}{' '}
+            {audience !== 'general' && 'Leave this empty to use the General schedule instead.'}
+          </p>
+          <StepsEditor steps={steps} templates={templates} onChange={changeSteps} />
+          <FormActions>
+            <Button variant="primary" size="sm" onClick={save} disabled={!dirty}>Save</Button>
+          </FormActions>
         </CardBody>
       </Card>
     </Section>

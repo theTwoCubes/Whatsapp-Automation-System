@@ -123,8 +123,6 @@ export const api = {
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
   audit: () => req('/audit'),
-  createTemplate: (name, category, bodyText) =>
-    req('/templates/create', { method: 'POST', body: JSON.stringify({ name, category, bodyText }) }),
   getVapidKey: () => req('/push/vapid-public-key'),
   pushSubscribe: (body) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
   pushUnsubscribe: (endpoint) => req('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }),
