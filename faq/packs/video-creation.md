@@ -10,9 +10,6 @@ than quoting numbers. Base pack policies apply on top.
 Q: Can I see samples of your video work?
 A: Sure, here are some short videos we've made for clients.
 
-Q: Do you have a portfolio for video / reels / social media video?
-A: Yes, sending a few samples now.
-
 # Handoff
 
 Q: What does a video cost / how long does it take?

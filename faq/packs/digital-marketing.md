@@ -10,9 +10,6 @@ requirements rather than quoting numbers. Base pack policies apply on top.
 Q: Can I see results or samples from your digital marketing work?
 A: Sure, here's an overview of digital marketing work we've done.
 
-Q: Do you have a portfolio for digital marketing / PPC / Google My Business?
-A: Yes, sending an overview now.
-
 # Handoff
 
 Q: What does digital marketing cost / how long until results show?

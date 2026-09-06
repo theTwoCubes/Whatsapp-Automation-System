@@ -215,9 +215,6 @@ A: Yes - courses, facilities, achievements, and programs, structured clearly.
 Q: Can you share sample brochures or catalogues from your portfolio?
 A: Sure, here are some brochures and catalogues we've designed.
 
-Q: Do you have a portfolio for brochure or catalogue design?
-A: Yes, sending a few samples now.
-
 # Handoff
 
 Q: I'd like a custom quote / discount / to negotiate.

@@ -10,9 +10,6 @@ pack policies apply on top.
 Q: Can I see samples of your website design work?
 A: Sure, here are some websites we've designed and developed.
 
-Q: Do you have a portfolio for websites?
-A: Yes, sending a few samples now.
-
 # Handoff
 
 Q: What does a website cost / how long does it take?

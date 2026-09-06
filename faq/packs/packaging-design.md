@@ -10,9 +10,6 @@ pack policies apply on top.
 Q: Can I see samples of your packaging design work?
 A: Sure, here are some packaging projects we've worked on.
 
-Q: Do you have a portfolio for packaging design?
-A: Yes, sending a few samples now.
-
 # Handoff
 
 Q: What does packaging design cost / how long does it take?

@@ -154,9 +154,6 @@ A: The specific timeline is confirmed when the project is scheduled - it depends
 Q: Can I see samples of your logo design work?
 A: Of course, here are some logos we've designed recently.
 
-Q: Do you have a portfolio for logo design?
-A: Yes, sending over a few samples now.
-
 # Handoff
 
 Q: I want to talk about the brief / share my references for review.
