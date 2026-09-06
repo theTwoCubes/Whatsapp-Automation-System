@@ -1,14 +1,9 @@
 # Website design and development pack - AdVoice Inc.
 
-Portfolio only for now. Pricing, process, and deliverables have not been
-added yet - until they are, the bot uses the general business context and
-asks about the customer's requirements rather than quoting numbers. Base
-pack policies apply on top.
-
-# Portfolio
-
-Q: Can I see samples of your website design work?
-A: Sure, here are some websites we've designed and developed.
+No pricing or process FAQs yet - until they are added, the bot uses the
+general business context and asks about the customer's requirements rather
+than quoting numbers. Portfolio samples are handled through the media
+library, not FAQs here. Base pack policies apply on top.
 
 # Handoff
 

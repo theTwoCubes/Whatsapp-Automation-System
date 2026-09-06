@@ -183,37 +183,60 @@ test('with pack requests disabled the need_packs action is not offered', async (
   assert.match(system, /"action": "block"/);
 });
 
-test('faqs with a file attached are flagged in the prompt and the id is shown', async () => {
-  const assetId = (
-    await pool.query("insert into media_assets (kind, filename) values ('document', 'p.pdf') returning id")
+test('media with a description is offered in the prompt with its id, media with none is not', async () => {
+  const withDesc = (
+    await pool.query(
+      "insert into media_assets (kind, filename, description) values ('document', 'pricing.pdf', 'The full price sheet') returning id",
+    )
   ).rows[0].id;
-  const faq = await createFaq(pool, { question: 'Prices?', answer: 'See sheet.', mediaAssetId: assetId });
+  await pool.query("insert into media_assets (kind, filename) values ('document', 'no-description.pdf')");
 
   const id = await conversation();
   const ai = new SpyAi();
   await buildReply(pool, ai, testConfig, id, {});
 
   const system = ai.lastMessages[0].content;
-  assert.match(system, new RegExp(`Q \\[id ${faq.id}\\]:`), 'each faq shows its id so the model can name it');
-  assert.match(system, /has an attached file you can send with this answer/);
-  assert.match(system, /send_faq_id/);
+  assert.match(system, new RegExp(`\\[id ${withDesc}\\] pricing.pdf - The full price sheet`));
+  assert.doesNotMatch(system, /no-description\.pdf/, 'a file with no description gives the model nothing to judge relevance from');
+  assert.match(system, /send_media_id/);
 });
 
-test('send_faq_id is only trusted when the id was actually in the packs given', async () => {
+test('send_media_id is only trusted when the asset was actually in the catalog given', async () => {
   const assetId = (
-    await pool.query("insert into media_assets (kind, filename) values ('document', 'p.pdf') returning id")
+    await pool.query(
+      "insert into media_assets (kind, filename, description) values ('document', 'p.pdf', 'A sample document') returning id",
+    )
   ).rows[0].id;
-  const faq = await createFaq(pool, { question: 'Prices?', answer: 'See sheet.', mediaAssetId: assetId });
 
   const id = await conversation();
-  const good = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_faq_id: Number(faq.id) }));
+  const good = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_media_id: Number(assetId) }));
   const goodDecision = await buildReply(pool, good, testConfig, id, {});
-  assert.equal(goodDecision.sendFaqId, Number(faq.id));
+  assert.equal(goodDecision.sendMediaId, Number(assetId));
 
-  const bad = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_faq_id: 99999 }));
+  const bad = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here it is.', send_media_id: 99999 }));
   const badDecision = await buildReply(pool, bad, testConfig, id, {});
-  assert.equal(badDecision.sendFaqId, null, 'an id not in the given packs is dropped rather than trusted');
+  assert.equal(badDecision.sendMediaId, null, 'an id not in the catalog given is dropped rather than trusted');
   assert.equal(badDecision.reply, 'Here it is.', 'the reply itself still goes through');
+});
+
+test('media already sent in this chat is listed so the model knows not to resend it', async () => {
+  const assetId = (
+    await pool.query(
+      "insert into media_assets (kind, filename, description) values ('document', 'portfolio.pdf', 'Sample portfolio') returning id",
+    )
+  ).rows[0].id;
+  const id = await conversation();
+  await pool.query(
+    `insert into messages (conversation_id, wa_message_id, direction, type, body, media_asset_id)
+     values ($1, 'wamid.sent1', 'outbound', 'document', 'here you go', $2)`,
+    [id, assetId],
+  );
+
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /Already sent in this chat/);
+  assert.match(system, /portfolio\.pdf, sent/);
 });
 
 test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {

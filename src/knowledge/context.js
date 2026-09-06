@@ -61,8 +61,7 @@ export async function buildFaqContext(pool, { packs = ['base'], budgetTokens = 6
 // entire FAQ text on every dropped row (the old loop was O(n^2)).
 function rowTokens(row) {
   const lock = row.verbatim ? ' [quote this answer exactly, word for word]' : '';
-  const media = row.media_asset_id ? ' [has an attached file you can send with this answer]' : '';
-  return estimateTokens(`Q [id ${row.id}]: ${row.question}\nA: ${row.answer}${lock}${media}`) + 2;
+  return estimateTokens(`Q [id ${row.id}]: ${row.question}\nA: ${row.answer}${lock}`) + 2;
 }
 
 // Drops from the back of the least important pack until it fits. Pinned rows
@@ -100,11 +99,7 @@ function render(groups) {
       const body = g.rows
         .map((r) => {
           const lock = r.verbatim ? ' [quote this answer exactly, word for word]' : '';
-          // FAQ id is shown so the model can name it when it decides to send
-          // the attached file, and the attachment flag is what tells it there
-          // is a file to send in the first place.
-          const media = r.media_asset_id ? ' [has an attached file you can send with this answer]' : '';
-          return `Q [id ${r.id}]: ${r.question}\nA: ${r.answer}${lock}${media}`;
+          return `Q [id ${r.id}]: ${r.question}\nA: ${r.answer}${lock}`;
         })
         .join('\n\n');
       return `${heading}\n${body}`;

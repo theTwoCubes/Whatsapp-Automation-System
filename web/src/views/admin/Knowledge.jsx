@@ -787,8 +787,8 @@ function MediaPane({ topics }) {
               </select>
             </div>
             <InputField label="Description" textarea
-              helper="Describe what the file shows. The AI uses this to decide when to attach it to a reply."
-              placeholder="e.g. Pricing sheet for logo design packages (updated 2024)"
+              helper="This is the only thing the AI sees to decide whether this file is relevant - not the filename. Be specific: what it shows, and when it should be sent. A file with no description is never offered to the AI."
+              placeholder="e.g. Pricing sheet for logo design packages, updated 2024. Send when a lead asks for exact prices or a rate card."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />

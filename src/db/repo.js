@@ -687,6 +687,37 @@ export async function deleteMediaAsset(pool, id) {
   await pool.query('delete from media_assets where id = $1', [id]);
 }
 
+// Files the AI can choose to attach for this reply: whatever belongs to the
+// services in play, plus anything with no service at all. A file with no
+// description is skipped since the model has nothing to judge relevance from.
+export async function getMediaCatalog(pool, topicIds = []) {
+  const ids = topicIds.map(Number).filter((n) => Number.isFinite(n));
+  const res = await pool.query(
+    `select id, filename, description, kind, topic_id
+     from media_assets
+     where description is not null and description <> ''
+       and (topic_id is null or topic_id = any($1::bigint[]))
+     order by topic_id nulls last, id desc`,
+    [ids],
+  );
+  return res.rows;
+}
+
+// What has already gone out in this conversation, most recent first, so the
+// model can be told rather than guessing whether something was just sent.
+export async function getRecentMediaSends(pool, conversationId, limit = 5) {
+  const res = await pool.query(
+    `select m.media_asset_id, ma.filename, m.created_at
+     from messages m
+     join media_assets ma on ma.id = m.media_asset_id
+     where m.conversation_id = $1 and m.direction = 'outbound' and m.media_asset_id is not null
+     order by m.created_at desc
+     limit $2`,
+    [conversationId, limit],
+  );
+  return res.rows;
+}
+
 // Whether this exact asset already went out in this conversation recently, so
 // the bot can lean away from resending it without being hard blocked, in case
 // the lead genuinely asks again later.

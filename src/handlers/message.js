@@ -17,7 +17,6 @@ import {
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
-import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { getTopic } from '../knowledge/topics.js';
 import { parseDripSteps } from '../config.js';
@@ -284,8 +283,8 @@ async function respondToLead(deps, conversationId, items) {
 
   const reply = decision?.reply || settings.fallbackMessage;
   const sent = await sendAndRecord(deps, to, conversationId, reply);
-  if (sent && decision?.sendFaqId) {
-    await maybeSendFaqMedia(deps, conversationId, to, decision.sendFaqId);
+  if (sent && decision?.sendMediaId) {
+    await maybeSendMedia(deps, conversationId, to, decision.sendMediaId);
   }
 
   if (sent) {
@@ -338,17 +337,14 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
   return packs;
 }
 
-// Sends the file the client attached to a specific FAQ, when the model asked
-// for it as part of its reply. The cooldown stops the bot from resending the
-// same file to the same conversation within a window, without hard blocking a
-// lead who genuinely asks for it again later.
-async function maybeSendFaqMedia(deps, conversationId, to, faqId) {
+// Sends the file the model chose from the media catalog it was shown, as part
+// of its reply. The cooldown is a backstop against a model mistake - the
+// model itself is already told what it recently sent and asked not to resend
+// it, this just makes sure that holds even if it slips.
+async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
   const { pool, meta, realtime, log, config } = deps;
   try {
-    const faq = await getFaq(pool, faqId);
-    if (!faq?.media_asset_id) return;
-
-    const asset = await getMediaAsset(pool, faq.media_asset_id);
+    const asset = await getMediaAsset(pool, mediaAssetId);
     if (!asset) return;
 
     const recently = await wasMediaSentRecently(pool, conversationId, asset.id, config.mediaResendCooldownMinutes);
@@ -370,7 +366,7 @@ async function maybeSendFaqMedia(deps, conversationId, to, faqId) {
       realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
-    log.warn({ conversationId, faqId, err }, 'failed to send faq attachment');
+    log.warn({ conversationId, mediaAssetId, err }, 'failed to send media attachment');
   }
 }
 

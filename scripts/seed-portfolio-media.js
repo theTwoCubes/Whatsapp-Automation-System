@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Uploads the portfolio PDFs to Meta and attaches each one to the matching
-// "can I see samples" FAQ, so the bot can send it the moment someone asks -
-// no manual upload through the console needed.
+// Uploads the portfolio PDFs to Meta and files each one under its service, so
+// the bot can pick it from the media catalog the moment a lead asks for
+// samples - no FAQ wiring involved, the AI reasons from the description.
 //
-// Safe to re-run: it always uploads a fresh copy and repoints the FAQ at the
-// new asset, so once the client sends real portfolio files, regenerate
-// lib/portfolio-content.js content (or point this at different PDFs) and
-// run this again to swap them in.
+// Safe to re-run: it removes any asset with the same filename first, so
+// repeated runs (including after regenerating lib/portfolio-content.js with
+// real client-supplied content) never leave duplicate or stale files behind
+// for the AI to pick from.
 //
 // Usage (on the server, with the same .env the app uses):
 //   node scripts/seed-portfolio-media.js
@@ -16,7 +16,6 @@ import { createPool } from '../src/db/pool.js';
 import { MetaClient } from '../src/meta/client.js';
 import { addMediaAsset } from '../src/db/repo.js';
 import { getTopicBySlug } from '../src/knowledge/topics.js';
-import { listFaqs, updateFaq } from '../src/knowledge/faqs.js';
 import { buildPdf, docs } from './lib/portfolio-content.js';
 
 const log = {
@@ -39,15 +38,10 @@ async function run() {
       continue;
     }
 
-    const faqs = await listFaqs(pool, { pack: topic ? topic.id : 'base' });
-    const faq = faqs.find((f) => f.question.trim() === doc.faqQuestion);
-    if (!faq) {
-      console.warn(`  skip: FAQ "${doc.faqQuestion}" not found for "${slug}" - run scripts/seed-faqs.js first`);
-      continue;
-    }
+    const filename = `${slug}-portfolio.pdf`;
+    await pool.query('delete from media_assets where filename = $1', [filename]);
 
     const pdf = buildPdf(doc.blocks);
-    const filename = `${slug}-portfolio.pdf`;
     const metaMediaId = await meta.uploadMedia(pdf, 'application/pdf', filename);
     const assetId = await addMediaAsset(pool, {
       metaMediaId,
@@ -55,10 +49,9 @@ async function run() {
       mimeType: 'application/pdf',
       kind: 'document',
       topicId: topic ? topic.id : null,
-      description: doc.title,
+      description: doc.description,
     });
-    await updateFaq(pool, faq.id, { mediaAssetId: assetId }, 'seed-portfolio-media');
-    console.log(`  ok: ${slug} -> media ${assetId} attached to faq ${faq.id}`);
+    console.log(`  ok: ${slug} -> media ${assetId}${topic ? ` (${topic.name})` : ' (general)'}`);
   }
 }
 

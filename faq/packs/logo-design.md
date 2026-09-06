@@ -149,11 +149,6 @@ A: Yes, while considering the existing business, positioning, and future plans.
 Q: How long does the logo process take?
 A: The specific timeline is confirmed when the project is scheduled - it depends on the scope, feedback speed, and approval stages.
 
-# Portfolio
-
-Q: Can I see samples of your logo design work?
-A: Of course, here are some logos we've designed recently.
-
 # Handoff
 
 Q: I want to talk about the brief / share my references for review.

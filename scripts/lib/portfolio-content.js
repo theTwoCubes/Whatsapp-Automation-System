@@ -121,7 +121,7 @@ export const docs = {
   'general-overview': {
     title: 'AdVoice Inc. — Portfolio Overview',
     topicSlug: null,
-    faqQuestion: 'Can I see a general overview of your work / an overview portfolio?',
+    description: 'A one-page overview PDF with a sample project from every service - logo design, brochures and catalogues, packaging, website design, digital marketing, and short video. Best for a lead who has not settled on a specific service yet, or wants a broad sense of the work before narrowing down. If they have already named a specific service, send that service\'s own portfolio file instead of this one.',
     blocks: [
       { heading: 'AdVoice Inc. — A Look At Our Work' },
       { text: 'Since 2012 we have delivered branding, print, digital, and marketing work across more than 30 industries, with particular depth in real estate, manufacturing, and pharma. Here is a quick look across our services - ask for a specific one and we will send more.' },
@@ -151,7 +151,7 @@ export const docs = {
   'logo-design': {
     title: 'AdVoice Inc. — Logo & Brand Identity Portfolio',
     topicSlug: 'logo-design',
-    faqQuestion: 'Can I see samples of your logo design work?',
+    description: 'A one-page PDF showing four recent logo and brand identity projects (Kalpavriksha Realty, Ferrotech Industries, Saffron Leaf Organics, Meridian Interiors), each with a short write-up of the brief and the direction taken. Send when a lead asks to see logo design samples, past work, or examples of the identity process.',
     blocks: [
       { heading: 'Logo & Brand Identity — Selected Work' },
       { text: 'A look at recent identity projects. Every mark below went through briefing, mind mapping, hand sketching, and three developed directions before final delivery.' },
@@ -173,7 +173,7 @@ export const docs = {
   'scientific-logo-design': {
     title: 'AdVoice Inc. — Scientific Logo Design Portfolio',
     topicSlug: 'scientific-logo-design',
-    faqQuestion: "Can I see examples of scientific logos you've done?",
+    description: 'A one-page PDF with three examples of scientific/Vedic logo design work done through the consultation process with Maulik Dave (Suryodaya Finance, Vaidya Ayurveda Clinic, Nakshatra Jewellers). Only send this for scientific logo design questions specifically - use the standard logo design portfolio for ordinary logo requests instead.',
     blocks: [
       { heading: 'Scientific Logo Design — With Maulik Dave' },
       { text: 'A sample of identities developed through the scientific logo design process, where shape, colour, and symbolism are aligned to the business category and growth direction alongside standard design craft.' },
@@ -194,7 +194,7 @@ export const docs = {
   'brochure-catalogue-design': {
     title: 'AdVoice Inc. — Brochure & Catalogue Portfolio',
     topicSlug: 'brochure-catalogue-design',
-    faqQuestion: 'Can you share sample brochures or catalogues from your portfolio?',
+    description: 'A one-page PDF with four brochure and catalogue design examples across real estate, pharma, manufacturing, and education. Send when a lead asks to see brochure or catalogue samples, or examples of print layout work.',
     blocks: [
       { heading: 'Brochure & Catalogue Design — Selected Work' },
       { text: 'A sample of print and digital brochure and catalogue projects across real estate, pharma, and manufacturing.' },
@@ -216,7 +216,7 @@ export const docs = {
   'packaging-design': {
     title: 'AdVoice Inc. — Packaging Design Portfolio',
     topicSlug: 'packaging-design',
-    faqQuestion: 'Can I see samples of your packaging design work?',
+    description: 'A one-page PDF with three packaging design examples across skincare, packaged foods, and supplements. Send when a lead asks to see packaging design samples or past packaging projects.',
     blocks: [
       { heading: 'Packaging Design — Selected Work' },
       { text: 'A sample of packaging projects across personal care, food, and retail.' },
@@ -235,7 +235,7 @@ export const docs = {
   'website-design': {
     title: 'AdVoice Inc. — Website Design & Development Portfolio',
     topicSlug: 'website-design',
-    faqQuestion: 'Can I see samples of your website design work?',
+    description: 'A one-page PDF with three website design and development examples across interiors, real estate, and manufacturing. Send when a lead asks to see website samples or past web projects.',
     blocks: [
       { heading: 'Website Design & Development — Selected Work' },
       { text: 'A sample of websites designed and built for lead generation and portfolio presentation.' },
@@ -254,7 +254,7 @@ export const docs = {
   'digital-marketing': {
     title: 'AdVoice Inc. — Digital Marketing Portfolio',
     topicSlug: 'digital-marketing',
-    faqQuestion: 'Can I see results or samples from your digital marketing work?',
+    description: 'A one-page PDF summarising three digital marketing projects covering PPC, Google My Business, and email marketing. Send when a lead asks about digital marketing results, examples, or past campaigns.',
     blocks: [
       { heading: 'Digital Marketing — Selected Work' },
       { text: 'A sample of PPC, Google My Business, and email marketing work.' },
@@ -273,7 +273,7 @@ export const docs = {
   'video-creation': {
     title: 'AdVoice Inc. — Short Video Portfolio',
     topicSlug: 'video-creation',
-    faqQuestion: 'Can I see samples of your video work?',
+    description: 'A one-page PDF with three short video project examples made for social media. Send when a lead asks to see video samples or past video work.',
     blocks: [
       { heading: 'Short-Form Video — Selected Work' },
       { text: 'A sample of short videos produced for social media and WhatsApp sharing.' },
