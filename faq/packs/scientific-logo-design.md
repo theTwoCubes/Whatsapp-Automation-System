@@ -133,6 +133,11 @@ A: Yes. Share the logo and give us time. We'll analyse it and reconnect with the
 Q: I'm interested. What's the next step?
 A: Share (1) your name, (2) your business category, (3) your existing logo, and (4) your biggest current business challenge - for example, "payment stuck", "sales not growing", "deals break at the last moment", "staff not competent", or "growth plateaued". After that we'll set up a 15-minute personal Zoom with Maulik.
 
+# Portfolio
+
+Q: Can I see examples of scientific logos you've done?
+A: Sure, here are a few examples of the scientific logo work we've done.
+
 # Handoff
 
 Q: Can I book a call with Maulik?

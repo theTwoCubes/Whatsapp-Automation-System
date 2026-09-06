@@ -210,12 +210,17 @@ A: Yes - project, amenities, specifications, location, and lifestyle presented i
 Q: Do you design educational institute brochures?
 A: Yes - courses, facilities, achievements, and programs, structured clearly.
 
+# Portfolio
+
+Q: Can you share sample brochures or catalogues from your portfolio?
+A: Sure, here are some brochures and catalogues we've designed.
+
+Q: Do you have a portfolio for brochure or catalogue design?
+A: Yes, sending a few samples now.
+
 # Handoff
 
 Q: I'd like a custom quote / discount / to negotiate.
-A: (Hand chat to the team.)
-
-Q: Can you share sample brochures or catalogues from your portfolio?
 A: (Hand chat to the team.)
 
 Q: Can I send my old brochure to be reviewed?

@@ -4,7 +4,7 @@
 
 export async function listTopics(pool) {
   const res = await pool.query(
-    `select t.id, t.slug, t.name, t.description, t.keywords, t.active, t.created_at,
+    `select t.id, t.slug, t.name, t.description, t.keywords, t.active, t.created_at, t.drip_steps,
             (select count(*) from faqs f where f.topic_id = t.id and f.active) as faq_count
      from topics t
      order by t.active desc, t.name`,
@@ -14,7 +14,7 @@ export async function listTopics(pool) {
 
 export async function getTopic(pool, id) {
   const res = await pool.query(
-    'select id, slug, name, description, keywords, active from topics where id = $1',
+    'select id, slug, name, description, keywords, active, drip_steps from topics where id = $1',
     [id],
   );
   return res.rows[0] ?? null;
@@ -22,22 +22,23 @@ export async function getTopic(pool, id) {
 
 export async function getTopicBySlug(pool, slug) {
   const res = await pool.query(
-    'select id, slug, name, description, keywords, active from topics where slug = $1',
+    'select id, slug, name, description, keywords, active, drip_steps from topics where slug = $1',
     [slug],
   );
   return res.rows[0] ?? null;
 }
 
-export async function upsertTopic(pool, { slug, name, description, keywords }) {
+export async function upsertTopic(pool, { slug, name, description, keywords, dripSteps }) {
   const res = await pool.query(
-    `insert into topics (slug, name, description, keywords) values ($1, $2, $3, $4)
+    `insert into topics (slug, name, description, keywords, drip_steps) values ($1, $2, $3, $4, $5)
      on conflict (slug) do update set
        name = excluded.name,
        description = coalesce(excluded.description, topics.description),
        keywords = coalesce(excluded.keywords, topics.keywords),
+       drip_steps = coalesce(excluded.drip_steps, topics.drip_steps),
        updated_at = now()
-     returning id, slug, name, description, keywords, active`,
-    [slug, name, description ?? null, keywords ?? null],
+     returning id, slug, name, description, keywords, active, drip_steps`,
+    [slug, name, description ?? null, keywords ?? null, dripSteps ?? null],
   );
   return res.rows[0];
 }
@@ -51,6 +52,7 @@ export async function updateTopic(pool, id, fields) {
        description = case when $3::boolean then $4::text else description end,
        keywords = case when $5::boolean then $6::text else keywords end,
        active = coalesce($7, active),
+       drip_steps = case when $8::boolean then $9::text else drip_steps end,
        updated_at = now()
      where id = $1`,
     [
@@ -61,6 +63,8 @@ export async function updateTopic(pool, id, fields) {
       'keywords' in fields,
       fields.keywords ?? null,
       fields.active ?? null,
+      'dripSteps' in fields,
+      fields.dripSteps ?? null,
     ],
   );
 }

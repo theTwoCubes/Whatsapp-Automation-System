@@ -830,8 +830,9 @@ export function registerApi(app, deps) {
     const slug = (req.body?.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
     const description = (req.body?.description ?? '').trim() || null;
     const keywords = (req.body?.keywords ?? '').trim() || null;
+    const dripSteps = (req.body?.dripSteps ?? '').trim() || null;
     if (!name || !slug) return reply.code(400).send({ error: 'name and slug are required' });
-    const topic = await upsertTopic(pool, { slug, name, description, keywords });
+    const topic = await upsertTopic(pool, { slug, name, description, keywords, dripSteps });
     await audit(req, 'topic added', slug);
     return { topic };
   });
@@ -842,6 +843,7 @@ export function registerApi(app, deps) {
     if (req.body && 'description' in req.body) fields.description = req.body.description ?? null;
     if (req.body && 'keywords' in req.body) fields.keywords = req.body.keywords ?? null;
     if (req.body && 'active' in req.body) fields.active = req.body.active;
+    if (req.body && 'dripSteps' in req.body) fields.dripSteps = req.body.dripSteps ?? null;
     await updateTopic(pool, req.params.id, fields);
     await audit(req, 'topic updated', `topic ${req.params.id}`);
     return { ok: true };

@@ -29,7 +29,10 @@ Q: What services do you have?
 A: Logo design, scientific logo design, brochure and catalogue design, packaging, website design and development, digital marketing, and short-form video. Which one are you thinking about?
 
 Q: Can you share your portfolio?
-A: Yes, we can share portfolio samples for whichever service you're interested in - just let us know which one.
+A: Yes! Which service are you looking at - logo design, brochures/catalogues, packaging, website, digital marketing, or video - so I can send the right samples? If you'd rather see a general overview first, just say so.
+
+Q: Can I see a general overview of your work / an overview portfolio?
+A: Sure, here's a quick look at the range of our work across services.
 
 Q: What industries do you work with?
 A: Over 30, with particular depth in real estate, manufacturing, and pharma.

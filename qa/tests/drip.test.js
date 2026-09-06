@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
 import { runDueDrips } from '../../src/scheduler.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
+import { createFaq } from '../../src/knowledge/faqs.js';
 import { inboundText } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
@@ -59,6 +61,35 @@ test('handing off to a human cancels the drips', async () => {
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G2', body: 'can I talk to a human' }), d);
   assert.equal(await pending(), 0, 'no follow ups once a human is involved');
+});
+
+test('a service pack with its own drip steps overrides the general sequence', async () => {
+  const topic = await upsertTopic(pool, {
+    slug: 'packaging_design',
+    name: 'Packaging Design',
+    keywords: 'packaging',
+    dripSteps: 'drip_packaging_day3:3,drip_packaging_day5:5,drip_packaging_day8:8',
+  });
+  await createFaq(pool, { topicId: topic.id, question: 'What is packaging design?', answer: 'We design product packaging.' });
+
+  await processWebhook(inboundText({ id: 'wamid.P1', body: 'I need packaging design for my product' }), deps());
+
+  const names = (await pool.query(
+    "select template_name from drip_jobs where status = 'pending' order by step",
+  )).rows.map((r) => r.template_name);
+  assert.deepEqual(names, ['drip_packaging_day3', 'drip_packaging_day5', 'drip_packaging_day8']);
+});
+
+test('a service pack with no drip steps of its own falls back to the general sequence', async () => {
+  const topic = await upsertTopic(pool, { slug: 'video_creation', name: 'Video', keywords: 'videoclip' });
+  await createFaq(pool, { topicId: topic.id, question: 'Do you make videos?', answer: 'Yes, short videos.' });
+
+  await processWebhook(inboundText({ id: 'wamid.P2', body: 'I want a videoclip made' }), deps());
+
+  const names = (await pool.query(
+    "select template_name from drip_jobs where status = 'pending' order by step",
+  )).rows.map((r) => r.template_name);
+  assert.deepEqual(names, ['drip_day3', 'drip_day5', 'drip_day8']);
 });
 
 test('a due follow up sends its template and is marked sent', async () => {

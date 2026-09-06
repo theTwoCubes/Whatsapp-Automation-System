@@ -451,7 +451,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
 // Pack Settings
 function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   const [topic, setTopic] = useState(null);
-  const [form, setForm]   = useState({ description: '', keywords: '' });
+  const [form, setForm]   = useState({ description: '', keywords: '', dripSteps: '' });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const toast = useToast();
@@ -459,13 +459,17 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   useEffect(() => {
     api.topics().then((d) => {
       const t = (d.topics || []).find((x) => String(x.id) === String(topicId));
-      if (t) { setTopic(t); setForm({ description: t.description || '', keywords: t.keywords || '' }); }
+      if (t) { setTopic(t); setForm({ description: t.description || '', keywords: t.keywords || '', dripSteps: t.drip_steps || '' }); }
     }).catch(() => {});
   }, [topicId]);
 
   const save = async () => {
     try {
-      await api.updateTopic(topicId, { description: form.description.trim() || null, keywords: form.keywords.trim() || null });
+      await api.updateTopic(topicId, {
+        description: form.description.trim() || null,
+        keywords: form.keywords.trim() || null,
+        dripSteps: form.dripSteps.trim() || null,
+      });
       toast.success('Saved');
       onChanged?.();
     } catch (e) { toast.error(e.message); }
@@ -510,6 +514,11 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
               placeholder="Logo and brand identity design services"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <InputField label="Drip follow-ups for this service"
+              helper="Approved Meta template name and days apart, comma separated: template:days,template:days. Leave blank to use the general follow-up sequence."
+              placeholder="drip_logo_day3:3,drip_logo_day5:5,drip_logo_day8:8"
+              value={form.dripSteps}
+              onChange={(e) => setForm({ ...form, dripSteps: e.target.value })} />
             <FormActions>
               <Button variant="primary" size="sm" onClick={save}>Save</Button>
             </FormActions>

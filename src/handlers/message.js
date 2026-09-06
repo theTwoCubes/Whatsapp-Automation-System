@@ -19,6 +19,8 @@ import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { getFaq } from '../knowledge/faqs.js';
 import { keywordPacks } from '../knowledge/packs.js';
+import { getTopic } from '../knowledge/topics.js';
+import { parseDripSteps } from '../config.js';
 import { handToPending } from '../handoff.js';
 import { notifyAgentsOfHandoff } from '../push.js';
 
@@ -287,8 +289,22 @@ async function respondToLead(deps, conversationId, items) {
   }
 
   if (sent) {
-    await scheduleDrips(pool, conversationId, settings.dripSteps);
+    const dripSteps = await resolveDripSteps(pool, settings, packs);
+    await scheduleDrips(pool, conversationId, dripSteps);
   }
+}
+
+// Picks the drip sequence to schedule: the specific service pack in play for
+// this reply, if it has its own follow ups configured, otherwise the general
+// sequence from settings. packs[0] is always 'base', so the first numeric
+// entry (if any) is the most relevant service topic for this conversation.
+async function resolveDripSteps(pool, settings, packs) {
+  const topicId = packs.find((p) => p !== 'base');
+  if (topicId != null) {
+    const topic = await getTopic(pool, topicId);
+    if (topic?.drip_steps) return parseDripSteps(topic.drip_steps);
+  }
+  return settings.dripSteps;
 }
 
 // The packs going into this reply: base is always there, the lead's own

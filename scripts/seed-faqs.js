@@ -23,22 +23,53 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKS_DIR = path.join(__dirname, '..', 'faq', 'packs');
 
 // slug -> topic metadata. Keys must match the .md filenames without extension.
+// dripSteps is the follow-up sequence for a lead linked to this service:
+// template:days pairs, comma separated. Template names are placeholders until
+// the matching WhatsApp templates are submitted to and approved by Meta - set
+// the real names here (or edit the pack in the console) once they're live.
 const PACKS = {
-  base: { name: null, description: null, keywords: null },
+  base: { name: null, description: null, keywords: null, dripSteps: null },
   'logo-design': {
     name: 'Logo Design',
     description: 'Standard logo and brand identity package.',
     keywords: 'logo, branding, identity, brand mark, wordmark',
+    dripSteps: 'drip_logo_day3:3,drip_logo_day5:5,drip_logo_day8:8',
   },
   'brochure-catalogue-design': {
     name: 'Brochure & Catalogue Design',
     description: 'Brochure and catalogue design, per page pricing, print handling.',
     keywords: 'brochure, catalogue, catalog, booklet, bifold, trifold, product catalogue, price list',
+    dripSteps: 'drip_brochure_day3:3,drip_brochure_day5:5,drip_brochure_day8:8',
   },
   'scientific-logo-design': {
     name: 'Scientific Logo Design',
     description: 'Consultative logo design with Maulik Dave using birth chart and Vedic Yantra framework.',
     keywords: 'scientific logo, vedic, yantra, maulik, birth chart, astrology logo, muhurat',
+    dripSteps: 'drip_scilogo_day3:3,drip_scilogo_day5:5,drip_scilogo_day8:8',
+  },
+  'packaging-design': {
+    name: 'Packaging Design',
+    description: 'Product packaging design.',
+    keywords: 'packaging, package design, box design, label, pouch, carton',
+    dripSteps: 'drip_packaging_day3:3,drip_packaging_day5:5,drip_packaging_day8:8',
+  },
+  'website-design': {
+    name: 'Website Design & Development',
+    description: 'Website design and development.',
+    keywords: 'website, web design, web development, landing page, site',
+    dripSteps: 'drip_website_day3:3,drip_website_day5:5,drip_website_day8:8',
+  },
+  'digital-marketing': {
+    name: 'Digital Marketing',
+    description: 'PPC, email marketing, and Google My Business.',
+    keywords: 'digital marketing, ppc, ads, google ads, email marketing, google my business, gmb, seo',
+    dripSteps: 'drip_digital_day3:3,drip_digital_day5:5,drip_digital_day8:8',
+  },
+  'video-creation': {
+    name: 'Short Video Creation',
+    description: 'Short-form video for social media.',
+    keywords: 'video, reels, short video, social media video, promo video',
+    dripSteps: 'drip_video_day3:3,drip_video_day5:5,drip_video_day8:8',
   },
 };
 
@@ -95,16 +126,17 @@ async function upsertTopic(client, slug, meta) {
   const existing = await client.query('select id from topics where slug = $1', [slug]);
   if (existing.rows[0]) {
     await client.query(
-      `update topics set name = $2, description = $3, keywords = $4, active = true, updated_at = now()
+      `update topics set name = $2, description = $3, keywords = $4,
+       drip_steps = coalesce(drip_steps, $5), active = true, updated_at = now()
        where id = $1`,
-      [existing.rows[0].id, meta.name, meta.description, meta.keywords],
+      [existing.rows[0].id, meta.name, meta.description, meta.keywords, meta.dripSteps ?? null],
     );
     return existing.rows[0].id;
   }
   const inserted = await client.query(
-    `insert into topics (slug, name, description, keywords, active)
-     values ($1, $2, $3, $4, true) returning id`,
-    [slug, meta.name, meta.description, meta.keywords],
+    `insert into topics (slug, name, description, keywords, drip_steps, active)
+     values ($1, $2, $3, $4, $5, true) returning id`,
+    [slug, meta.name, meta.description, meta.keywords, meta.dripSteps ?? null],
   );
   return inserted.rows[0].id;
 }
