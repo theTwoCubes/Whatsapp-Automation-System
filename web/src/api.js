@@ -74,6 +74,7 @@ export const api = {
   conversation: (id) => req(`/conversations/${id}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),
+  sendReaction: (id, wamid, emoji) => req(`/conversations/${id}/reactions`, { method: 'POST', body: JSON.stringify({ wamid, emoji }) }),
   takeover: (id, override = false) =>
     req(`/conversations/${id}/takeover`, { method: 'POST', body: JSON.stringify({ override }) }),
   handback: (id) => req(`/conversations/${id}/handback`, { method: 'POST' }),

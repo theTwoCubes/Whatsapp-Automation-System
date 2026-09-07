@@ -32,6 +32,21 @@ export function inboundImage({ from = '918766226219', name = 'Test Lead', id } =
   });
 }
 
+export function inboundReaction({ from = '918766226219', name = 'Test Lead', id, targetWamid, emoji = '👍' } = {}) {
+  return wrap({
+    contacts: [{ wa_id: from, profile: { name } }],
+    messages: [
+      {
+        from,
+        id: id ?? `wamid.${Math.random().toString(36).slice(2)}`,
+        timestamp: `${Math.floor(Date.now() / 1000)}`,
+        type: 'reaction',
+        reaction: { message_id: targetWamid, emoji },
+      },
+    ],
+  });
+}
+
 export function statusUpdate({ id, status = 'delivered', recipient = '918766226219' } = {}) {
   return wrap({
     statuses: [

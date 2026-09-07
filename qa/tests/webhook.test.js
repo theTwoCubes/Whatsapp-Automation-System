@@ -2,7 +2,7 @@ import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
-import { inboundText, inboundImage, statusUpdate, adReferral } from './support/fixtures.js';
+import { inboundText, inboundImage, inboundReaction, statusUpdate, adReferral } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -248,4 +248,24 @@ test('non text messages are stored and hand off to a human instead of being drop
 
   const conv = await pool.query('select state from conversations limit 1');
   assert.equal(conv.rows[0].state, 'pending', 'conversation queued for a human');
+});
+
+test('a lead reacting to a message is stored but never hands off, replies, or interrupts drips', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.RX1', body: 'what does a logo cost?' }), d);
+  const repliesSoFar = d.meta.sends.length;
+  const dripsSoFar = await count('drip_jobs');
+
+  await processWebhook(inboundReaction({ id: 'wamid.RX2', targetWamid: 'wamid.RX1', emoji: '👍' }), d);
+
+  assert.equal(await count('messages'), 3, 'both the text and the reaction are stored');
+  assert.equal(d.meta.sends.length, repliesSoFar, 'no reply, template, or attachment message was sent for the reaction');
+  assert.equal(await count('drip_jobs'), dripsSoFar, 'the follow up schedule was left untouched');
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'the conversation stays with the bot, a reaction is not a handoff trigger');
+
+  const stored = await pool.query("select raw from messages where type = 'reaction'");
+  assert.equal(stored.rows[0].raw.reaction.emoji, '👍');
+  assert.equal(stored.rows[0].raw.reaction.message_id, 'wamid.RX1');
 });

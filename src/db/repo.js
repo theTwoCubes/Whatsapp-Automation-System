@@ -103,8 +103,14 @@ export async function deadLetterWebhook(pool, payload, error) {
 export async function recordOutbound(pool, o) {
   // Only outbound replies carry a context (the quoted message). Store it under
   // the same raw->context->id shape WhatsApp uses for inbound replies so the
-  // thread can resolve both directions the same way.
-  const raw = o.context ? JSON.stringify({ context: { id: o.context.message_id } }) : null;
+  // thread can resolve both directions the same way. A reaction is stored the
+  // same way inbound reactions arrive from the webhook (raw->reaction), so
+  // both directions resolve through the one shape.
+  const raw = o.context
+    ? JSON.stringify({ context: { id: o.context.message_id } })
+    : o.reaction
+      ? JSON.stringify({ reaction: { message_id: o.reaction.messageId, emoji: o.reaction.emoji } })
+      : null;
   await pool.query(
     `insert into messages (conversation_id, wa_message_id, direction, type, body, status, media_asset_id, raw, ai_ms, meta_ms)
      values ($1, $2, 'outbound', $3, $4, 'sent', $5, $6, $7, $8)
@@ -442,6 +448,8 @@ export async function getConversationMessages(pool, id, { limit = 50, beforeId =
     `select id, wa_message_id, direction, type, body, status, created_at,
             coalesce(sent_at, created_at) as sent_at,
             raw->'context'->>'id' as reply_to_wamid,
+            raw->'reaction'->>'message_id' as reacted_to_wamid,
+            raw->'reaction'->>'emoji' as reaction_emoji,
             coalesce(
               raw->'document'->>'filename',
               raw->'image'->>'filename',

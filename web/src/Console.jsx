@@ -8,8 +8,12 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2, Reply, Eraser,
+  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile,
 } from 'lucide-react';
+
+// Kept in sync with src/ai/reactions.js on the backend - the only emoji an
+// agent (or the AI) can react with.
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
 import {
@@ -1232,6 +1236,32 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
     return map;
   }, [messages]);
 
+  // Reactions never get their own bubble - each one just annotates the
+  // message it reacted to. Keeps at most one per direction per target (the
+  // way WhatsApp itself only shows one active reaction per person), with a
+  // later reaction replacing an earlier one and an empty emoji clearing it.
+  const reactionsByTarget = useMemo(() => {
+    const map = new Map();
+    for (const m of messages) {
+      if (m.type !== 'reaction' || !m.reacted_to_wamid) continue;
+      const existing = map.get(m.reacted_to_wamid) || {};
+      existing[m.direction] = m.reaction_emoji || null;
+      map.set(m.reacted_to_wamid, existing);
+    }
+    return map;
+  }, [messages]);
+
+  const [reactingTo, setReactingTo] = useState(null);
+  const react = async (m, emoji) => {
+    setReactingTo(null);
+    try {
+      await api.sendReaction(conversation.id, m.wa_message_id, emoji);
+      await onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   const snippet = (m) => {
     if (!m) return '';
     if (m.body) return m.body.length > 80 ? `${m.body.slice(0, 80)}…` : m.body;
@@ -1240,9 +1270,10 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
 
   // In-chat search filters the rendered messages to those matching the query.
   const q = search.trim().toLowerCase();
-  const visibleMessages = q
+  const visibleMessages = (q
     ? messages.filter((m) => (m.body || '').toLowerCase().includes(q))
-    : messages;
+    : messages
+  ).filter((m) => m.type !== 'reaction');
   const groups    = groupByDay(visibleMessages);
   const isPending = conversation.state === 'pending';
   const isHuman   = conversation.state === 'human';
@@ -1423,23 +1454,31 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
             </div>
             {g.items.map((m) => {
               const quoted = m.reply_to_wamid ? messageByWamid.get(m.reply_to_wamid) : null;
+              const reactions = m.wa_message_id ? reactionsByTarget.get(m.wa_message_id) : null;
+              const reactionBadge = reactions && (reactions.inbound || reactions.outbound);
+              const picking = reactingTo === m.id;
               return (
               <div
                 key={m.id}
-                className={`group flex items-center gap-1.5 ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} mb-1`}
+                className={`group relative flex items-center gap-1.5 ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} ${reactionBadge ? 'mb-3.5' : 'mb-1'}`}
               >
-                {/* Reply affordance, mirrored so it always sits toward the
-                    centre of the row. Appears on hover (desktop) and is always
-                    tappable on touch. */}
+                {picking && (
+                  <div className="fixed inset-0 z-10" onClick={() => setReactingTo(null)} />
+                )}
+                {/* Reply / react affordances, mirrored so they always sit toward
+                    the centre of the row. Appear on hover (desktop) and are
+                    always tappable on touch. */}
                 {m.direction === 'outbound' && (
-                  <button
-                    type="button"
-                    onClick={() => setReplyTo(m)}
-                    className="opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-700 flex-shrink-0"
-                    title="Reply" aria-label="Reply"
-                  >
-                    <Reply size={15} />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <button type="button" onClick={() => setReplyTo(m)}
+                      className="text-gray-400 hover:text-gray-700" title="Reply" aria-label="Reply">
+                      <Reply size={15} />
+                    </button>
+                    <button type="button" onClick={() => setReactingTo(picking ? null : m.id)}
+                      className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
+                      <Smile size={15} />
+                    </button>
+                  </div>
                 )}
                 <div
                   className={`
@@ -1449,6 +1488,16 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                     ${m.direction === 'outbound' ? 'pr-14' : ''}
                   `}
                 >
+                  {picking && (
+                    <div className={`absolute bottom-full mb-1.5 z-20 flex items-center gap-0.5 bg-white border border-gray-200 rounded-full shadow-md px-1.5 py-1 ${m.direction === 'outbound' ? 'right-0' : 'left-0'}`}>
+                      {REACTION_EMOJIS.map((e) => (
+                        <button key={e} type="button" onClick={() => react(m, e)}
+                          className="text-lg leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors">
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {quoted && (
                     <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs ${m.direction === 'outbound' ? 'bg-white/10 border-white/40 text-white/80' : 'bg-black/5 border-gray-400 text-gray-600'}`}>
                       <div className="font-semibold opacity-80">{quoted.direction === 'outbound' ? 'You' : (conversation.name || conversation.wa_id)}</div>
@@ -1468,16 +1517,27 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                     {shortTime(m.sent_at || m.created_at)}
                     {m.direction === 'outbound' && <Ticks status={m.status} />}
                   </span>
+                  {/* Reaction badge, WhatsApp style: sits on the outer bottom
+                      corner of the bubble it reacted to. Shows one emoji per
+                      side if both the lead and the business reacted. */}
+                  {reactionBadge && (
+                    <div className={`absolute -bottom-3.5 flex items-center gap-0.5 bg-white border border-black/10 rounded-full shadow-xs px-1 py-0.5 text-sm leading-none ${m.direction === 'outbound' ? 'left-2' : 'right-2'}`}>
+                      {reactions.inbound && <span>{reactions.inbound}</span>}
+                      {reactions.outbound && <span>{reactions.outbound}</span>}
+                    </div>
+                  )}
                 </div>
                 {m.direction !== 'outbound' && (
-                  <button
-                    type="button"
-                    onClick={() => setReplyTo(m)}
-                    className="opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-700 flex-shrink-0"
-                    title="Reply" aria-label="Reply"
-                  >
-                    <Reply size={15} />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <button type="button" onClick={() => setReactingTo(picking ? null : m.id)}
+                      className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
+                      <Smile size={15} />
+                    </button>
+                    <button type="button" onClick={() => setReplyTo(m)}
+                      className="text-gray-400 hover:text-gray-700" title="Reply" aria-label="Reply">
+                      <Reply size={15} />
+                    </button>
+                  </div>
                 )}
               </div>
               );

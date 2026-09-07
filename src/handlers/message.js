@@ -152,6 +152,18 @@ async function handleMessage(value, message, deps) {
     return;
   }
 
+  // A reaction is a signal, not a message. It needs no reply from the bot and
+  // no handoff to a person - WhatsApp itself does not treat a reaction as
+  // something requiring a response. recordInbound above already stored it
+  // (message_id and emoji live inside raw), and the realtime refresh a few
+  // lines up already told the console to redraw, so there is nothing left to
+  // do here except stop before the generic non-text handling below treats it
+  // like an attachment and wrongly hands the chat to a person.
+  if (message.type === 'reaction') {
+    log.info({ conversationId: result.conversationId }, 'lead reacted to a message');
+    return;
+  }
+
   // A human owns this conversation, so the bot stays out of it. The team
   // still needs to know a new message landed, so fire a push. The service
   // worker suppresses it if the agent already has that specific chat open.
@@ -281,6 +293,14 @@ async function respondToLead(deps, conversationId, items) {
     return;
   }
 
+  if (decision?.reactEmoji) {
+    const targetWamid = items[items.length - 1]?.wamid;
+    if (targetWamid) await maybeSendReaction(deps, conversationId, to, targetWamid, decision.reactEmoji);
+  }
+
+  // A reaction alone was a complete response - nothing left to send.
+  if (!decision?.reply && decision?.reactEmoji) return;
+
   const reply = decision?.reply || settings.fallbackMessage;
   const sent = await sendAndRecord(deps, to, conversationId, reply);
   if (sent && decision?.sendMediaId) {
@@ -367,6 +387,26 @@ async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
     }
   } catch (err) {
     log.warn({ conversationId, mediaAssetId, err }, 'failed to send media attachment');
+  }
+}
+
+// Reacts to the customer's message instead of, or alongside, a text reply -
+// a genuine WhatsApp reaction, not a message that says "👍".
+async function maybeSendReaction(deps, conversationId, to, wamid, emoji) {
+  const { pool, meta, realtime, log } = deps;
+  try {
+    const sentWamid = await meta.sendReaction(to, wamid, emoji);
+    if (sentWamid) {
+      await recordOutbound(pool, {
+        conversationId,
+        waMessageId: sentWamid,
+        type: 'reaction',
+        reaction: { messageId: wamid, emoji },
+      });
+      realtime?.emit({ type: 'refresh', conversationId });
+    }
+  } catch (err) {
+    log.warn({ conversationId, wamid, err }, 'failed to send ai reaction');
   }
 }
 

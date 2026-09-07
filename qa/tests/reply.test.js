@@ -2,6 +2,7 @@ import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildReply } from '../../src/ai/reply.js';
+import { REACTION_EMOJIS } from '../../src/ai/reactions.js';
 import { createFaq } from '../../src/knowledge/faqs.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { recordInbound } from '../../src/db/repo.js';
@@ -237,6 +238,60 @@ test('media already sent in this chat is listed so the model knows not to resend
   const system = ai.lastMessages[0].content;
   assert.match(system, /Already sent in this chat/);
   assert.match(system, /portfolio\.pdf, sent/);
+});
+
+test('an answer can react instead of typing a reply, using an emoji from the fixed list', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: '', react_emoji: REACTION_EMOJIS[0] }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+
+  assert.equal(decision.handoff, false, 'a reaction alone is a complete response, not an empty one');
+  assert.equal(decision.reply, '');
+  assert.equal(decision.reactEmoji, REACTION_EMOJIS[0]);
+});
+
+test('an emoji outside the fixed list is dropped rather than sent', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Sure thing!', react_emoji: '🤡' }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+
+  assert.equal(decision.reactEmoji, null, 'an emoji not on the approved list is never trusted');
+  assert.equal(decision.reply, 'Sure thing!', 'the reply text itself still goes through');
+});
+
+test('a genuinely empty answer with no reaction either still hands off', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: '   ', react_emoji: null }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true);
+});
+
+test('the model is told it can react, using the approved emoji list', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /react_emoji/);
+  for (const e of REACTION_EMOJIS) assert.ok(system.includes(e), `${e} should be listed as an allowed reaction`);
+});
+
+test('contact details set on the console are offered to the model, and skipped when blank', async () => {
+  const id = await conversation();
+
+  const withContact = { ...testConfig, websiteUrl: 'https://advoice.online', contactPhone: '+91 98765 43210', instagramUrl: 'https://instagram.com/advoice' };
+  const ai1 = new SpyAi();
+  await buildReply(pool, ai1, withContact, id, {});
+  const withSystem = ai1.lastMessages[0].content;
+  assert.match(withSystem, /https:\/\/advoice\.online/);
+  assert.match(withSystem, /\+91 98765 43210/);
+  assert.match(withSystem, /instagram\.com\/advoice/);
+
+  const id2 = await conversation('hi again');
+  const blank = { ...testConfig, supportEmail: '', websiteUrl: '', contactPhone: '', instagramUrl: '' };
+  const ai2 = new SpyAi();
+  await buildReply(pool, ai2, blank, id2, {});
+  const blankSystem = ai2.lastMessages[0].content;
+  assert.doesNotMatch(blankSystem, /Contact details/, 'no facts on file means no section, rather than an empty one telling the model to invent something');
 });
 
 test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {

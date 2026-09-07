@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { verifyPassword, hashPassword } from '../auth.js';
+import { REACTION_EMOJIS } from '../ai/reactions.js';
 import { handToHuman, handToBot } from '../handoff.js';
 import {
   runWeeklyRefinement,
@@ -360,6 +361,55 @@ export function registerApi(app, deps) {
       await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
       await pool.query('update conversations set last_read_at = now() where id = $1', [conversation.id]);
+      realtime.emit({ type: 'refresh', conversationId: conversation.id });
+      return { ok: true };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Lets an agent react to a message the same way they would on their phone,
+  // limited to a small emoji set. An empty emoji removes a reaction already
+  // sent. Not gated behind the AI at all - this is a person, on the console.
+  app.post('/api/conversations/:id/reactions', {
+    preHandler: [auth, writeLimit],
+    schema: {
+      ...idParams,
+      body: {
+        type: 'object',
+        properties: {
+          wamid: { type: 'string', minLength: 1, maxLength: 128 },
+          emoji: { type: 'string', maxLength: 8 },
+        },
+        required: ['wamid'],
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
+    const wamid = req.body.wamid;
+    const emoji = typeof req.body?.emoji === 'string' ? req.body.emoji : '';
+    if (emoji && !REACTION_EMOJIS.includes(emoji)) {
+      return reply.code(400).send({ error: 'unsupported reaction emoji' });
+    }
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    if (!windowOpen(conversation)) {
+      return reply.code(409).send({
+        error: 'The 24 hour window has closed. You can only send an approved template now.',
+        code: 'window_closed',
+      });
+    }
+
+    try {
+      const sentWamid = await meta.sendReaction(conversation.wa_id, wamid, emoji);
+      if (sentWamid) {
+        await recordOutbound(pool, {
+          conversationId: conversation.id,
+          waMessageId: sentWamid,
+          type: 'reaction',
+          reaction: { messageId: wamid, emoji },
+        });
+      }
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {

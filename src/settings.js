@@ -41,6 +41,9 @@ export async function getEditableSettings(pool, config) {
     brand_watermark: db.brand_watermark ?? config.brandWatermark,
     support_email: db.support_email ?? config.supportEmail,
     accent_color: db.accent_color ?? config.accentColor,
+    website_url: db.website_url ?? config.websiteUrl,
+    contact_phone: db.contact_phone ?? config.contactPhone,
+    instagram_url: db.instagram_url ?? config.instagramUrl,
   };
 }
 
@@ -69,6 +72,9 @@ export const editableKeys = [
   'brand_watermark',
   'support_email',
   'accent_color',
+  'website_url',
+  'contact_phone',
+  'instagram_url',
 ];
 
 function resolve(db, config) {
@@ -88,6 +94,10 @@ function resolve(db, config) {
     openaiModel: db.openai_model ?? config.openaiModel,
     geminiApiKey: db.gemini_api_key ?? config.geminiApiKey,
     geminiModel: db.gemini_model ?? config.geminiModel,
+    websiteUrl: db.website_url ?? config.websiteUrl,
+    contactPhone: db.contact_phone ?? config.contactPhone,
+    instagramUrl: db.instagram_url ?? config.instagramUrl,
+    supportEmail: db.support_email ?? config.supportEmail,
   };
 }
 

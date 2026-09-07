@@ -98,6 +98,12 @@ export class FakeMeta {
   async markRead(wamid) {
     return { success: true };
   }
+  async sendReaction(to, messageId, emoji) {
+    this.reactions = this.reactions ?? [];
+    const wamid = `wamid.RXN${this.reactions.length + 1}`;
+    this.reactions.push({ to, messageId, emoji, wamid });
+    return wamid;
+  }
 }
 
 // Returns a fixed reply instead of calling OpenAI. Set fail=true to simulate the

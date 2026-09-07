@@ -117,6 +117,13 @@ export class MetaClient {
     return this.send(to, { type: kind, [kind]: media });
   }
 
+  // Reacts to a message with an emoji, the same as a person tapping and
+  // holding a message in WhatsApp. Pass an empty string to remove a
+  // previously sent reaction. Only works inside the 24 hour service window.
+  async sendReaction(to, messageId, emoji) {
+    return this.send(to, { type: 'reaction', reaction: { message_id: messageId, emoji: emoji || '' } });
+  }
+
   // Marks an inbound message as read so the customer sees blue ticks.
   async markRead(wamid) {
     const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;

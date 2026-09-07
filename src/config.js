@@ -107,6 +107,12 @@ export function loadConfig() {
     brandWatermark: process.env.BRAND_WATERMARK?.trim() || 'Made by theTwoCubes',
     supportEmail: process.env.SUPPORT_EMAIL?.trim() || 'build@thetwocubes.com',
     accentColor: process.env.ACCENT_COLOR?.trim() || '#00a884',
+
+    // Contact facts the AI can share about the business itself (not a client's
+    // website it is designing). Editable in the console under Setup.
+    websiteUrl: process.env.WEBSITE_URL?.trim() || '',
+    contactPhone: process.env.CONTACT_PHONE?.trim() || '',
+    instagramUrl: process.env.INSTAGRAM_URL?.trim() || '',
   };
 }
 

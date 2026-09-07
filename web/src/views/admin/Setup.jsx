@@ -104,6 +104,10 @@ function AIBehaviour() {
         handoff_message:     form.handoff_message,
         attachment_message:  form.attachment_message,
         resume_minutes:      form.resume_minutes,
+        website_url:         form.website_url,
+        contact_phone:       form.contact_phone,
+        support_email:       form.support_email,
+        instagram_url:       form.instagram_url,
       });
       toast.success('Settings saved — the AI will use these in its next conversation');
     } catch (e) { toast.error(e.message); }
@@ -146,6 +150,30 @@ function AIBehaviour() {
               helper="A line or two on how you want the AI to sound."
               placeholder="Friendly and professional. Warm but concise. No slang."
               {...bind('business_tone')} />
+          </FormStack>
+          </CardBody>
+        </Card>
+      </Section>
+
+      <Section
+        title="Contact details the AI can share"
+        subtitle="Filled in here, so a lead asking for your website or a way to reach you gets a real answer instead of being sent to a person. Left blank, the AI simply won't offer it."
+      >
+        <Card>
+          <CardBody>
+          <FormStack>
+            <InputField label="Website"
+              placeholder="https://yourbusiness.com"
+              {...bind('website_url')} />
+            <InputField label="Phone number"
+              placeholder="+91 98765 43210"
+              {...bind('contact_phone')} />
+            <InputField label="Email"
+              placeholder="hello@yourbusiness.com"
+              {...bind('support_email')} />
+            <InputField label="Instagram"
+              placeholder="https://instagram.com/yourbusiness"
+              {...bind('instagram_url')} />
           </FormStack>
           </CardBody>
         </Card>
