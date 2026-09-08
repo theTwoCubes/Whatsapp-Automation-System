@@ -1,8 +1,12 @@
-import { claimDueDrips, markDrip, recordOutbound, conversationsToResume, getActivePackIds, purgeDeletedConversations } from './db/repo.js';
-import { handToBot } from './handoff.js';
-import { buildReply } from './ai/reply.js';
+import {
+  claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
+  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked,
+} from './db/repo.js';
+import { handToBot, handToPending } from './handoff.js';
+import { buildReply, categorizeHandoffReason } from './ai/reply.js';
 import { getSettings } from './settings.js';
 import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
+import { pushHandoff, maybeSendMedia, maybeSendReaction } from './handlers/message.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
 // hands stalled chats back to the bot, and the weekly learning pass. In
@@ -33,12 +37,20 @@ export function startScheduler(deps, intervalMs = 60000) {
 export async function runDueDrips(deps) {
   const { pool, meta, config, log } = deps;
   const settings = await getSettings(pool, config);
+
+  // A job stuck in 'sending' means the process that claimed it died before
+  // it ever heard back from Meta - safe to hand back out.
+  const reclaimed = await reclaimStuckDrips(pool, 15);
+  if (reclaimed.length > 0) log.warn({ jobIds: reclaimed }, 'reclaimed drip jobs abandoned mid-send');
+
   const jobs = await claimDueDrips(pool, 20);
 
   for (const job of jobs) {
+    let delivered = false;
     try {
       const components = buildDripComponents(job, log);
       const wamid = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage, components);
+      delivered = true;
       await markDrip(pool, job.id, 'sent');
       if (wamid) {
         await recordOutbound(pool, {
@@ -50,8 +62,19 @@ export async function runDueDrips(deps) {
       }
       log.info({ jobId: job.id, step: job.step, to: job.wa_id }, 'drip template sent');
     } catch (err) {
-      await markDrip(pool, job.id, 'failed');
-      log.error({ jobId: job.id, err }, 'drip send failed');
+      if (delivered) {
+        // Meta already confirmed delivery - marking this 'failed' would let
+        // it get retried and double message the lead. Leave it for a human.
+        try {
+          await markDripStuck(pool, job.id);
+        } catch (markErr) {
+          log.error({ jobId: job.id, markErr }, 'failed to even mark a delivered drip stuck');
+        }
+        log.error({ jobId: job.id, err }, 'drip delivered but failed to record - needs manual follow up, not auto retried');
+      } else {
+        await markDrip(pool, job.id, 'failed');
+        log.error({ jobId: job.id, err }, 'drip send failed');
+      }
     }
   }
 
@@ -105,10 +128,48 @@ export async function runAutoResume(deps) {
       } catch {
         // fall back below
       }
+
+      // Mirrors respondToLead in handlers/message.js - the model's decision
+      // here carries exactly the same handoff/block/reaction meaning as it
+      // does on a live message, so it needs the same handling, not just the
+      // plain-text path this used to fall through to unconditionally.
+      if (decision?.handoff) {
+        const reason = decision.reason || 'The ai judged this needs a person';
+        const reasonCategory = categorizeHandoffReason(reason);
+        await handToPending(pool, row.id, reason);
+        await recordHandoff(pool, { conversationId: row.id, source: 'ai', reason, reasonCategory, topicId: row.topic_id ?? null });
+        await cancelDrips(pool, row.id);
+        log.info({ conversationId: row.id, reason, reasonCategory }, 'auto resume: ai queued conversation for a human');
+        const wamid = await meta.sendText(row.wa_id, decision.reply || settings.handoffMessage);
+        if (wamid) await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: decision.reply || settings.handoffMessage });
+        await pushHandoff(pool, row.id, reason, log);
+        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+        continue;
+      }
+
+      if (decision?.block) {
+        const reply = decision.reply || 'This conversation has been closed.';
+        const wamid = await meta.sendText(row.wa_id, reply);
+        if (wamid) await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+        await setConversationBlocked(pool, row.id, true);
+        await cancelDrips(pool, row.id);
+        log.info({ conversationId: row.id, reason: decision.reason }, 'auto resume: ai blocked conversation');
+        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+        continue;
+      }
+
+      if (decision?.reactEmoji && row.last_inbound_wamid) {
+        await maybeSendReaction(deps, row.id, row.wa_id, row.last_inbound_wamid, decision.reactEmoji);
+      }
+
+      // A reaction alone was a complete response - nothing left to send.
+      if (!decision?.reply && decision?.reactEmoji) continue;
+
       const reply = decision?.reply || settings.fallbackMessage;
       const wamid = await meta.sendText(row.wa_id, reply);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+        if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
       }
     } catch (err) {

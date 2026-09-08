@@ -278,7 +278,7 @@ export async function claimDueDrips(pool, limit = 20) {
        for update skip locked
      ),
      claimed as (
-       update drip_jobs set status = 'sending'
+       update drip_jobs set status = 'sending', updated_at = now()
        where id in (select id from due)
        returning id, conversation_id, step, template_name, media_asset_id
      )
@@ -294,13 +294,47 @@ export async function claimDueDrips(pool, limit = 20) {
 }
 
 export async function markDrip(pool, id, status) {
-  await pool.query('update drip_jobs set status = $2 where id = $1', [id, status]);
+  await pool.query('update drip_jobs set status = $2, updated_at = now() where id = $1', [id, status]);
+}
+
+// A job left in 'sending' past this window means the process that claimed it
+// died (or lost its connection) before it ever got a response from Meta, not
+// that the message went out and only the bookkeeping failed - that case is
+// marked 'stuck' instead (see markDripStuck) and deliberately left alone
+// here, since retrying a confirmed delivery would double-message the lead.
+// Retrying an unconfirmed one is the safer failure mode of the two.
+export async function reclaimStuckDrips(pool, staleMinutes = 15) {
+  const res = await pool.query(
+    `update drip_jobs set status = 'pending', updated_at = now()
+     where status = 'sending' and updated_at < now() - make_interval(mins => $1)
+     returning id`,
+    [staleMinutes],
+  );
+  return res.rows.map((r) => r.id);
+}
+
+// The template was confirmed delivered (Meta returned a wamid) but something
+// after that threw before the job could be marked 'sent' - status 'stuck'
+// rather than 'failed' so the ordinary retry/reclaim paths never touch it,
+// since retrying would resend a message that already reached the lead. This
+// needs a person to look at the logs and close it out by hand.
+export async function markDripStuck(pool, id) {
+  await pool.query("update drip_jobs set status = 'stuck', updated_at = now() where id = $1", [id]);
 }
 
 // Console side reads and writes.
 
 export async function getAgentByEmail(pool, email) {
-  const res = await pool.query('select id, email, name, password_hash, role from agents where email = $1', [email]);
+  const res = await pool.query('select id, email, name, password_hash, role, token_version from agents where email = $1', [email]);
+  return res.rows[0] ?? null;
+}
+
+// Checked on every authenticated request against the token's own embedded
+// version - a role change or removal bumps this (or removes the row), which
+// invalidates every JWT already issued for that agent immediately instead of
+// waiting out its expiry.
+export async function getAgentAuthState(pool, id) {
+  const res = await pool.query('select role, token_version from agents where id = $1', [id]);
   return res.rows[0] ?? null;
 }
 
@@ -317,7 +351,9 @@ export async function createAgent(pool, a) {
 // previously downgraded.
 export async function setAgentRole(pool, email, role) {
   if (role !== 'admin' && role !== 'agent') throw new Error('unknown role');
-  await pool.query('update agents set role = $2 where email = $1', [email, role]);
+  // Bumping token_version invalidates any JWT already issued to this agent,
+  // so a demotion takes effect immediately instead of at token expiry.
+  await pool.query('update agents set role = $2, token_version = token_version + 1 where email = $1', [email, role]);
 }
 
 export async function listConversations(pool, { includeArchived = false } = {}) {
@@ -705,7 +741,8 @@ export async function getMediaCatalog(pool, topicIds = []) {
      from media_assets
      where description is not null and description <> ''
        and (topic_id is null or topic_id = any($1::bigint[]))
-     order by topic_id nulls last, id desc`,
+     order by topic_id nulls last, id desc
+     limit 300`,
     [ids],
   );
   return res.rows;
@@ -780,7 +817,11 @@ export async function opsStats(pool) {
 // lead should not be left waiting indefinitely.
 export async function conversationsToResume(pool, minutes) {
   const res = await pool.query(
-    `select c.id, ct.wa_id, ca.topic_id
+    `select c.id, ct.wa_id, ca.topic_id,
+       (select m.wa_message_id from messages m
+        where m.conversation_id = c.id
+        order by m.created_at desc, m.id desc
+        limit 1) as last_inbound_wamid
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id

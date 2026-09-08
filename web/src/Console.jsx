@@ -326,10 +326,18 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   // were already waiting when we opened the tab.
   const knownPendingRef = useRef(null);
 
+  // Read at call time inside the stable loadList below, instead of loadList
+  // depending on filter directly - switching tabs used to give loadList (and
+  // everything built on it, including the websocket-connect effect further
+  // down) a new identity, tearing the socket down and reconnecting it on
+  // every tap of a filter chip.
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+
   const loadList = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const { conversations: list } = await api.conversations({ archived: filter === 'archived' });
+      const { conversations: list } = await api.conversations({ archived: filterRef.current === 'archived' });
       setConversations(list);
       onConversationsChange?.(list);
 
@@ -369,7 +377,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     } finally {
       setLoading(false);
     }
-  }, [toast, onConversationsChange, filter]);
+  }, [toast, onConversationsChange]);
 
   // Coalesce bursts of websocket events into a single refetch. Without this a
   // single handoff (message insert + status + refresh events) triggered three
@@ -1019,6 +1027,66 @@ function ContextRow({ label, children }) {
 // phase 2 — block and delete). Works the same on mobile and desktop, which is
 // what makes unpin/unmute/unarchive reachable on a phone. Renders through a
 // portal positioned off the trigger so no ancestor can clip it.
+// Portaled to <body> and positioned from the anchor button's own bounding
+// rect, the same way ChatActionsMenu escapes the scrollable messages pane -
+// rendering this inline inside the bubble (the original approach) got it
+// clipped by the pane's overflow:auto whenever the target message was near
+// the top of the currently scrolled view.
+function ReactionPicker({ anchorRef, align, onPick, onClose }) {
+  const [coords, setCoords] = useState(null);
+  const pickerRef = useRef(null);
+
+  const place = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const width = REACTION_EMOJIS.length * 32 + 16;
+    const r = el.getBoundingClientRect();
+    const openUp = r.top > 60;
+    const left = align === 'right'
+      ? Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8)
+      : Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    setCoords({
+      left, width,
+      top: openUp ? undefined : r.bottom + 6,
+      bottom: openUp ? window.innerHeight - r.top + 6 : undefined,
+    });
+  }, [anchorRef, align]);
+
+  useLayoutEffect(() => { place(); }, [place]);
+  useEffect(() => {
+    const onDown = (e) => {
+      if (anchorRef.current?.contains(e.target)) return;
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) onClose();
+    };
+    const reflow = () => place();
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', reflow);
+    window.addEventListener('scroll', reflow, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', reflow);
+      window.removeEventListener('scroll', reflow, true);
+    };
+  }, [place, onClose, anchorRef]);
+
+  if (!coords) return null;
+  return createPortal(
+    <div
+      ref={pickerRef}
+      className="fixed z-[9998] flex items-center gap-0.5 bg-white border border-gray-200 rounded-full shadow-lg px-1.5 py-1"
+      style={{ left: coords.left, top: coords.top, bottom: coords.bottom, width: coords.width }}
+    >
+      {REACTION_EMOJIS.map((e) => (
+        <button key={e} type="button" onClick={() => onPick(e)}
+          className="text-lg leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors">
+          {e}
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 function ChatActionsMenu({ conversation, act, onChanged, onCleared, toast, onClose }) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState(null);
@@ -1273,7 +1341,15 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
   const visibleMessages = (q
     ? messages.filter((m) => (m.body || '').toLowerCase().includes(q))
     : messages
-  ).filter((m) => m.type !== 'reaction');
+  ).filter((m) => {
+    if (m.type !== 'reaction') return true;
+    // A reaction whose target message is currently loaded renders as a badge
+    // on that bubble instead (see reactionsByTarget) and is dropped here. One
+    // whose target is on an older page not yet fetched would otherwise just
+    // vanish with no trace - shown as its own small line instead of being
+    // silently lost.
+    return !m.reacted_to_wamid || !messageByWamid.has(m.reacted_to_wamid);
+  });
   const groups    = groupByDay(visibleMessages);
   const isPending = conversation.state === 'pending';
   const isHuman   = conversation.state === 'human';
@@ -1453,18 +1529,28 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
               <div className="flex-1 h-px bg-black/10" />
             </div>
             {g.items.map((m) => {
+              if (m.type === 'reaction') {
+                // Its target is on a page not currently loaded - say so
+                // rather than showing nothing, so it is not mistaken for a
+                // reaction that never happened.
+                return (
+                  <div key={m.id} className="flex justify-center my-1">
+                    <span className="text-xs text-gray-400 italic">
+                      {m.direction === 'inbound' ? 'They' : 'You'} reacted {m.reaction_emoji || ''} to an earlier message
+                    </span>
+                  </div>
+                );
+              }
               const quoted = m.reply_to_wamid ? messageByWamid.get(m.reply_to_wamid) : null;
               const reactions = m.wa_message_id ? reactionsByTarget.get(m.wa_message_id) : null;
               const reactionBadge = reactions && (reactions.inbound || reactions.outbound);
               const picking = reactingTo === m.id;
+              const reactAnchorRef = { current: null };
               return (
               <div
                 key={m.id}
                 className={`group relative flex items-center gap-1.5 ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'} ${reactionBadge ? 'mb-3.5' : 'mb-1'}`}
               >
-                {picking && (
-                  <div className="fixed inset-0 z-10" onClick={() => setReactingTo(null)} />
-                )}
                 {/* Reply / react affordances, mirrored so they always sit toward
                     the centre of the row. Appear on hover (desktop) and are
                     always tappable on touch. */}
@@ -1474,11 +1560,19 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                       className="text-gray-400 hover:text-gray-700" title="Reply" aria-label="Reply">
                       <Reply size={15} />
                     </button>
-                    <button type="button" onClick={() => setReactingTo(picking ? null : m.id)}
+                    <button ref={reactAnchorRef} type="button" onClick={() => setReactingTo(picking ? null : m.id)}
                       className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
                       <Smile size={15} />
                     </button>
                   </div>
+                )}
+                {picking && (
+                  <ReactionPicker
+                    anchorRef={reactAnchorRef}
+                    align={m.direction === 'outbound' ? 'right' : 'left'}
+                    onPick={(e) => react(m, e)}
+                    onClose={() => setReactingTo(null)}
+                  />
                 )}
                 <div
                   className={`
@@ -1488,16 +1582,6 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                     ${m.direction === 'outbound' ? 'pr-14' : ''}
                   `}
                 >
-                  {picking && (
-                    <div className={`absolute bottom-full mb-1.5 z-20 flex items-center gap-0.5 bg-white border border-gray-200 rounded-full shadow-md px-1.5 py-1 ${m.direction === 'outbound' ? 'right-0' : 'left-0'}`}>
-                      {REACTION_EMOJIS.map((e) => (
-                        <button key={e} type="button" onClick={() => react(m, e)}
-                          className="text-lg leading-none w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors">
-                          {e}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   {quoted && (
                     <div className={`mb-1.5 px-2.5 py-1.5 rounded-lg border-l-2 text-xs ${m.direction === 'outbound' ? 'bg-white/10 border-white/40 text-white/80' : 'bg-black/5 border-gray-400 text-gray-600'}`}>
                       <div className="font-semibold opacity-80">{quoted.direction === 'outbound' ? 'You' : (conversation.name || conversation.wa_id)}</div>
@@ -1529,7 +1613,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                 </div>
                 {m.direction !== 'outbound' && (
                   <div className="flex items-center gap-1 opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
-                    <button type="button" onClick={() => setReactingTo(picking ? null : m.id)}
+                    <button ref={reactAnchorRef} type="button" onClick={() => setReactingTo(picking ? null : m.id)}
                       className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
                       <Smile size={15} />
                     </button>

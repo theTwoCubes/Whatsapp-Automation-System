@@ -28,7 +28,7 @@ import { notifyAgentsOfHandoff } from '../push.js';
 // opts.kind picks the title shown on the phone:
 //   'handoff' (default) → "<name> needs a person"
 //   'inbound'           → "<name> sent a message"
-async function pushHandoff(pool, conversationId, reason, log, opts = {}) {
+export async function pushHandoff(pool, conversationId, reason, log, opts = {}) {
   try {
     const res = await pool.query(
       `select ct.name, ct.wa_id
@@ -361,7 +361,7 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
 // of its reply. The cooldown is a backstop against a model mistake - the
 // model itself is already told what it recently sent and asked not to resend
 // it, this just makes sure that holds even if it slips.
-async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
+export async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
   const { pool, meta, realtime, log, config } = deps;
   try {
     const asset = await getMediaAsset(pool, mediaAssetId);
@@ -392,7 +392,7 @@ async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
 
 // Reacts to the customer's message instead of, or alongside, a text reply -
 // a genuine WhatsApp reaction, not a message that says "👍".
-async function maybeSendReaction(deps, conversationId, to, wamid, emoji) {
+export async function maybeSendReaction(deps, conversationId, to, wamid, emoji) {
   const { pool, meta, realtime, log } = deps;
   try {
     const sentWamid = await meta.sendReaction(to, wamid, emoji);

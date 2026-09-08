@@ -146,7 +146,11 @@ export default function NotificationBell({ onOpenConversation }) {
                   <div className="text-[11px] text-gray-400 mt-0.5">{shortTime(n.created_at)}</div>
                 </div>
               </button>
-              <div className="absolute right-2 top-2 hidden group-hover:flex items-center gap-0.5">
+              {/* Always visible (dim) so these are reachable on touch, where
+                  there is no hover state - same pattern as the reply/react
+                  affordances in the chat thread. Full opacity on hover on
+                  devices that actually have one. */}
+              <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-60 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); storeToggleSave(n.id); }}

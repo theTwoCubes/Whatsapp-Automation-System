@@ -16,6 +16,12 @@ export function verifyPassword(password, stored) {
   return expected.length === hash.length && timingSafeEqual(expected, hash);
 }
 
+// Used by login when the email does not exist, so verifyPassword still runs
+// its full scrypt cost either way - without this, a nonexistent email returns
+// 401 measurably faster than a wrong password for a real one, which lets an
+// attacker enumerate valid agent emails purely from response timing.
+export const DUMMY_PASSWORD_HASH = hashPassword('no-such-account-placeholder');
+
 // Creates the first agent login from env, once, if none exists yet.
 export async function seedAdmin(pool, config, log) {
   if (!config.adminEmail || !config.adminPassword) return;

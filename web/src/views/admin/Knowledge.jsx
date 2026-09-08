@@ -682,7 +682,17 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
 // Search Results
 function FaqSearchResults({ query, onChange }) {
   const [data, setData] = useState(null);
-  useEffect(() => { api.searchFaqs(query).then(setData).catch(() => {}); }, [query]);
+  useEffect(() => {
+    // Debounced so typing does not fire one request per keystroke, and
+    // guarded against an out-of-order response - without the cancelled
+    // check, a slower earlier request resolving after a faster later one
+    // could overwrite fresh results with stale ones.
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api.searchFaqs(query).then((d) => { if (!cancelled) setData(d); }).catch(() => {});
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query]);
   const rows = data?.faqs || [];
   if (!data) return <div className="p-4"><Skeleton height={14} width="40%" /></div>;
   return (

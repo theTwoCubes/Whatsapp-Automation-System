@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { verifyPassword, hashPassword } from '../auth.js';
+import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from '../auth.js';
 import { REACTION_EMOJIS } from '../ai/reactions.js';
+import { MetaApiError } from '../meta/client.js';
 import { handToHuman, handToBot } from '../handoff.js';
 import {
   runWeeklyRefinement,
@@ -29,6 +30,7 @@ import { getSettings } from '../settings.js';
 import { saveSubscription, removeSubscription, getVapidPublicKey, getPushStatus, sendTestPush } from '../push.js';
 import {
   getAgentByEmail,
+  getAgentAuthState,
   listConversations,
   setConversationFlag,
   muteConversation,
@@ -97,6 +99,21 @@ function windowOpen(conversation) {
   return Boolean(conversation.window_expires_at) && new Date(conversation.window_expires_at) > new Date();
 }
 
+// Meta's own errors and the messages this codebase writes itself (e.g.
+// "not found", "cannot demote the last admin") are meant to be shown to the
+// agent as-is. A raw driver/DB error is not - it can carry constraint or
+// column names that are internal implementation detail, not something an
+// authenticated-but-non-admin agent should see in their network tab.
+const RAW_DB_ERROR_PATTERN = /duplicate key|violates|constraint|column ".*" does not exist|relation ".*" does not exist|syntax error|null value in column/i;
+function safeErrorMessage(err, log, context) {
+  if (err instanceof MetaApiError) return err.message;
+  if (RAW_DB_ERROR_PATTERN.test(err?.message || '')) {
+    log?.warn({ err, context }, 'suppressed a raw db error from a client response');
+    return 'something went wrong processing that request';
+  }
+  return err.message;
+}
+
 // Builds the body parameters for a template send from a list of values.
 function bodyComponents(params) {
   if (!Array.isArray(params) || params.length === 0) return undefined;
@@ -118,6 +135,14 @@ export function registerApi(app, deps) {
     } catch {
       return reply.code(401).send({ error: 'unauthorized' });
     }
+    // A demoted or removed agent's existing token is only trustworthy for
+    // its role/identity claims if it still matches the current DB state -
+    // otherwise a role change or removal would not take effect until the
+    // token naturally expires up to 12 hours later.
+    const state = await getAgentAuthState(pool, req.user.id);
+    if (!state || state.token_version !== req.user.tokenVersion) {
+      return reply.code(401).send({ error: 'session no longer valid, please log in again' });
+    }
   };
 
   // Only lets a caller through when the JWT says role=admin. Used to gate
@@ -128,8 +153,6 @@ export function registerApi(app, deps) {
       return reply.code(403).send({ error: 'admin only' });
     }
   };
-  const adminAuth = [auth, requireAdmin];
-
   // Per-token+IP write rate limit. Attached as a preHandler on write routes.
   const writeLimit = async (req, reply) => {
     const key = `${req.user?.email || 'anon'}@${req.ip}`;
@@ -138,6 +161,12 @@ export function registerApi(app, deps) {
       return reply.code(429).send({ error: 'too many requests, slow down', retryAfter: gate.retryAfter });
     }
   };
+
+  // Every admin mutation goes through here, so this is also where the write
+  // rate limit lives now - it used to only cover a handful of routes wired
+  // up by hand, leaving most of the admin surface (settings, AI provider
+  // keys, FAQs, agents, media upload) with no throttle at all.
+  const adminAuth = [auth, requireAdmin, writeLimit];
 
   // Short-lived tickets for the websocket. Browsers cannot set auth headers on
   // ws:// upgrades, and passing a bearer JWT in the URL means the token ends
@@ -197,11 +226,17 @@ export function registerApi(app, deps) {
     }
     const { email, password } = req.body ?? {};
     const agent = email ? await getAgentByEmail(pool, email) : null;
-    if (!agent || !verifyPassword(password ?? '', agent.password_hash)) {
+    // Always runs the same scrypt verify whether or not the account exists,
+    // so response timing cannot be used to enumerate valid emails.
+    const validPassword = verifyPassword(password ?? '', agent?.password_hash ?? DUMMY_PASSWORD_HASH);
+    if (!agent || !validPassword) {
       return reply.code(401).send({ error: 'invalid email or password' });
     }
     const role = agent.role === 'admin' ? 'admin' : 'agent';
-    const token = app.jwt.sign({ id: agent.id, email: agent.email, role }, { expiresIn: '12h' });
+    const token = app.jwt.sign(
+      { id: agent.id, email: agent.email, role, tokenVersion: agent.token_version },
+      { expiresIn: '12h' },
+    );
     return { token, agent: { id: agent.id, email: agent.email, name: agent.name, role } };
   });
 
@@ -218,7 +253,7 @@ export function registerApi(app, deps) {
     }),
   }));
 
-  app.post('/api/conversations/:id/pin', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/conversations/:id/pin', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     const on = req.body?.on !== false;
     await setConversationFlag(pool, req.params.id, 'pin', on);
     await audit(req, on ? 'pin' : 'unpin', `conversation ${req.params.id}`);
@@ -226,7 +261,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/archive', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/conversations/:id/archive', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     const on = req.body?.on !== false;
     await setConversationFlag(pool, req.params.id, 'archive', on);
     await audit(req, on ? 'archive' : 'unarchive', `conversation ${req.params.id}`);
@@ -234,7 +269,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/mute', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/conversations/:id/mute', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     // hours: number of hours to mute for; 0 or missing to unmute.
     const hours = Number(req.body?.hours) || 0;
     const until = hours > 0 ? new Date(Date.now() + hours * 3600 * 1000) : null;
@@ -244,7 +279,7 @@ export function registerApi(app, deps) {
     return { ok: true, until };
   });
 
-  app.post('/api/conversations/:id/block', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/block', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const on = req.body?.on !== false;
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
@@ -262,7 +297,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.delete('/api/conversations/:id', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.delete('/api/conversations/:id', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     await softDeleteConversation(pool, req.params.id);
@@ -272,7 +307,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/clear', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/clear', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     await clearChat(pool, req.params.id);
@@ -364,7 +399,7 @@ export function registerApi(app, deps) {
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -413,7 +448,7 @@ export function registerApi(app, deps) {
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -443,7 +478,7 @@ export function registerApi(app, deps) {
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -468,7 +503,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/handback', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/conversations/:id/handback', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     await handToBot(pool, req.params.id);
     await audit(req, 'handback', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
@@ -477,7 +512,7 @@ export function registerApi(app, deps) {
 
   // Accepting or rejecting a pending handoff. A handoff the bot or a lead
   // queued sits pending until an agent claims it or sends it back to the bot.
-  app.post('/api/conversations/:id/accept', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/accept', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     if (conversation.state !== 'pending') {
@@ -489,7 +524,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/conversations/:id/reject', { preHandler: auth, schema: idParams }, async (req, reply) => {
+  app.post('/api/conversations/:id/reject', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
     if (conversation.state !== 'pending') {
@@ -510,7 +545,7 @@ export function registerApi(app, deps) {
       await syncTemplates(pool, templates);
       return { synced: templates.length, templates: await listTemplates(pool) };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -523,8 +558,14 @@ export function registerApi(app, deps) {
 
   // Links a campaign to a knowledge Topic, so replies for that campaign's
   // leads get boosted toward the right service pack.
-  app.put('/api/campaigns/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
-    const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
+  app.put('/api/campaigns/:id', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
+    let topicId = null;
+    if (req.body?.topicId) {
+      topicId = Number(req.body.topicId);
+      if (!Number.isInteger(topicId)) {
+        return reply.code(400).send({ error: 'topicId must be a whole number' });
+      }
+    }
     await linkCampaignTopic(pool, req.params.id, topicId);
     await audit(req, 'campaign topic linked', `campaign ${req.params.id}`);
     return { ok: true };
@@ -574,7 +615,7 @@ export function registerApi(app, deps) {
   // via the Push API, then hands the subscription back here to be saved.
   app.get('/api/push/vapid-public-key', async () => ({ key: getVapidPublicKey() }));
 
-  app.post('/api/push/subscribe', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/push/subscribe', { preHandler: [auth, writeLimit] }, async (req, reply) => {
     const sub = req.body?.subscription;
     const pushMeta = req.body?.meta || {};
     const email = req.user?.email;
@@ -591,11 +632,11 @@ export function registerApi(app, deps) {
       });
       return { ok: true };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
-  app.post('/api/push/unsubscribe', { preHandler: auth }, async (req) => {
+  app.post('/api/push/unsubscribe', { preHandler: [auth, writeLimit] }, async (req) => {
     const endpoint = req.body?.endpoint;
     if (endpoint) await removeSubscription(pool, endpoint);
     return { ok: true };
@@ -611,11 +652,11 @@ export function registerApi(app, deps) {
   });
 
   // Test push to the calling agent's devices only
-  app.post('/api/push/test', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/push/test', { preHandler: [auth, writeLimit] }, async (req, reply) => {
     try {
       return await sendTestPush(pool, req.user.email, req.log);
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -635,7 +676,7 @@ export function registerApi(app, deps) {
     return { notifications: rows, unread };
   });
 
-  app.post('/api/notifications/:id/read', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/notifications/:id/read', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     await pool.query(
       `update notifications set read_at = now()
        where id = $1 and agent_email = $2 and read_at is null`,
@@ -644,7 +685,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.post('/api/notifications/read-all', { preHandler: auth }, async (req) => {
+  app.post('/api/notifications/read-all', { preHandler: [auth, writeLimit] }, async (req) => {
     await pool.query(
       `update notifications set read_at = now()
        where agent_email = $1 and read_at is null`,
@@ -653,7 +694,7 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.delete('/api/notifications/:id', { preHandler: auth, schema: idParams }, async (req) => {
+  app.delete('/api/notifications/:id', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     await pool.query(
       'delete from notifications where id = $1 and agent_email = $2',
       [req.params.id, req.user.email],
@@ -661,12 +702,12 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  app.delete('/api/notifications', { preHandler: auth }, async (req) => {
+  app.delete('/api/notifications', { preHandler: [auth, writeLimit] }, async (req) => {
     await pool.query('delete from notifications where agent_email = $1', [req.user.email]);
     return { ok: true };
   });
 
-  app.post('/api/notifications/:id/save', { preHandler: auth, schema: idParams }, async (req) => {
+  app.post('/api/notifications/:id/save', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     await pool.query(
       `update notifications set saved_at = case when saved_at is null then now() else null end
        where id = $1 and agent_email = $2`,
@@ -687,7 +728,7 @@ export function registerApi(app, deps) {
       reply.header('Cache-Control', 'private, max-age=300');
       return reply.send(buffer);
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -696,7 +737,7 @@ export function registerApi(app, deps) {
     try {
       return { profile: await meta.getBusinessProfile() };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -710,7 +751,7 @@ export function registerApi(app, deps) {
       await meta.updateBusinessProfile(fields);
       return { profile: await meta.getBusinessProfile() };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -744,7 +785,7 @@ export function registerApi(app, deps) {
       await audit(req, 'faq added', `faq ${faq.id}`, faq.question);
       return { faq };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -768,7 +809,7 @@ export function registerApi(app, deps) {
       await audit(req, 'faq updated', `faq ${req.params.id}`, Object.keys(fields).join(', '));
       return { faq };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -799,14 +840,14 @@ export function registerApi(app, deps) {
       await audit(req, `faqs ${action}`, null, `${res.affected} entries`);
       return res;
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
   // Dry run: type a message, see the packs assembled, the exact context text
   // the model would see and, if the ai is configured, what it would actually
   // answer. This is the client's confidence check before a change goes live.
-  app.post('/api/faqs/simulate', { preHandler: auth }, async (req, reply) => {
+  app.post('/api/faqs/simulate', { preHandler: [auth, writeLimit] }, async (req, reply) => {
     const text = (req.body?.text ?? '').toString().trim();
     const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     const callAi = req.body?.callAi !== false;
@@ -816,7 +857,7 @@ export function registerApi(app, deps) {
       const result = await simulateReply(pool, deps.ai, deps.config, settings, { text, topicId, callAi });
       return result;
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -866,7 +907,7 @@ export function registerApi(app, deps) {
       await audit(req, 'faq rolled back', `faq ${faq.id}`, `to version ${req.params.id}`);
       return { faq };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -914,7 +955,7 @@ export function registerApi(app, deps) {
         `${res.gaps.proposed} gap(s), ${res.contradictions.proposed} contradiction(s)`);
       return res;
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -955,7 +996,7 @@ export function registerApi(app, deps) {
       await audit(req, 'gap proposal approved', `faq ${faq.id}`, question);
       return { faq };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -976,7 +1017,7 @@ export function registerApi(app, deps) {
       await audit(req, 'faqs imported', topicId ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -1066,7 +1107,7 @@ export function registerApi(app, deps) {
       await audit(req, 'media uploaded', `asset ${id}`, file.filename);
       return { id, kind, filename: file.filename };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -1107,7 +1148,7 @@ export function registerApi(app, deps) {
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
     } catch (err) {
-      return reply.code(400).send({ error: err.message });
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
   });
 
@@ -1135,14 +1176,11 @@ export function registerApi(app, deps) {
   // JWT in the URL would.
   app.get('/api/stream', { websocket: true }, (socket, req) => {
     const ticket = req.query?.ticket;
-    const token = req.query?.token;
-    let ok = false;
-    if (ticket && consumeWsTicket(ticket)) {
-      ok = true;
-    } else if (token) {
-      try { app.jwt.verify(token); ok = true; } catch { /* fall through */ }
-    }
-    if (!ok) { socket.close(); return; }
+    // Tickets only - a bearer JWT was previously accepted as a fallback here,
+    // which reintroduces the exact leak (access logs, browser history) the
+    // ticket system exists to avoid. Nothing in this app's own frontend
+    // relies on it.
+    if (!ticket || !consumeWsTicket(ticket)) { socket.close(); return; }
     realtime.add(socket);
   });
 }

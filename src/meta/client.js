@@ -2,11 +2,39 @@
 // here so a token change or version bump only touches one file.
 
 export class MetaApiError extends Error {
-  constructor(message, code) {
+  constructor(message, code, status) {
     super(message);
     this.name = 'MetaApiError';
     this.code = code;
+    // The HTTP status Meta responded with, when there was a response at all -
+    // undefined means the request never got one (network error, timeout),
+    // which is treated the same as a 5xx: worth retrying, unlike a 4xx which
+    // will just fail the same way again.
+    this.status = status;
   }
+}
+
+// A network error or a 5xx is transient and worth one or two retries - a
+// send that never even reached Meta, or that Meta itself failed on its side,
+// is safe to retry. A 4xx (bad template name, invalid parameter, outside the
+// window) is deterministic and retrying it would just fail the same way
+// three times instead of once, so those are not retried.
+const RETRY_DELAYS_MS = [300, 900];
+
+async function withRetry(log, label, fn) {
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const retryable = !(err instanceof MetaApiError) || err.status === undefined || err.status >= 500;
+      if (!retryable || attempt === RETRY_DELAYS_MS.length) throw err;
+      log?.warn({ label, attempt: attempt + 1, err: err.message }, 'meta api call failed, retrying');
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  throw lastErr;
 }
 
 export class MetaClient {
@@ -226,6 +254,10 @@ export class MetaClient {
   }
 
   async send(to, content) {
+    return withRetry(this.log, `send:${content.type}`, () => this.sendOnce(to, content));
+  }
+
+  async sendOnce(to, content) {
     const url = `${this.baseUrl}/${this.config.phoneNumberId}/messages`;
     const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...content };
 
@@ -250,10 +282,18 @@ export class MetaClient {
     if (!res.ok || data.error) {
       const err = data.error;
       this.log.error({ to, status: res.status, error: err }, 'Cloud API rejected send');
-      throw new MetaApiError(err?.message ?? `Cloud API returned HTTP ${res.status}`, err?.code);
+      throw new MetaApiError(err?.message ?? `Cloud API returned HTTP ${res.status}`, err?.code, res.status);
     }
 
     const wamid = data.messages?.[0]?.id ?? '';
+    // A 2xx with no message id is not actually a successful send - every
+    // caller gates recordOutbound on a truthy wamid, so treating this as
+    // success used to mean a message could be delivered on WhatsApp and
+    // never recorded anywhere in this system.
+    if (!wamid) {
+      this.log.error({ to, data }, 'Cloud API returned success with no message id');
+      throw new MetaApiError('Cloud API returned no message id for a successful send', undefined, res.status);
+    }
     this.log.info({ to, wamid, type: content.type }, 'message delivered to Cloud API');
     return wamid;
   }

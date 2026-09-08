@@ -1,5 +1,5 @@
 import { getConversationHistory, getConversationContext, getMediaCatalog, getRecentMediaSends } from '../db/repo.js';
-import { buildFaqContext } from '../knowledge/context.js';
+import { buildFaqContext, estimateTokens } from '../knowledge/context.js';
 import { packCatalog } from '../knowledge/packs.js';
 import { humanize } from './sanitize.js';
 import { REACTION_EMOJIS } from './reactions.js';
@@ -8,6 +8,18 @@ import { REACTION_EMOJIS } from './reactions.js';
 // leads reference things from earlier in a longer chat more often than a
 // short window can support, and both providers have plenty of headroom for it.
 const HISTORY_MESSAGES = 30;
+
+// A single pasted brief or forwarded document can otherwise make one message
+// cost as much as the rest of the history window combined - long past this
+// point the model does not need the exact wording, just that it happened.
+const MAX_HISTORY_MESSAGE_CHARS = 1500;
+
+// faqBudgetTokens only ever capped the FAQ text itself - the media catalog
+// and pack catalog were appended on top with no ceiling, so a large library
+// could silently inflate every single prompt well past the configured
+// budget. This caps those sections the same way buildFaqContext caps FAQs:
+// keep entries until the budget runs out, drop the rest.
+const CATALOG_BUDGET_TOKENS = 2000;
 
 const reasonCategoryMap = [
   ['price_negotiation', /price|cost|discount|rate|budget|expensive|cheap|negotiat/i],
@@ -20,6 +32,32 @@ const reasonCategoryMap = [
   ['unknown_service',   /unknown service|what do you|don.t offer|we don.t/i],
   ['abuse',             /block|abuse|threat|harass|spam|injection/i],
 ];
+
+function capMessageLength(body) {
+  const text = body ?? '';
+  if (text.length <= MAX_HISTORY_MESSAGE_CHARS) return text;
+  return `${text.slice(0, MAX_HISTORY_MESSAGE_CHARS)}... [message truncated, it ran much longer than this]`;
+}
+
+// Keeps entries (in the order given, most relevant first) until the token
+// budget runs out, same trim-from-the-end strategy buildFaqContext uses for
+// FAQs. lineFn renders one entry to text for both the cost check and output.
+function trimToTokenBudget(entries, budgetTokens, lineFn) {
+  const kept = [];
+  let used = 0;
+  let dropped = 0;
+  for (const entry of entries) {
+    const line = lineFn(entry);
+    const cost = estimateTokens(line) + 1;
+    if (used + cost > budgetTokens && kept.length > 0) {
+      dropped += 1;
+      continue;
+    }
+    used += cost;
+    kept.push(line);
+  }
+  return { lines: kept, dropped };
+}
 
 export function categorizeHandoffReason(reason) {
   if (!reason) return 'other';
@@ -47,10 +85,10 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     { role: 'system', content: leadContext(config, context) },
   ];
   for (const m of history) {
-    messages.push({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: m.body ?? '' });
+    messages.push({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: capMessageLength(m.body) });
   }
   for (const t of extraTurns) {
-    messages.push({ role: t.direction === 'inbound' ? 'user' : 'assistant', content: t.body ?? '' });
+    messages.push({ role: t.direction === 'inbound' ? 'user' : 'assistant', content: capMessageLength(t.body) });
   }
 
   const raw = await ai.complete(messages, { json: true });
@@ -99,8 +137,11 @@ function parseDecision(raw, catalog) {
   }
 
   if (obj?.action === 'warn') {
-    if (!reply) return { ...empty, handoff: false, reason: '', warn: true, block: false };
-    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, reactEmoji: null, warn: true, block: false };
+    // An empty reply here must never fall through to the generic fallback
+    // message downstream - that would hand an abuse/injection attempt a
+    // friendly canned reply instead of any warning at all.
+    const warnReply = reply || 'This is a business chat and I can only help with questions about our services.';
+    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, reactEmoji: null, warn: true, block: false };
   }
 
   if (obj?.action === 'block') {
@@ -141,11 +182,12 @@ function contactLines(config) {
 }
 
 function instructions(config, faqText, catalog, media, recentSends, allowPackRequests) {
-  const catalogText = catalog.length
-    ? catalog
-        .map((c) => `- Pack ${c.id}: ${c.name}${c.description ? ` (${c.description})` : ''}`)
-        .join('\n')
-    : 'None.';
+  const catalogTrim = trimToTokenBudget(
+    catalog,
+    CATALOG_BUDGET_TOKENS,
+    (c) => `- Pack ${c.id}: ${c.name}${c.description ? ` (${c.description})` : ''}`,
+  );
+  const catalogText = catalogTrim.lines.length ? catalogTrim.lines.join('\n') : 'None.';
 
   const actionsSection = (() => {
     const actions = [
@@ -185,8 +227,16 @@ function instructions(config, faqText, catalog, media, recentSends, allowPackReq
       lines.push('- None available right now. Never invent a file or claim you are sending one.');
       return lines.join('\n');
     }
+    const mediaTrim = trimToTokenBudget(
+      media,
+      CATALOG_BUDGET_TOKENS,
+      (m) => `- [id ${m.id}] ${m.filename}${m.description ? ` - ${m.description}` : ''}`,
+    );
     lines.push(
-      ...media.map((m) => `- [id ${m.id}] ${m.filename}${m.description ? ` - ${m.description}` : ''}`),
+      ...mediaTrim.lines,
+      ...(mediaTrim.dropped > 0
+        ? [`- (${mediaTrim.dropped} more file${mediaTrim.dropped === 1 ? '' : 's'} exist but do not fit here - never invent one for these)`]
+        : []),
       '- Put the id in send_media_id only when a file above is genuinely what the customer is asking for. Only ever name an id from this list.',
       '- Leave send_media_id null in every other case. Never say you are sending something and then leave it null - if you say it, send it.',
     );

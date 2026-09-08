@@ -55,10 +55,14 @@ function onVisible() {
 }
 
 export async function markRead(id) {
+  const was = state.items.find((n) => n.id === id);
   state = {
     ...state,
     items: state.items.map((n) => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n)),
-    unread: Math.max(0, state.unread - 1),
+    // Only decrement if it was actually unread - otherwise a double-tap, or
+    // another tab/poll marking it read first, undercounts the badge until
+    // the next poll reconciles it.
+    unread: was && !was.read_at ? Math.max(0, state.unread - 1) : state.unread,
   };
   emit();
   try { await api.markNotificationRead(id); } catch { /* will reconcile on next poll */ }

@@ -25,12 +25,19 @@ export class AiClient {
     if (!this.enabled) {
       throw new Error('AI disabled: no provider key configured');
     }
+    // Snapshotted once up front - reconfigure() can swap this.providers/order
+    // out from under a call that's already in flight (an admin changing the
+    // AI provider/key mid-request), and reading the new object partway
+    // through this loop would look up a provider name that may not exist in
+    // it, which used to log as a misleading "provider failure".
+    const providers = this.providers;
+    const order = this.order;
     const timeoutMs = options.timeoutMs ?? 25000;
     let lastError;
-    for (const name of this.order) {
+    for (const name of order) {
       try {
         const result = await Promise.race([
-          this.providers[name].complete(messages, options),
+          providers[name].complete(messages, options),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`ai timeout after ${timeoutMs}ms`)), timeoutMs),
           ),

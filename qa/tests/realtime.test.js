@@ -51,8 +51,16 @@ async function login() {
   return (await res.json()).token;
 }
 
-function openSocket(token) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/api/stream?token=${token}`);
+async function getTicket(token) {
+  const res = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return (await res.json()).ticket;
+}
+
+function openSocket(ticket) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/api/stream?ticket=${ticket}`);
   const opened = new Promise((resolve, reject) => {
     ws.onopen = () => resolve();
     ws.onerror = () => reject(new Error('websocket failed to open'));
@@ -73,7 +81,8 @@ test('a live event is pushed to a connected console socket', async () => {
   });
 
   const token = await login();
-  const { ws, opened } = openSocket(token);
+  const ticket = await getTicket(token);
+  const { ws, opened } = openSocket(ticket);
   await opened;
 
   const received = new Promise((resolve, reject) => {
@@ -93,8 +102,8 @@ test('a live event is pushed to a connected console socket', async () => {
   ws.close();
 });
 
-test('a socket with a bad token is closed and gets no events', async () => {
-  const { ws, opened } = openSocket('not-a-valid-token');
+test('a socket with a bad ticket is closed and gets no events', async () => {
+  const { ws, opened } = openSocket('not-a-valid-ticket');
   // Either it never opens, or it opens and is immediately closed with no data.
   const outcome = await opened.then(
     () =>
@@ -105,5 +114,20 @@ test('a socket with a bad token is closed and gets no events', async () => {
       }),
     () => 'rejected',
   );
-  assert.notEqual(outcome, 'got-data', 'a bad token must not receive events');
+  assert.notEqual(outcome, 'got-data', 'a bad ticket must not receive events');
+});
+
+test('a raw bearer token in the url is rejected, only a ticket works', async () => {
+  const token = await login();
+  const { ws, opened } = openSocket(`ignored&token=${token}`);
+  const outcome = await opened.then(
+    () =>
+      new Promise((resolve) => {
+        ws.onmessage = () => resolve('got-data');
+        ws.onclose = () => resolve('closed');
+        setTimeout(() => resolve('closed'), 1500);
+      }),
+    () => 'rejected',
+  );
+  assert.notEqual(outcome, 'got-data', 'a bearer token must never be accepted as a query param again');
 });
