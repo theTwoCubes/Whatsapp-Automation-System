@@ -5,7 +5,8 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, getConversationById } from '../../src/db/repo.js';
+import { createAgent, getConversationById, addActivePackIds } from '../../src/db/repo.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
 import { inboundText } from './support/fixtures.js';
@@ -79,6 +80,20 @@ test('an agent can list conversations with a token', async () => {
   const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().conversations.length, 1);
+  await app.close();
+});
+
+test('an organic conversation surfaces the service the ai pulled in, for the console\'s service filter', async () => {
+  const id = await makeConversation();
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await addActivePackIds(pool, id, [topic.id]);
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
+  const conv = res.json().conversations.find((c) => c.id === id);
+  assert.equal(Number(conv.topic_id), Number(topic.id), 'no campaign involved, but the ai\'s own pack pick is still surfaced');
+  assert.equal(conv.topic_name, 'Logo Design');
   await app.close();
 });
 

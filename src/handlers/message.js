@@ -104,9 +104,63 @@ export async function processWebhook(body, deps) {
   }
 }
 
+// A lead tapping a quick-reply button - either on a template ("button") or
+// an interactive button/list message ("interactive") - carries the text they
+// picked. Returns null for every other type, including a fully custom
+// interactive reply (e.g. a Flow submission) this does not attempt to
+// interpret as text.
+function extractQuickReplyText(message) {
+  if (message.type === 'button') return message.button?.text || null;
+  if (message.type === 'interactive') {
+    return message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || null;
+  }
+  return null;
+}
+
+// A short, human-readable stand-in for the message types that carry no text
+// of their own, so the console thread, search, and any handoff/notification
+// text shows something meaningful instead of a blank body. Covers every
+// inbound type WhatsApp can send that is not already handled on its own
+// (reactions are recorded and handled separately; image/document/video/audio
+// keep their existing media-card rendering and need no text body here).
+function describeInboundBody(message, quickReplyText) {
+  switch (message.type) {
+    case 'text':
+      return message.text?.body ?? null;
+    case 'button':
+    case 'interactive':
+      return quickReplyText ? `Tapped: ${quickReplyText}` : null;
+    case 'location': {
+      const loc = message.location;
+      return loc?.name ? `Location shared: ${loc.name}` : 'Location shared';
+    }
+    case 'contacts': {
+      const names = (message.contacts || []).map((c) => c.name?.formatted_name).filter(Boolean);
+      return names.length ? `Contact card shared: ${names.join(', ')}` : 'Contact card shared';
+    }
+    case 'order': {
+      const count = message.order?.product_items?.length;
+      return count ? `Order sent: ${count} item${count === 1 ? '' : 's'}` : 'Order sent';
+    }
+    case 'system':
+      return message.system?.body || 'System notice from WhatsApp';
+    case 'unsupported':
+      return 'Sent something this cannot read (an unsupported message type)';
+    default:
+      return null;
+  }
+}
+
 async function handleMessage(value, message, deps) {
   const { pool, config, realtime, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
+
+  // A tapped quick-reply button (on a template, or an interactive button/list
+  // message) is a structured answer the lead chose, not an attachment - it
+  // gets treated as if they had typed it, going straight to the AI pipeline
+  // below instead of an automatic human handoff.
+  const quickReplyText = extractQuickReplyText(message);
+  const effectiveText = message.text?.body || quickReplyText || null;
 
   let result;
   try {
@@ -115,7 +169,7 @@ async function handleMessage(value, message, deps) {
       name: contactName,
       waMessageId: message.id,
       type: message.type,
-      body: message.text?.body ?? null,
+      body: describeInboundBody(message, quickReplyText),
       referral: message.referral ?? null,
       raw: message,
       // WhatsApp sends timestamp as a Unix seconds string. Convert to ms.
@@ -171,19 +225,18 @@ async function handleMessage(value, message, deps) {
   // the app so lock-screen previews cannot leak sensitive strings from a lead.
   if (result.state !== 'bot') {
     log.info({ conversationId: result.conversationId }, 'conversation is with a human, bot staying quiet');
-    if (message.text?.body || message.type !== 'text') {
-      const preview = message.text?.body
-        ? 'New message'
-        : `Sent a ${message.type}`;
+    if (effectiveText || message.type !== 'text') {
+      const preview = effectiveText ? 'New message' : `Sent a ${message.type}`;
       await pushHandoff(pool, result.conversationId, preview, log, { kind: 'inbound' });
     }
     return;
   }
 
-  // Anything the lead sends that is not plain text (image, document, voice
-  // note, location, and so on) needs a person, not a silent drop. Handing off
-  // immediately means it does not get lost waiting on the debounce window.
-  if (message.type !== 'text' || !message.text?.body) {
+  // Anything the lead sends that is not plain text or a quick-reply tap
+  // (image, document, voice note, location, and so on) needs a person, not a
+  // silent drop. Handing off immediately means it does not get lost waiting
+  // on the debounce window.
+  if (!effectiveText) {
     const settings = await getSettings(pool, config);
     await handToPending(pool, result.conversationId, `Lead sent a ${message.type}`);
     await recordHandoff(pool, {
@@ -204,7 +257,7 @@ async function handleMessage(value, message, deps) {
     to: message.from,
     conversationId: result.conversationId,
     topicId: result.topicId ?? null,
-    text: message.text.body,
+    text: effectiveText,
   });
 
   // Only the call holding the last message in the flushed batch replies, the

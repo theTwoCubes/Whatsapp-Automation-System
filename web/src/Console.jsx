@@ -8,7 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile,
+  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter,
 } from 'lucide-react';
 
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
@@ -99,17 +99,23 @@ function windowLabel(conv) {
     : { label: 'Window closed',   open: false };
 }
 
+// Every WhatsApp inbound type that actually has a file behind it - anything
+// else (location, contacts, order, system, unsupported, a tapped quick-reply
+// button) gets a plain text bubble using the readable body the backend fills
+// in for those, not a broken "File" card with a download button that 404s.
+const MEDIA_TYPES = new Set(['image', 'document', 'video', 'audio', 'voice', 'sticker']);
+
 // A WhatsApp style attachment card. The file lives on Meta and stays there
 // until the agent hits Download, so nothing is written to the VPS disk. The
 // blurred gradient is just a placeholder that mimics WhatsApp's low quality
 // preview, since we do not have a real thumbnail to show.
 function mediaKindLabel(type) {
-  const map = { image: 'Photo', document: 'Document', video: 'Video', audio: 'Voice note' };
+  const map = { image: 'Photo', document: 'Document', video: 'Video', audio: 'Voice note', sticker: 'Sticker' };
   return map[type] || 'File';
 }
 
 function mediaKindIcon(type, size = 22) {
-  if (type === 'image') return <ImageIcon size={size} className="text-white" />;
+  if (type === 'image' || type === 'sticker') return <ImageIcon size={size} className="text-white" />;
   if (type === 'video') return <Film size={size} className="text-white" />;
   if (type === 'audio' || type === 'voice') return <Mic size={size} className="text-white" />;
   return <FileText size={size} className="text-white" />;
@@ -314,6 +320,9 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [templates, setTemplates]         = useState([]);
   const [query, setQuery]                 = useState('');
   const [filter, setFilter]               = useState('all');
+  const [serviceFilter, setServiceFilter] = useState(null);
+  const [showServiceMenu, setShowServiceMenu] = useState(false);
+  const serviceBtnRef                     = useRef(null);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
   const [ptrDist, setPtrDist]             = useState(0);
@@ -549,12 +558,30 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     // 'archived' pulls its own list from the server, so the state filter does
     // not apply to it — everything the server returned should show.
     if (filter !== 'all' && filter !== 'archived') list = list.filter((c) => c.state === filter);
+    if (serviceFilter != null) list = list.filter((c) => c.topic_id === serviceFilter);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) =>
       (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q)
     );
     return list;
-  }, [conversations, query, filter]);
+  }, [conversations, query, filter, serviceFilter]);
+
+  // Which services have an active chat right now, with counts - built from
+  // whatever is already loaded rather than a separate query. A dropdown
+  // instead of another row of tabs, since the number of services can grow
+  // past what fits on a phone screen without scrolling.
+  const serviceOptions = useMemo(() => {
+    const map = new Map();
+    for (const c of conversations) {
+      if (c.topic_id == null || !c.topic_name) continue;
+      const cur = map.get(c.topic_id) || { id: c.topic_id, name: c.topic_name, count: 0 };
+      cur.count += 1;
+      map.set(c.topic_id, cur);
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }, [conversations]);
+
+  const activeService = serviceFilter != null ? serviceOptions.find((s) => s.id === serviceFilter) : null;
 
   const counts = useMemo(() => ({
     all:     conversations.length,
@@ -630,7 +657,40 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
                 <X size={16} />
               </button>
             )}
+            <button
+              ref={serviceBtnRef}
+              type="button"
+              onClick={() => setShowServiceMenu((v) => !v)}
+              className={`flex-shrink-0 relative ${serviceFilter != null ? 'text-[var(--accent)]' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Filter by service"
+              aria-label="Filter by service"
+            >
+              <ListFilter size={16} />
+              {serviceFilter != null && (
+                <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
+              )}
+            </button>
           </div>
+          {showServiceMenu && (
+            <ServiceFilterMenu
+              anchorRef={serviceBtnRef}
+              services={serviceOptions}
+              selected={serviceFilter}
+              onSelect={setServiceFilter}
+              onClose={() => setShowServiceMenu(false)}
+            />
+          )}
+          {activeService && (
+            <button
+              type="button"
+              onClick={() => setServiceFilter(null)}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+            >
+              {activeService.name}
+              <X size={12} />
+            </button>
+          )}
         </div>
 
         {/* Filter tabs */}
@@ -1032,6 +1092,73 @@ function ContextRow({ label, children }) {
 // rendering this inline inside the bubble (the original approach) got it
 // clipped by the pane's overflow:auto whenever the target message was near
 // the top of the currently scrolled view.
+// Portaled dropdown for filtering the conversation list by service - a
+// button + popover instead of another row of tabs, since the number of
+// services (logo design, packaging, website, ...) can grow past what fits
+// on a phone screen without needing its own scroll.
+function ServiceFilterMenu({ anchorRef, services, selected, onSelect, onClose }) {
+  const [coords, setCoords] = useState(null);
+  const menuRef = useRef(null);
+
+  const place = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const width = 240;
+    const r = el.getBoundingClientRect();
+    const left = Math.min(Math.max(12, r.left), window.innerWidth - width - 12);
+    setCoords({ left, width, top: r.bottom + 6 });
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { place(); }, [place]);
+  useEffect(() => {
+    const onDown = (e) => {
+      if (anchorRef.current?.contains(e.target)) return;
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    const reflow = () => place();
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', reflow);
+    window.addEventListener('scroll', reflow, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', reflow);
+      window.removeEventListener('scroll', reflow, true);
+    };
+  }, [place, onClose, anchorRef]);
+
+  if (!coords) return null;
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[9998] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden py-1 max-h-80 overflow-y-auto"
+      style={{ left: coords.left, top: coords.top, width: coords.width }}
+    >
+      <button
+        type="button"
+        onClick={() => { onSelect(null); onClose(); }}
+        className={`w-full flex items-center px-3.5 py-2.5 text-sm text-left hover:bg-gray-50 ${selected == null ? 'font-semibold text-gray-900' : 'text-gray-700'}`}
+      >
+        All services
+      </button>
+      {services.length === 0 && (
+        <div className="px-3.5 py-3 text-xs text-gray-400">No services on any active chat yet.</div>
+      )}
+      {services.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          onClick={() => { onSelect(s.id); onClose(); }}
+          className={`w-full flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm text-left hover:bg-gray-50 ${selected === s.id ? 'font-semibold text-gray-900' : 'text-gray-700'}`}
+        >
+          <span className="truncate">{s.name}</span>
+          <span className="text-xs text-gray-400 flex-shrink-0">{s.count}</span>
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 function ReactionPicker({ anchorRef, align, onPick, onClose }) {
   const [coords, setCoords] = useState(null);
   const pickerRef = useRef(null);
@@ -1588,7 +1715,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                       <div className="truncate">{snippet(quoted)}</div>
                     </div>
                   )}
-                  {m.type !== 'text'
+                  {MEDIA_TYPES.has(m.type)
                     ? (
                       <div className="flex flex-col gap-1.5">
                         <InboundAttachment message={m} />

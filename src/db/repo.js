@@ -362,10 +362,17 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, coalesce(m.sent_at, m.created_at) as last_at,
-            (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count
+            (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count,
+            -- The service this conversation is about, for the console's service
+            -- filter. An ad-click lead's campaign topic wins when there is one;
+            -- otherwise it's the first service pack the AI itself pulled in -
+            -- that covers organic leads too, which never get a campaign at all.
+            coalesce(ca.topic_id, c.active_pack_ids[1]) as topic_id,
+            t.name as topic_name
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
+     left join topics t on t.id = coalesce(ca.topic_id, c.active_pack_ids[1])
      left join lateral (
        select body, sent_at, created_at from messages
        where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1

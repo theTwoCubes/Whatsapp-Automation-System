@@ -169,16 +169,29 @@ function parseDecision(raw, catalog) {
 // The AI's own contact facts (its website, phone, Instagram), not a client's.
 // Left out entirely when nothing has been filled in on the console yet, since
 // a line telling the model to "share it when asked" with nothing to share is
-// worse than no line at all.
+// worse than no line at all. The phone number gets its own, softer guidance
+// below rather than being handed out on request the way the others are -
+// the client does not want it going to literally anyone who asks in their
+// very first message.
 function contactLines(config) {
-  const facts = [
+  const openFacts = [
     config.websiteUrl && `Website: ${config.websiteUrl}`,
-    config.contactPhone && `Phone: ${config.contactPhone}`,
     config.supportEmail && `Email: ${config.supportEmail}`,
     config.instagramUrl && `Instagram: ${config.instagramUrl}`,
   ].filter(Boolean);
-  if (facts.length === 0) return [];
-  return ['Contact details, share these when asked (do not invent any others):', ...facts];
+
+  const lines = [];
+  if (openFacts.length > 0) {
+    lines.push('Contact details, share these whenever asked (do not invent any others):', ...openFacts);
+  }
+  if (config.contactPhone) {
+    lines.push(
+      '',
+      `Phone number: ${config.contactPhone}. Use your judgement on when to share this one - it reads better once the conversation actually sounds like a real, interested lead (they have asked about pricing, timeline, or said they want to move forward) rather than handing it out the moment anyone asks for it in their very first message. If someone asks early with no context yet, it is fine to keep chatting a little first - ask what they need, engage with them - before sharing it, rather than refusing outright. This is a light judgement call, not a strict rule, and the number is completely fine to give out once it is clearly a genuine conversation.`,
+    );
+  }
+  if (lines.length === 0) return [];
+  return lines;
 }
 
 function instructions(config, faqText, catalog, media, recentSends, allowPackRequests) {

@@ -32,6 +32,51 @@ export function inboundImage({ from = '918766226219', name = 'Test Lead', id } =
   });
 }
 
+export function inboundButtonReply({ from = '918766226219', name = 'Test Lead', id, text = 'Yes, interested' } = {}) {
+  return wrap({
+    contacts: [{ wa_id: from, profile: { name } }],
+    messages: [
+      {
+        from,
+        id: id ?? `wamid.${Math.random().toString(36).slice(2)}`,
+        timestamp: `${Math.floor(Date.now() / 1000)}`,
+        type: 'button',
+        button: { text, payload: text },
+      },
+    ],
+  });
+}
+
+export function inboundInteractiveReply({ from = '918766226219', name = 'Test Lead', id, title = 'Logo Design' } = {}) {
+  return wrap({
+    contacts: [{ wa_id: from, profile: { name } }],
+    messages: [
+      {
+        from,
+        id: id ?? `wamid.${Math.random().toString(36).slice(2)}`,
+        timestamp: `${Math.floor(Date.now() / 1000)}`,
+        type: 'interactive',
+        interactive: { type: 'list_reply', list_reply: { id: 'opt-1', title } },
+      },
+    ],
+  });
+}
+
+export function inboundLocation({ from = '918766226219', name = 'Test Lead', id } = {}) {
+  return wrap({
+    contacts: [{ wa_id: from, profile: { name } }],
+    messages: [
+      {
+        from,
+        id: id ?? `wamid.${Math.random().toString(36).slice(2)}`,
+        timestamp: `${Math.floor(Date.now() / 1000)}`,
+        type: 'location',
+        location: { latitude: 23.02, longitude: 72.57, name: 'Ahmedabad' },
+      },
+    ],
+  });
+}
+
 export function inboundReaction({ from = '918766226219', name = 'Test Lead', id, targetWamid, emoji = '👍' } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],

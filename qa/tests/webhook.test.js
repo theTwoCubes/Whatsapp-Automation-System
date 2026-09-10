@@ -2,7 +2,7 @@ import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
-import { inboundText, inboundImage, inboundReaction, statusUpdate, adReferral } from './support/fixtures.js';
+import { inboundText, inboundImage, inboundReaction, inboundButtonReply, inboundInteractiveReply, inboundLocation, statusUpdate, adReferral } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -268,4 +268,41 @@ test('a lead reacting to a message is stored but never hands off, replies, or in
   const stored = await pool.query("select raw from messages where type = 'reaction'");
   assert.equal(stored.rows[0].raw.reaction.emoji, '👍');
   assert.equal(stored.rows[0].raw.reaction.message_id, 'wamid.RX1');
+});
+
+test('a tapped quick-reply button goes to the ai like a typed reply, not a human handoff', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Great, tell me more about what you need.' }));
+  const d = deps({ ai });
+  await processWebhook(inboundButtonReply({ id: 'wamid.BTN1', text: 'Yes, interested' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'the ai answered directly, no handoff message');
+  assert.equal(d.meta.sends[0].body, 'Great, tell me more about what you need.');
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'stays with the bot instead of queuing for a person');
+
+  const stored = await pool.query("select body from messages where type = 'button'");
+  assert.equal(stored.rows[0].body, 'Tapped: Yes, interested', 'readable in the thread instead of a blank body');
+});
+
+test('a tapped interactive list option also reaches the ai instead of handing off', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Logo design it is - what is the timeline you are working with?' }));
+  const d = deps({ ai });
+  await processWebhook(inboundInteractiveReply({ id: 'wamid.INT1', title: 'Logo Design' }), d);
+
+  assert.equal(d.meta.sends.length, 1);
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot');
+});
+
+test('a location share still hands off to a person, with a readable body instead of blank', async () => {
+  const d = deps();
+  await processWebhook(inboundLocation({ id: 'wamid.LOC1' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'a handoff message is sent');
+  assert.equal(d.meta.sends[0].body, testConfig.attachmentMessage);
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'pending');
+
+  const stored = await pool.query("select body from messages where type = 'location'");
+  assert.equal(stored.rows[0].body, 'Location shared: Ahmedabad');
 });
