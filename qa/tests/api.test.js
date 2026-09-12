@@ -83,6 +83,56 @@ test('an agent can list conversations with a token', async () => {
   await app.close();
 });
 
+test('composing starts a fresh conversation with no window open, so only a template can be sent', async () => {
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({
+    method: 'POST', url: '/api/conversations/compose',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { waId: '+91 98765-43210', name: 'Cold Lead' },
+  });
+  assert.equal(res.statusCode, 200);
+  const { id } = res.json();
+  assert.ok(id);
+
+  const conv = await getConversationById(pool, id);
+  assert.equal(conv.wa_id, '919876543210', 'punctuation stripped, digits only');
+  assert.equal(conv.window_expires_at, null, 'no inbound message yet, so no open window');
+
+  const detail = await app.inject({ method: 'GET', url: `/api/conversations/${id}`, headers: { authorization: `Bearer ${token}` } });
+  assert.equal(detail.json().conversation.window_open, false, 'the composer will only offer a template, same as any closed-window chat');
+  await app.close();
+});
+
+test('composing twice for the same number reuses the one conversation', async () => {
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const first = await app.inject({
+    method: 'POST', url: '/api/conversations/compose',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { waId: '918000000000' },
+  });
+  const second = await app.inject({
+    method: 'POST', url: '/api/conversations/compose',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { waId: '918000000000' },
+  });
+  assert.equal(first.json().id, second.json().id);
+  await app.close();
+});
+
+test('an invalid phone number is rejected before touching the database', async () => {
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({
+    method: 'POST', url: '/api/conversations/compose',
+    headers: { authorization: `Bearer ${token}` },
+    payload: { waId: '123' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
 test('an organic conversation surfaces the service the ai pulled in, for the console\'s service filter', async () => {
   const id = await makeConversation();
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });

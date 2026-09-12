@@ -38,6 +38,7 @@ import {
   softDeleteConversation,
   clearChat,
   getConversationById,
+  findOrCreateComposeConversation,
   getConversationMessages,
   listTemplates,
   syncTemplates,
@@ -252,6 +253,36 @@ export function registerApi(app, deps) {
       includeArchived: req.query?.archived === '1',
     }),
   }));
+
+  // Lets an agent start a conversation with a number that hasn't messaged in,
+  // from the console's Compose button. Only ever creates the conversation
+  // shell - with no window_expires_at set, it opens exactly like any other
+  // outside-the-window chat, so the composer already only offers an approved
+  // template, same as everywhere else. No separate "template only" flag needed.
+  app.post('/api/conversations/compose', {
+    preHandler: [auth, writeLimit],
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          waId: { type: 'string', minLength: 1, maxLength: 32 },
+          name: { type: 'string', maxLength: 120 },
+        },
+        required: ['waId'],
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
+    const waId = String(req.body.waId).replace(/\D/g, '');
+    if (waId.length < 8 || waId.length > 15) {
+      return reply.code(400).send({ error: 'enter a valid phone number with country code, digits only' });
+    }
+    const name = (req.body?.name ?? '').trim() || null;
+    const id = await findOrCreateComposeConversation(pool, { waId, name });
+    await audit(req, 'conversation composed', `conversation ${id}`, waId);
+    realtime.emit({ type: 'refresh' });
+    return { id };
+  });
 
   app.post('/api/conversations/:id/pin', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     const on = req.body?.on !== false;

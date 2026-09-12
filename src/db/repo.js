@@ -91,6 +91,51 @@ export async function recordInbound(pool, m) {
   }
 }
 
+// Lets an agent start a conversation with a number that has never messaged
+// in, from the console's Compose button. No window_expires_at is set (there
+// has been no inbound message yet) so the thread opens exactly like any
+// other outside-the-window chat - the composer only offers an approved
+// template, same as it already does everywhere else. Reuses an existing
+// conversation for that number if there is one instead of creating a
+// duplicate, and revives it out of the archive/soft-delete the same way a
+// real inbound message would.
+export async function findOrCreateComposeConversation(pool, { waId, name }) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const contact = await client.query(
+      `insert into contacts (wa_id, name)
+       values ($1, $2)
+       on conflict (wa_id) do update set
+         name = coalesce(contacts.name, excluded.name),
+         last_seen_at = now()
+       returning id`,
+      [waId, name ?? null],
+    );
+    const contactId = contact.rows[0].id;
+
+    const conversation = await client.query(
+      `insert into conversations (contact_id)
+       values ($1)
+       on conflict (contact_id) do update set
+         archived_at = null,
+         deleted_at = null,
+         state = case when conversations.deleted_at is not null then 'bot' else conversations.state end,
+         assignee = case when conversations.deleted_at is not null then null else conversations.assignee end,
+         updated_at = now()
+       returning id`,
+      [contactId],
+    );
+    await client.query('commit');
+    return conversation.rows[0].id;
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // Parks a webhook change that failed to process, so it can be inspected or
 // replayed rather than lost.
 export async function deadLetterWebhook(pool, payload, error) {

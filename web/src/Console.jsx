@@ -8,7 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter,
+  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter, MessageSquarePlus,
 } from 'lucide-react';
 
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
@@ -312,6 +312,77 @@ function Ticks({ status }) {
   return null;
 }
 
+// Compose Modal - starts a conversation with a number that has never
+// messaged in. Only ever creates the conversation shell; since there is no
+// inbound message yet the 24 hour window is closed, so opening the chat
+// afterwards drops the agent straight into the template picker, same as any
+// other closed-window chat - nothing special to handle beyond getting them
+// there.
+function ComposeModal({ onClose, onCreated }) {
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const submit = async () => {
+    if (!phone.trim()) return;
+    setBusy(true);
+    try {
+      const { id } = await api.composeConversation(phone.trim(), name.trim());
+      onCreated(id);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900">Start a conversation</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5 flex flex-col gap-4">
+          <p className="text-sm text-gray-500 leading-relaxed">
+            This opens the chat so you can send an approved template - WhatsApp does not allow a freeform message to someone who has not messaged in first.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-base font-medium text-gray-800">Phone number</label>
+            <input
+              className="field-input"
+              placeholder="Country code + number, e.g. 91 98765 43210"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+              autoFocus
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-base font-medium text-gray-800">Name <span className="text-gray-400 font-normal">(optional)</span></label>
+            <input
+              className="field-input"
+              placeholder="Who this is"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          <Button variant="secondary" size="md" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" size="md" onClick={submit} disabled={busy || !phone.trim()}>
+            {busy ? 'Starting…' : 'Start conversation'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Console Root
 export default function Console({ onConversationsChange, onThreadOpen, onOpenConversation }) {
   const [conversations, setConversations] = useState([]);
@@ -323,6 +394,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [serviceFilter, setServiceFilter] = useState(null);
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const serviceBtnRef                     = useRef(null);
+  const [showCompose, setShowCompose]     = useState(false);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
   const [ptrDist, setPtrDist]             = useState(0);
@@ -670,6 +742,15 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
                 <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowCompose(true)}
+              className="flex-shrink-0 text-gray-400 hover:text-gray-600"
+              title="Start a new conversation"
+              aria-label="Start a new conversation"
+            >
+              <MessageSquarePlus size={17} />
+            </button>
           </div>
           {showServiceMenu && (
             <ServiceFilterMenu
@@ -690,6 +771,18 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               {activeService.name}
               <X size={12} />
             </button>
+          )}
+          {showCompose && (
+            <ComposeModal
+              onClose={() => setShowCompose(false)}
+              onCreated={(id) => {
+                setShowCompose(false);
+                loadList(true);
+                setFilter('all');
+                setServiceFilter(null);
+                setSelected(id);
+              }}
+            />
           )}
         </div>
 

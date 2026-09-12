@@ -72,6 +72,7 @@ export const api = {
   deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
   clearChat: (id) => req(`/conversations/${id}/clear`, { method: 'POST' }),
   conversation: (id) => req(`/conversations/${id}`),
+  composeConversation: (waId, name) => req('/conversations/compose', { method: 'POST', body: JSON.stringify({ waId, name }) }),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),
   sendReaction: (id, wamid, emoji) => req(`/conversations/${id}/reactions`, { method: 'POST', body: JSON.stringify({ wamid, emoji }) }),
