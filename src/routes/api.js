@@ -236,7 +236,7 @@ export function registerApi(app, deps) {
     const role = agent.role === 'admin' ? 'admin' : 'agent';
     const token = app.jwt.sign(
       { id: agent.id, email: agent.email, role, tokenVersion: agent.token_version },
-      { expiresIn: '12h' },
+      { expiresIn: '7d' },
     );
     return { token, agent: { id: agent.id, email: agent.email, name: agent.name, role } };
   });
