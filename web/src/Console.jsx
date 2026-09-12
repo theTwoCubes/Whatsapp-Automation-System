@@ -432,11 +432,27 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const filterRef = useRef(filter);
   filterRef.current = filter;
 
+  // Guards against out-of-order responses: switching filters back and forth
+  // fires overlapping requests, and without this the slower one can land
+  // last and clobber the list with stale (or archived) data.
+  const loadSeqRef = useRef(0);
+
   const loadList = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    const seq = ++loadSeqRef.current;
+    const archived = filterRef.current === 'archived';
     try {
-      const { conversations: list } = await api.conversations({ archived: filterRef.current === 'archived' });
+      const { conversations: list } = await api.conversations({ archived });
+      if (seq !== loadSeqRef.current) return;
       setConversations(list);
+
+      // Archived is a side view onto chats that are done needing attention.
+      // It must not drive the pending-toast bookkeeping, the OS/tab badge, or
+      // the parent's global conversation list - doing so was overwriting the
+      // real counts with the archived-only subset while browsing it, and then
+      // re-toasting chats that were already pending once the user came back.
+      if (archived) return;
+
       onConversationsChange?.(list);
 
       const pending = list.filter((c) => c.state === 'pending');
@@ -471,9 +487,10 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
       const attention = list.reduce((n, c) => n + (c.unread_count || 0), 0) + pending.length;
       applyBadge(attention);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       if (err.message !== 'unauthorized') toast.error('Could not load conversations');
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [toast, onConversationsChange]);
 

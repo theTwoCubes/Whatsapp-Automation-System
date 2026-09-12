@@ -5,7 +5,7 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, getConversationById, addActivePackIds, setLastTopicId, addMediaAsset, recordOutbound } from '../../src/db/repo.js';
+import { createAgent, getConversationById, addActivePackIds, setLastTopicId, addMediaAsset, recordOutbound, clearChat } from '../../src/db/repo.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
@@ -166,6 +166,27 @@ test('the service filter follows the most recently discussed service, not the fi
   const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
   const conv = res.json().conversations.find((c) => c.id === id);
   assert.equal(conv.topic_name, 'Scientific Logo Design', 'the most recent service wins, not the first one discussed');
+  await app.close();
+});
+
+test('clearing a chat resets its list preview instead of still showing the wiped message', async () => {
+  const id = await makeConversation();
+
+  let app = await buildApp(new FakeMeta());
+  let token = await tokenFor(app);
+  let res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
+  let conv = res.json().conversations.find((c) => c.id === id);
+  assert.ok(conv.last_message, 'sanity check: the preview shows a real last message before clearing');
+  await app.close();
+
+  await clearChat(pool, id);
+
+  app = await buildApp(new FakeMeta());
+  token = await tokenFor(app);
+  res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
+  conv = res.json().conversations.find((c) => c.id === id);
+  assert.equal(conv.last_message, null, 'the cleared message must not still surface in the list preview');
+  assert.equal(conv.last_message_type, null);
   await app.close();
 });
 

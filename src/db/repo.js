@@ -439,9 +439,12 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
      left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
      left join lateral (
        -- A reaction is not really "the last message" in any conversational
-       -- sense - excluded so it can never hijack the list preview.
+       -- sense - excluded so it can never hijack the list preview. Also
+       -- respects cleared_at so a cleared chat's preview goes back to "No
+       -- messages yet" instead of still showing what was just wiped.
        select body, type, sent_at, created_at from messages
        where conversation_id = c.id and type <> 'reaction'
+         and created_at > coalesce(c.cleared_at, '1970-01-01')
        order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
      where c.deleted_at is null and (
