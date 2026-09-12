@@ -5,7 +5,7 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, getConversationById, addActivePackIds } from '../../src/db/repo.js';
+import { createAgent, getConversationById, addActivePackIds, setLastTopicId, addMediaAsset, recordOutbound } from '../../src/db/repo.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
@@ -137,6 +137,7 @@ test('an organic conversation surfaces the service the ai pulled in, for the con
   const id = await makeConversation();
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   await addActivePackIds(pool, id, [topic.id]);
+  await setLastTopicId(pool, id, topic.id);
 
   const app = await buildApp(new FakeMeta());
   const token = await tokenFor(app);
@@ -144,6 +145,45 @@ test('an organic conversation surfaces the service the ai pulled in, for the con
   const conv = res.json().conversations.find((c) => c.id === id);
   assert.equal(Number(conv.topic_id), Number(topic.id), 'no campaign involved, but the ai\'s own pack pick is still surfaced');
   assert.equal(conv.topic_name, 'Logo Design');
+  await app.close();
+});
+
+test('the service filter follows the most recently discussed service, not the first one ever mentioned', async () => {
+  const id = await makeConversation();
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  const sciLogo = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design' });
+
+  // The chat started general, touched Logo Design first, then moved on to
+  // Scientific Logo Design - active_pack_ids now holds both, but the filter
+  // should reflect the one the lead is actually talking about right now.
+  await addActivePackIds(pool, id, [logo.id]);
+  await setLastTopicId(pool, id, logo.id);
+  await addActivePackIds(pool, id, [sciLogo.id]);
+  await setLastTopicId(pool, id, sciLogo.id);
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
+  const conv = res.json().conversations.find((c) => c.id === id);
+  assert.equal(conv.topic_name, 'Scientific Logo Design', 'the most recent service wins, not the first one discussed');
+  await app.close();
+});
+
+test('a file the bot sent from the media library can still be downloaded', async () => {
+  const id = await makeConversation();
+  const assetId = await addMediaAsset(pool, {
+    metaMediaId: 'lib-media-1', filename: 'portfolio.pdf', mimeType: 'application/pdf', kind: 'document',
+  });
+  await recordOutbound(pool, {
+    conversationId: id, waMessageId: `wamid.${Math.random()}`, type: 'document',
+    body: '[document] portfolio.pdf', mediaAssetId: assetId,
+  });
+  const msgId = (await pool.query("select id from messages where media_asset_id = $1", [assetId])).rows[0].id;
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({ method: 'GET', url: `/api/messages/${msgId}/media`, headers: { authorization: `Bearer ${token}` } });
+  assert.equal(res.statusCode, 200, 'a bot-sent file must resolve through the media library, not just raw inbound payloads');
   await app.close();
 });
 

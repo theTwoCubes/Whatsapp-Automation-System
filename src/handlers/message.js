@@ -8,6 +8,8 @@ import {
   getConversationState,
   getActivePackIds,
   addActivePackIds,
+  setLastTopicId,
+  setReplyLanguage,
   getMediaAsset,
   wasMediaSentRecently,
   markInboundRead,
@@ -304,6 +306,7 @@ async function respondToLead(deps, conversationId, items) {
     if (decision?.requestedPackIds?.length) {
       log.info({ conversationId, packs: decision.requestedPackIds }, 'ai requested more packs');
       await addActivePackIds(pool, conversationId, decision.requestedPackIds);
+      await setLastTopicId(pool, conversationId, decision.requestedPackIds[decision.requestedPackIds.length - 1]);
       decision = await buildReply(pool, ai, settings, conversationId, {
         packs: [...packs, ...decision.requestedPackIds],
         faqBudgetTokens: config.faqBudgetTokens,
@@ -322,6 +325,13 @@ async function respondToLead(deps, conversationId, items) {
       reason: 'AI service unavailable',
       reply: settings.fallbackMessage,
     };
+  }
+
+  // Carried into the next reply's prompt as a running anchor for which
+  // language the conversation is in, so the model has a memory of it instead
+  // of re-guessing from a limited history window every single turn.
+  if (decision?.replyLanguage) {
+    await setReplyLanguage(pool, conversationId, decision.replyLanguage);
   }
 
   // The AI decided this needs a person.
@@ -405,7 +415,10 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
   const excluded = [...seen];
   const keyword = await keywordPacks(pool, text, excluded);
   for (const id of keyword) add(id);
-  if (keyword.length > 0) await addActivePackIds(pool, conversationId, keyword);
+  if (keyword.length > 0) {
+    await addActivePackIds(pool, conversationId, keyword);
+    await setLastTopicId(pool, conversationId, keyword[keyword.length - 1]);
+  }
 
   return packs;
 }

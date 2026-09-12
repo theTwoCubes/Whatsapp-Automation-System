@@ -114,6 +114,23 @@ function mediaKindLabel(type) {
   return map[type] || 'File';
 }
 
+// The conversation list preview - c.last_message is the real body when there
+// is one (text, or the readable stand-in the backend fills in for things
+// like a location or a tapped button); a true media message has no body of
+// its own, so this falls back to a type label the same way WhatsApp's own
+// chat list shows "Photo" instead of leaving the line blank. A type this
+// does not recognise at all (future WhatsApp message type) reads as
+// "Unidentified media" rather than silently showing nothing.
+const MEDIA_PREVIEW_LABELS = {
+  image: '📷 Photo', document: '📄 Document', video: '🎥 Video',
+  audio: '🎤 Voice message', voice: '🎤 Voice message', sticker: '😀 Sticker',
+};
+function lastMessagePreview(c) {
+  if (c.last_message) return c.last_message;
+  if (!c.last_message_type) return 'No messages yet';
+  return MEDIA_PREVIEW_LABELS[c.last_message_type] || 'Unidentified media';
+}
+
 function mediaKindIcon(type, size = 22) {
   if (type === 'image' || type === 'sticker') return <ImageIcon size={size} className="text-white" />;
   if (type === 'video') return <Film size={size} className="text-white" />;
@@ -957,7 +974,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className={`text-sm md:text-base truncate ${c.unread_count > 0 ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
-            {c.last_message || 'No messages yet'}
+            {lastMessagePreview(c)}
           </span>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {c.state === 'human' && (

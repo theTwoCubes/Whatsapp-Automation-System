@@ -294,6 +294,39 @@ test('contact details set on the console are offered to the model, and skipped w
   assert.doesNotMatch(blankSystem, /Contact details/, 'no facts on file means no section, rather than an empty one telling the model to invent something');
 });
 
+test('reply_language is in the contract and the model gets told it has not settled on one yet, on a fresh chat', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /reply_language/);
+  assert.match(system, /Language:/);
+  const leadSystem = ai.lastMessages[1].content;
+  assert.match(leadSystem, /not settled on a language/i);
+});
+
+test('the model is shown the language it has been using so far, once one is set', async () => {
+  const id = await conversation();
+  await pool.query('update conversations set reply_language = $2 where id = $1', [id, 'Gujarati']);
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const leadSystem = ai.lastMessages[1].content;
+  assert.match(leadSystem, /replying in Gujarati/);
+});
+
+test('the language the model chose comes back on the decision, trimmed and length capped', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Kem cho!', reply_language: '  Gujarati  ' }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.replyLanguage, 'Gujarati');
+
+  const id2 = await conversation('hi');
+  const longLang = 'x'.repeat(200);
+  const ai2 = new SpyAi(JSON.stringify({ action: 'answer', reply: 'hi', reply_language: longLang }));
+  const decision2 = await buildReply(pool, ai2, testConfig, id2, {});
+  assert.equal(decision2.replyLanguage.length, 40, 'an implausibly long value is capped rather than stored as-is');
+});
+
 test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });

@@ -306,3 +306,12 @@ test('a location share still hands off to a person, with a readable body instead
   const stored = await pool.query("select body from messages where type = 'location'");
   assert.equal(stored.rows[0].body, 'Location shared: Ahmedabad');
 });
+
+test('the language the ai chose is persisted and carried into its next reply', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Kem cho!', reply_language: 'Gujarati' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.LANG1', body: 'Gujarati ma vaat karo' }), d);
+
+  const conv = await pool.query('select reply_language from conversations limit 1');
+  assert.equal(conv.rows[0].reply_language, 'Gujarati');
+});

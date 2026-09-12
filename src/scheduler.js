@@ -1,6 +1,6 @@
 import {
   claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
-  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked,
+  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -127,6 +127,10 @@ export async function runAutoResume(deps) {
         });
       } catch {
         // fall back below
+      }
+
+      if (decision?.replyLanguage) {
+        await setReplyLanguage(pool, row.id, decision.replyLanguage);
       }
 
       // Mirrors respondToLead in handlers/message.js - the model's decision

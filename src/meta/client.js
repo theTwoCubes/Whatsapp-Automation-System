@@ -2,23 +2,27 @@
 // here so a token change or version bump only touches one file.
 
 export class MetaApiError extends Error {
-  constructor(message, code, status) {
+  constructor(message, code, status, timedOut = false) {
     super(message);
     this.name = 'MetaApiError';
     this.code = code;
     // The HTTP status Meta responded with, when there was a response at all -
-    // undefined means the request never got one (network error, timeout),
-    // which is treated the same as a 5xx: worth retrying, unlike a 4xx which
-    // will just fail the same way again.
+    // undefined means the request never got one (network error, timeout).
     this.status = status;
+    // A timeout specifically means we gave up waiting, not that Meta never
+    // received the request - it may well have gone through and be sitting on
+    // a lead's phone right now. Retrying it risks sending the same message
+    // twice, which is worse than the occasional dropped reply a real
+    // pre-flight connection failure would cause, so this is never retried.
+    this.timedOut = timedOut;
   }
 }
 
-// A network error or a 5xx is transient and worth one or two retries - a
-// send that never even reached Meta, or that Meta itself failed on its side,
-// is safe to retry. A 4xx (bad template name, invalid parameter, outside the
-// window) is deterministic and retrying it would just fail the same way
-// three times instead of once, so those are not retried.
+// A pre-flight connection failure (DNS, refused connection - never even
+// reached Meta) or a clean 5xx response (Meta itself explicitly failed) is
+// safe to retry. A timeout is not - see MetaApiError.timedOut. A 4xx (bad
+// template name, invalid parameter, outside the window) is deterministic and
+// retrying it would just fail the same way three times instead of once.
 const RETRY_DELAYS_MS = [300, 900];
 
 async function withRetry(log, label, fn) {
@@ -28,7 +32,9 @@ async function withRetry(log, label, fn) {
       return await fn();
     } catch (err) {
       lastErr = err;
-      const retryable = !(err instanceof MetaApiError) || err.status === undefined || err.status >= 500;
+      const retryable = !(err instanceof MetaApiError)
+        ? true
+        : !err.timedOut && (err.status === undefined || err.status >= 500);
       if (!retryable || attempt === RETRY_DELAYS_MS.length) throw err;
       log?.warn({ label, attempt: attempt + 1, err: err.message }, 'meta api call failed, retrying');
       await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
@@ -273,8 +279,13 @@ export class MetaClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
-      this.log.error({ to, err }, 'send request failed before a response');
-      throw new MetaApiError(err.message);
+      // Node's AbortSignal.timeout() throws a DOMException named
+      // 'TimeoutError' (or 'AbortError' on older runtimes) - anything else
+      // here is a genuine pre-flight failure (DNS, connection refused) that
+      // never left the client.
+      const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError';
+      this.log.error({ to, err, timedOut }, 'send request failed before a response');
+      throw new MetaApiError(err.message, undefined, undefined, timedOut);
     }
 
     const data = await res.json();

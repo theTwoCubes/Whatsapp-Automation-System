@@ -228,6 +228,15 @@ export async function addActivePackIds(pool, conversationId, ids) {
   );
 }
 
+// Overwritten, never merged - unlike active_pack_ids (a deduplicated,
+// id-sorted set with no notion of order), this always reflects whichever
+// service the conversation most recently engaged, for the console's service
+// filter. Left alone for a campaign-linked lead, whose service comes from
+// the campaign itself and is not meant to change.
+export async function setLastTopicId(pool, conversationId, topicId) {
+  await pool.query('update conversations set last_topic_id = $2 where id = $1', [conversationId, topicId]);
+}
+
 export async function updateStatus(pool, s) {
   await pool.query(
     `update messages set status = $2 
@@ -260,7 +269,7 @@ export async function getConversationHistory(pool, conversationId, limit = 12) {
 // campaign's topic), and how many messages they have sent so far.
 export async function getConversationContext(pool, conversationId) {
   const res = await pool.query(
-    `select ct.name as contact_name, c.created_at,
+    `select ct.name as contact_name, c.created_at, c.reply_language,
             t.name as topic_name,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
              and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
@@ -272,6 +281,13 @@ export async function getConversationContext(pool, conversationId) {
     [conversationId],
   );
   return res.rows[0] ?? null;
+}
+
+// Overwritten every reply so the AI's next turn has a running anchor for
+// which language it was using, instead of re-guessing from scratch within a
+// limited history window each time.
+export async function setReplyLanguage(pool, conversationId, language) {
+  await pool.query('update conversations set reply_language = $2 where id = $1', [conversationId, language]);
 }
 
 // Cancels any pending follow ups for a conversation and schedules a fresh set
@@ -406,21 +422,27 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at,
             ct.wa_id, ct.name, ca.headline as campaign,
-            m.body as last_message, coalesce(m.sent_at, m.created_at) as last_at,
+            m.body as last_message, m.type as last_message_type,
+            coalesce(m.sent_at, m.created_at) as last_at,
             (select count(*) from messages um where um.conversation_id = c.id and um.direction = 'inbound' and um.created_at > coalesce(c.last_read_at, '1970-01-01'))::int as unread_count,
             -- The service this conversation is about, for the console's service
-            -- filter. An ad-click lead's campaign topic wins when there is one;
-            -- otherwise it's the first service pack the AI itself pulled in -
-            -- that covers organic leads too, which never get a campaign at all.
-            coalesce(ca.topic_id, c.active_pack_ids[1]) as topic_id,
+            -- filter. An ad-click lead's campaign topic wins when there is one
+            -- and never changes; otherwise it's whichever service the AI most
+            -- recently engaged (last_topic_id is overwritten, not merged, so
+            -- this reflects what the conversation is about right now rather
+            -- than an arbitrary member of the full set it has ever touched).
+            coalesce(ca.topic_id, c.last_topic_id) as topic_id,
             t.name as topic_name
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
-     left join topics t on t.id = coalesce(ca.topic_id, c.active_pack_ids[1])
+     left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
      left join lateral (
-       select body, sent_at, created_at from messages
-       where conversation_id = c.id order by coalesce(sent_at, created_at) desc, id desc limit 1
+       -- A reaction is not really "the last message" in any conversational
+       -- sense - excluded so it can never hijack the list preview.
+       select body, type, sent_at, created_at from messages
+       where conversation_id = c.id and type <> 'reaction'
+       order by coalesce(sent_at, created_at) desc, id desc limit 1
      ) m on true
      where c.deleted_at is null and (
           ($1::boolean and c.archived_at is not null)
@@ -830,8 +852,20 @@ export async function wasMediaSentRecently(pool, conversationId, mediaAssetId, m
   return res.rows[0].sent;
 }
 
+// raw only ever holds a lead's own inbound webhook payload - a file the bot
+// sent from the media library has no raw at all, its media lives in
+// media_assets instead. Joined in here so the download route has one place
+// to look regardless of which direction the file came from.
 export async function getMessageRaw(pool, id) {
-  return (await pool.query('select id, type, raw from messages where id = $1', [id])).rows[0] ?? null;
+  return (
+    await pool.query(
+      `select m.id, m.type, m.raw, ma.meta_media_id as asset_meta_media_id
+       from messages m
+       left join media_assets ma on ma.id = m.media_asset_id
+       where m.id = $1`,
+      [id],
+    )
+  ).rows[0] ?? null;
 }
 
 export async function getMediaAsset(pool, id) {

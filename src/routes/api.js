@@ -750,7 +750,10 @@ export function registerApi(app, deps) {
   // Streams media a lead sent, so the console can show it.
   app.get('/api/messages/:id/media', { preHandler: auth, schema: idParams }, async (req, reply) => {
     const message = await getMessageRaw(pool, req.params.id);
-    const mediaId = mediaIdFromRaw(message?.raw);
+    // A lead's inbound file carries a raw webhook payload to pull the media
+    // id from; a file the bot sent from the media library never had one -
+    // its media id lives on the library asset instead.
+    const mediaId = mediaIdFromRaw(message?.raw) || message?.asset_meta_media_id;
     if (!mediaId) return reply.code(404).send({ error: 'no media on this message' });
     try {
       const url = await meta.getMediaUrl(mediaId);
