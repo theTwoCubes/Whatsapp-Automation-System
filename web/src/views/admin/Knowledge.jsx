@@ -1001,7 +1001,6 @@ export default function Knowledge() {
   const [addTopicOpen, setAddTopicOpen] = useState(false);
   const [search, setSearch]         = useState('');
   const [simOpen, setSimOpen]       = useState(false);
-  const [learning, setLearning]     = useState(false);
   const [tab, setTab]               = useState('answers');
   const [topics, setTopics]         = useState([]);
   const toast = useToast();
@@ -1015,32 +1014,6 @@ export default function Knowledge() {
   }, []);
 
   useEffect(() => { reloadPacks(); }, [reloadPacks, reloadKey]);
-
-  const runLearning = async () => {
-    setLearning(true);
-    try {
-      const res   = await api.runRefinement();
-      const gaps  = res.gaps?.proposed || 0;
-      const contras = res.contradictions?.proposed || 0;
-      const parts = [];
-      if (gaps)   parts.push(`${gaps} gap${gaps !== 1 ? 's' : ''}`);
-      if (contras) parts.push(`${contras} conflict${contras !== 1 ? 's' : ''}`);
-      toast.success(parts.length ? `Found ${parts.join(' and ')} — review them above.` : 'Nothing new to flag this time.');
-      setReloadKey((k) => k + 1);
-    } catch (e) { toast.error(e.message); }
-    finally { setLearning(false); }
-  };
-
-  const doExport = async () => {
-    try {
-      const data = await api.exportFaqs();
-      const jsonStr = JSON.stringify(data, null, 2);
-      const result = await downloadTextFile(`answers-${new Date().toISOString().slice(0, 10)}.json`, jsonStr, 'application/json');
-      if (result === 'clipboard') toast.success('Copied to clipboard (share not available)');
-    } catch (e) {
-      toast.error('Export failed: ' + e.message);
-    }
-  };
 
   const createTopic = async (name, slug, description, keywords) => {
     const res = await api.addTopic({
@@ -1061,15 +1034,9 @@ export default function Knowledge() {
       title="Knowledge Base"
       subtitle="The common pack is used in every chat. Service packs kick in when a lead came through a campaign or mentions matching keywords."
       actions={
-        <>
-          <Button variant="ghost" size="sm" onClick={doExport}>Export</Button>
-          <Button variant="secondary" size="sm" onClick={runLearning} disabled={learning}>
-            {learning ? 'Scanning…' : 'Find gaps & conflicts'}
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setSimOpen(true)}>
-            <FlaskConical size={14} /> Test AI
-          </Button>
-        </>
+        <Button variant="primary" size="sm" onClick={() => setSimOpen(true)}>
+          <FlaskConical size={14} /> Test AI
+        </Button>
       }
     >
       {/* Proposals */}

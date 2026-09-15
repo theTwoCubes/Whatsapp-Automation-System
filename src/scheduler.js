@@ -1,7 +1,7 @@
 import {
   claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
   getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage,
-  setLeadProfile, markIntroduced,
+  setLeadProfile, markIntroduced, reconcileContactWaId,
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
@@ -53,7 +53,7 @@ export async function runDueDrips(deps) {
     let delivered = false;
     try {
       const components = buildDripComponents(job, log);
-      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage, components);
+      const { wamid, waId } = await meta.sendTemplate(job.wa_id, job.template_name, settings.dripLanguage, components);
       delivered = true;
       await markDrip(pool, job.id, 'sent');
       if (wamid) {
@@ -63,6 +63,7 @@ export async function runDueDrips(deps) {
           type: 'template',
           body: `[template] ${job.template_name}`,
         });
+        await reconcileContactWaId(pool, job.conversation_id, waId);
       }
       log.info({ jobId: job.id, step: job.step, to: job.wa_id }, 'drip template sent');
     } catch (err) {
@@ -106,7 +107,7 @@ export async function runBulkSend(deps) {
       });
       const templateRow = await pool.query('select language from templates where name = $1 limit 1', [job.template_name]);
       const language = templateRow.rows[0]?.language || config.dripLanguage;
-      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, language);
+      const { wamid, waId } = await meta.sendTemplate(job.wa_id, job.template_name, language);
       delivered = true;
       await markBulkSendJob(pool, job.id, 'sent', { conversationId });
       if (wamid) {
@@ -116,6 +117,12 @@ export async function runBulkSend(deps) {
           type: 'template',
           body: `[template] ${job.template_name}`,
         });
+        // The number this lead was queued under may not be the wa_id Meta
+        // actually uses for them (see reconcileContactWaId) - fixed up here,
+        // right after the very first message this brand new contact ever
+        // gets, before the lead has had any chance to reply under the
+        // canonical id and end up as a second, separate contact.
+        await reconcileContactWaId(pool, conversationId, waId);
       }
       log.info({ jobId: job.id, to: job.wa_id }, 'bulk send template sent');
     } catch (err) {
@@ -208,8 +215,11 @@ export async function runAutoResume(deps) {
         await recordHandoff(pool, { conversationId: row.id, source: 'ai', reason, reasonCategory, topicId: row.topic_id ?? null });
         await cancelDrips(pool, row.id);
         log.info({ conversationId: row.id, reason, reasonCategory }, 'auto resume: ai queued conversation for a human');
-        const wamid = await meta.sendText(row.wa_id, decision.reply || settings.handoffMessage);
-        if (wamid) await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: decision.reply || settings.handoffMessage });
+        const { wamid, waId } = await meta.sendText(row.wa_id, decision.reply || settings.handoffMessage);
+        if (wamid) {
+          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: decision.reply || settings.handoffMessage });
+          await reconcileContactWaId(pool, row.id, waId);
+        }
         await pushHandoff(pool, row.id, reason, log);
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
         continue;
@@ -217,8 +227,11 @@ export async function runAutoResume(deps) {
 
       if (decision?.block) {
         const reply = decision.reply || 'This conversation has been closed.';
-        const wamid = await meta.sendText(row.wa_id, reply);
-        if (wamid) await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+        const { wamid, waId } = await meta.sendText(row.wa_id, reply);
+        if (wamid) {
+          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+          await reconcileContactWaId(pool, row.id, waId);
+        }
         await setConversationBlocked(pool, row.id, true);
         await cancelDrips(pool, row.id);
         log.info({ conversationId: row.id, reason: decision.reason }, 'auto resume: ai blocked conversation');
@@ -234,9 +247,10 @@ export async function runAutoResume(deps) {
       if (!decision?.reply && decision?.reactEmoji) continue;
 
       const reply = decision?.reply || settings.fallbackMessage;
-      const wamid = await meta.sendText(row.wa_id, reply);
+      const { wamid, waId } = await meta.sendText(row.wa_id, reply);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+        await reconcileContactWaId(pool, row.id, waId);
         if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
       }

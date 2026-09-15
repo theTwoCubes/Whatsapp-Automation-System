@@ -298,6 +298,51 @@ test('the conversation detail reports whether the 24 hour window is open', async
   await app.close();
 });
 
+test('the conversation detail surfaces the topic and campaign it came in through, and the contact\'s email/business', async () => {
+  const id = await makeConversation();
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await setLastTopicId(pool, id, topic.id);
+  await pool.query('update contacts set email = $2, business = $3 where id = (select contact_id from conversations where id = $1)', [id, 'lead@example.com', 'Acme Co']);
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({ method: 'GET', url: `/api/conversations/${id}`, headers: { authorization: `Bearer ${token}` } });
+  const conv = res.json().conversation;
+  assert.equal(conv.topic_name, 'Logo Design', 'the side panel\'s Source section needs this to ever render');
+  assert.equal(conv.email, 'lead@example.com');
+  assert.equal(conv.business, 'Acme Co');
+  await app.close();
+});
+
+test('PUT /api/conversations/:id/contact saves lead details, and clearing a field with an empty string actually clears it', async () => {
+  const id = await makeConversation();
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const h = { authorization: `Bearer ${token}` };
+
+  const save = await app.inject({
+    method: 'PUT', url: `/api/conversations/${id}/contact`, headers: h,
+    payload: { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes' },
+  });
+  assert.equal(save.statusCode, 200);
+  assert.deepEqual(save.json().contact, { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes' });
+
+  // Only touching one field must not wipe the others.
+  const partial = await app.inject({
+    method: 'PUT', url: `/api/conversations/${id}/contact`, headers: h,
+    payload: { business: 'Priya Bakes & Co' },
+  });
+  assert.equal(partial.json().contact.name, 'Priya', 'untouched fields survive a partial update');
+  assert.equal(partial.json().contact.business, 'Priya Bakes & Co');
+
+  const cleared = await app.inject({
+    method: 'PUT', url: `/api/conversations/${id}/contact`, headers: h,
+    payload: { email: '' },
+  });
+  assert.equal(cleared.json().contact.email, '', 'an explicit empty string clears the field rather than being ignored');
+  await app.close();
+});
+
 test('a freeform reply is blocked once the window has closed', async () => {
   const id = await makeConversation();
   await pool.query("update conversations set window_expires_at = now() - interval '1 hour' where id = $1", [id]);

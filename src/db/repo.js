@@ -688,13 +688,59 @@ export async function purgeDeletedConversations(pool, olderThanDays = 30) {
   }
 }
 
+// Lets an agent correct or fill in what we know about a lead from the chat's
+// side panel. wa_id is deliberately not editable here - it is the identity
+// key everything else (messages, drips, the export) hangs off, so changing it
+// belongs to reconcileContactWaId's careful merge-avoidance logic, not a
+// free-text edit.
+export async function updateContactDetails(pool, conversationId, { name, email, business } = {}) {
+  const res = await pool.query(
+    `update contacts set
+       name = coalesce($2, name),
+       email = coalesce($3, email),
+       business = coalesce($4, business),
+       last_seen_at = now()
+     where id = (select contact_id from conversations where id = $1)
+     returning name, email, business`,
+    [conversationId, name, email, business],
+  );
+  return res.rows[0] ?? null;
+}
+
+// Meta's Cloud API can normalise the number we dial to a different wa_id for
+// a handful of countries (a leading trunk/national digit gets stripped or
+// added) - that normalised id is what shows up as "from" on every message
+// this lead sends back. Left unreconciled, a number we message first (via
+// Compose or a bulk send) and that same lead's later reply end up as two
+// separate contacts and conversations. This is safe to call after every send:
+// a no-op when the id already matches, and a no-op (not an error) rather than
+// a unique-constraint crash on the rare chance the canonical id already
+// belongs to a different contact - that case needs a human to merge them by
+// hand, not an automatic rewrite that could attach one lead's history to
+// another's.
+export async function reconcileContactWaId(pool, conversationId, canonicalWaId) {
+  if (!canonicalWaId) return;
+  await pool.query(
+    `update contacts set wa_id = $2, last_seen_at = now()
+     where id = (select contact_id from conversations where id = $1)
+       and wa_id <> $2
+       and not exists (select 1 from contacts other where other.wa_id = $2)`,
+    [conversationId, canonicalWaId],
+  );
+}
+
 export async function getConversationById(pool, id) {
   await pool.query('update conversations set last_read_at = now() where id = $1', [id]);
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.deleted_at,
-            ct.wa_id, ct.name
-     from conversations c join contacts ct on ct.id = c.contact_id
+            c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business,
+            coalesce(ca.topic_id, c.last_topic_id) as topic_id,
+            t.name as topic_name
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
      where c.id = $1`,
     [id],
   );

@@ -18,8 +18,15 @@ afterEach(() => {
   global.fetch = originalFetch;
 });
 
-function okResponse(id = 'wamid.OK1') {
-  return { ok: true, status: 200, json: async () => ({ messages: [{ id }] }) };
+function okResponse(id = 'wamid.OK1', waId) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      messages: [{ id }],
+      ...(waId ? { contacts: [{ input: 'whatever-was-dialled', wa_id: waId }] } : {}),
+    }),
+  };
 }
 
 function timeoutError() {
@@ -46,7 +53,7 @@ test('a pre-flight connection failure is retried and can still succeed', async (
   };
   const meta = new MetaClient(config, silentLog);
 
-  const wamid = await meta.sendText('919000000000', 'hi');
+  const { wamid } = await meta.sendText('919000000000', 'hi');
   assert.equal(wamid, 'wamid.OK1');
   assert.equal(calls, 2, 'a connection failure that never reached Meta is safe to retry');
 });
@@ -60,7 +67,7 @@ test('a clean 5xx response is retried and can still succeed', async () => {
   };
   const meta = new MetaClient(config, silentLog);
 
-  const wamid = await meta.sendText('919000000000', 'hi');
+  const { wamid } = await meta.sendText('919000000000', 'hi');
   assert.equal(wamid, 'wamid.OK1');
   assert.equal(calls, 2);
 });
@@ -75,6 +82,23 @@ test('a 4xx response is never retried - it would just fail the same way again', 
 
   await assert.rejects(() => meta.sendText('919000000000', 'hi'));
   assert.equal(calls, 1);
+});
+
+test('the wa_id Meta reports for the recipient is returned alongside the wamid', async () => {
+  global.fetch = async () => okResponse('wamid.OK1', '9000000000'); // Meta dropped the '91' for this one
+  const meta = new MetaClient(config, silentLog);
+
+  const { wamid, waId } = await meta.sendText('919000000000', 'hi');
+  assert.equal(wamid, 'wamid.OK1');
+  assert.equal(waId, '9000000000', 'the normalised id Meta actually uses for this lead, not what we dialled');
+});
+
+test('when Meta does not echo a contacts array, the dialled number is used as the wa_id', async () => {
+  global.fetch = async () => okResponse('wamid.OK1'); // no waId passed, no contacts array in the response
+  const meta = new MetaClient(config, silentLog);
+
+  const { waId } = await meta.sendText('919000000000', 'hi');
+  assert.equal(waId, '919000000000');
 });
 
 test('a 2xx with no message id is treated as a failure and is not retried', async () => {

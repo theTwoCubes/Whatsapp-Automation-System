@@ -305,7 +305,14 @@ export class MetaClient {
       this.log.error({ to, data }, 'Cloud API returned success with no message id');
       throw new MetaApiError('Cloud API returned no message id for a successful send', undefined, res.status);
     }
-    this.log.info({ to, wamid, type: content.type }, 'message delivered to Cloud API');
-    return wamid;
+    // Meta's own normalised id for this recipient - for a handful of
+    // countries this can differ from the digits we dialled (e.g. a leading
+    // trunk/national-format digit gets stripped). It is what shows up as
+    // "from" on every message this lead sends back, so callers reconcile it
+    // into the contact record - otherwise a number we messaged first and the
+    // same lead's later reply can end up as two different contacts.
+    const waId = data.contacts?.[0]?.wa_id || to;
+    this.log.info({ to, wamid, waId, type: content.type }, 'message delivered to Cloud API');
+    return { wamid, waId };
   }
 }

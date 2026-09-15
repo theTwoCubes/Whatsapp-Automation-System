@@ -72,9 +72,26 @@ export const api = {
   deleteConversation: (id) => req(`/conversations/${id}`, { method: 'DELETE' }),
   clearChat: (id) => req(`/conversations/${id}/clear`, { method: 'POST' }),
   conversation: (id) => req(`/conversations/${id}`),
-  composeConversation: (waId, name) => req('/conversations/compose', { method: 'POST', body: JSON.stringify({ waId, name }) }),
-  bulkSend: (text, templateName, topicId) =>
-    req('/bulk-send', { method: 'POST', body: JSON.stringify({ text, templateName, topicId }) }),
+  updateContact: (id, fields) => req(`/conversations/${id}/contact`, { method: 'PUT', body: JSON.stringify(fields) }),
+  bulkSend: async (file, templateName, topicId) => {
+    const token = getToken();
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('templateName', templateName);
+    if (topicId) fd.append('topicId', String(topicId));
+    const res = await fetch('/api/bulk-send', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (res.status === 401) {
+      clearToken();
+      throw new Error('unauthorized');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'bulk send failed');
+    return data;
+  },
   bulkSendBatches: () => req('/bulk-send/batches'),
   bulkSendProgress: (batchId) => req(`/bulk-send/${batchId}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
@@ -99,7 +116,6 @@ export const api = {
   saveProfile: (body) => req('/profile', { method: 'PUT', body: JSON.stringify(body) }),
   importFaqs: (text, topicId = null) =>
     req('/faqs/import', { method: 'POST', body: JSON.stringify({ text, topicId }) }),
-  runRefinement: () => req('/faqs/refine', { method: 'POST' }),
   proposals: (status = 'open') => req(`/faqs/proposals?status=${encodeURIComponent(status)}`),
   approveProposal: (id, body) =>
     req(`/faqs/proposals/${id}/approve`, { method: 'POST', body: JSON.stringify(body) }),
@@ -115,7 +131,6 @@ export const api = {
   searchFaqs: (q) => req(`/faqs/search?q=${encodeURIComponent(q)}`),
   bulkFaqs: (ids, action) => req('/faqs/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) }),
   simulate: (body) => req('/faqs/simulate', { method: 'POST', body: JSON.stringify(body) }),
-  exportFaqs: () => req('/faqs/export'),
   topics: () => req('/topics'),
   addTopic: (body) => req('/topics', { method: 'POST', body: JSON.stringify(body) }),
   updateTopic: (id, body) => req(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

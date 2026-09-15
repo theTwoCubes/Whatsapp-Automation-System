@@ -63,12 +63,14 @@ import {
   getMessageRaw,
   opsStats,
   listContactsForExport,
+  reconcileContactWaId,
+  updateContactDetails,
   queueBulkSend,
   bulkSendBatchProgress,
   listRecentBulkSendBatches,
 } from '../db/repo.js';
 import ExcelJS from 'exceljs';
-import { parseLeadsText } from '../leads/parseLeads.js';
+import { parseLeadsXlsx } from '../leads/parseLeadsXlsx.js';
 import { getStats as getTelemetryStats } from '../ai/telemetry.js';
 
 // Pulls the media id out of an inbound message payload.
@@ -334,25 +336,29 @@ export function registerApi(app, deps) {
   // template, and every recipient is queued as its own job for the scheduler
   // to work through - see runBulkSend in scheduler.js for why this is not
   // sent synchronously from this request.
-  app.post('/api/bulk-send', {
-    preHandler: [auth, writeLimit],
-    schema: {
-      body: {
-        type: 'object',
-        properties: {
-          text: { type: 'string', minLength: 1 },
-          topicId: {},
-          templateName: { type: 'string', minLength: 1, maxLength: 512 },
-        },
-        required: ['text', 'templateName'],
-        additionalProperties: false,
-      },
-    },
-  }, async (req, reply) => {
-    const { text, templateName } = req.body;
+  app.post('/api/bulk-send', { preHandler: [auth, writeLimit] }, async (req, reply) => {
+    let file = null;
+    let topicIdRaw = null;
+    let templateName = null;
+    try {
+      for await (const part of req.parts()) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          file = await part.toBuffer();
+        } else if (part.fieldname === 'topicId') {
+          topicIdRaw = part.value || null;
+        } else if (part.fieldname === 'templateName') {
+          templateName = part.value || null;
+        }
+      }
+    } catch {
+      // fall through to the missing-file check below
+    }
+    if (!file) return reply.code(400).send({ error: 'an .xlsx file is required' });
+    if (!templateName) return reply.code(400).send({ error: 'a template is required' });
+
     let topicId = null;
-    if (req.body?.topicId != null) {
-      topicId = Number(req.body.topicId);
+    if (topicIdRaw != null) {
+      topicId = Number(topicIdRaw);
       if (!Number.isInteger(topicId)) return reply.code(400).send({ error: 'topicId must be a whole number' });
       const exists = await pool.query('select 1 from topics where id = $1', [topicId]);
       if (exists.rowCount === 0) return reply.code(400).send({ error: 'that service no longer exists' });
@@ -363,9 +369,19 @@ export function registerApi(app, deps) {
       return reply.code(400).send({ error: 'pick an approved template' });
     }
 
-    const { rows, invalid } = parseLeadsText(text);
+    let parsed;
+    try {
+      parsed = await parseLeadsXlsx(file);
+    } catch (err) {
+      return reply.code(400).send({ error: 'could not read that file - make sure it is a .xlsx spreadsheet' });
+    }
+    if (parsed.error) return reply.code(400).send({ error: parsed.error });
+    const { rows, invalid, truncated } = parsed;
+    if (truncated) {
+      return reply.code(400).send({ error: `that file has far more rows than we scan in one go - split it into files of up to ${MAX_BULK_SEND_ROWS} leads` });
+    }
     if (rows.length === 0) {
-      return reply.code(400).send({ error: 'no valid phone numbers found in the pasted list' });
+      return reply.code(400).send({ error: 'no valid mobile numbers found in the file' });
     }
     if (rows.length > MAX_BULK_SEND_ROWS) {
       return reply.code(400).send({ error: `too many leads in one go - up to ${MAX_BULK_SEND_ROWS} at a time` });
@@ -470,6 +486,38 @@ export function registerApi(app, deps) {
     };
   });
 
+  // Lets an agent correct or fill in the lead's details from the chat side
+  // panel - saved straight to the contact, so it shows up in the Excel
+  // export and is never asked for twice. wa_id is not editable here; see
+  // reconcileContactWaId for why that one is handled separately.
+  app.put('/api/conversations/:id/contact', {
+    preHandler: [auth, writeLimit],
+    schema: {
+      ...idParams,
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: 120 },
+          email: { type: 'string', maxLength: 254 },
+          business: { type: 'string', maxLength: 120 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    const fields = {
+      name: 'name' in req.body ? req.body.name.trim() : null,
+      email: 'email' in req.body ? req.body.email.trim() : null,
+      business: 'business' in req.body ? req.body.business.trim() : null,
+    };
+    const contact = await updateContactDetails(pool, req.params.id, fields);
+    await audit(req, 'lead details updated', `conversation ${req.params.id}`, Object.keys(req.body).join(', '));
+    realtime.emit({ type: 'refresh', conversationId: conversation.id });
+    return { contact };
+  });
+
   // Older page for infinite scroll-up. before is the oldest message id the
   // client already holds.
   app.get('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req) => {
@@ -515,7 +563,7 @@ export function registerApi(app, deps) {
 
     const replyTo = typeof req.body?.replyTo === 'string' ? req.body.replyTo : null;
     try {
-      const wamid = await meta.sendText(conversation.wa_id, body, replyTo ? { replyTo } : {});
+      const { wamid, waId } = await meta.sendText(conversation.wa_id, body, replyTo ? { replyTo } : {});
       if (wamid) {
         await recordOutbound(pool, {
           conversationId: conversation.id,
@@ -525,6 +573,7 @@ export function registerApi(app, deps) {
           // threaded under the original, same as WhatsApp.
           context: replyTo ? { message_id: replyTo } : null,
         });
+        await reconcileContactWaId(pool, conversation.id, waId);
       }
       await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
@@ -569,7 +618,7 @@ export function registerApi(app, deps) {
     }
 
     try {
-      const sentWamid = await meta.sendReaction(conversation.wa_id, wamid, emoji);
+      const { wamid: sentWamid, waId } = await meta.sendReaction(conversation.wa_id, wamid, emoji);
       if (sentWamid) {
         await recordOutbound(pool, {
           conversationId: conversation.id,
@@ -577,6 +626,7 @@ export function registerApi(app, deps) {
           type: 'reaction',
           reaction: { messageId: wamid, emoji },
         });
+        await reconcileContactWaId(pool, conversation.id, waId);
       }
       realtime.emit({ type: 'refresh', conversationId: conversation.id });
       return { ok: true };
@@ -596,7 +646,7 @@ export function registerApi(app, deps) {
       const language = templateRow.rows[0]?.language || deps.config.dripLanguage;
 
       const components = bodyComponents(req.body?.params);
-      const wamid = await meta.sendTemplate(conversation.wa_id, name, language, components);
+      const { wamid, waId } = await meta.sendTemplate(conversation.wa_id, name, language, components);
       if (wamid) {
         await recordOutbound(pool, {
           conversationId: conversation.id,
@@ -604,6 +654,10 @@ export function registerApi(app, deps) {
           type: 'template',
           body: `[template] ${name}`,
         });
+        // Fixes up a Compose-created contact whose number Meta normalises
+        // differently, before the lead's first reply can arrive under the
+        // canonical id and become a second, separate contact.
+        await reconcileContactWaId(pool, conversation.id, waId);
       }
       await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);
@@ -1266,7 +1320,7 @@ export function registerApi(app, deps) {
 
     try {
       const caption = (req.body?.caption ?? '').trim() || undefined;
-      const wamid = await meta.sendMedia(conversation.wa_id, asset.kind, {
+      const { wamid, waId } = await meta.sendMedia(conversation.wa_id, asset.kind, {
         id: asset.meta_media_id,
         caption,
         filename: asset.filename,
@@ -1279,6 +1333,7 @@ export function registerApi(app, deps) {
           body: caption || `[${asset.kind}] ${asset.filename ?? ''}`.trim(),
           mediaAssetId: asset.id,
         });
+        await reconcileContactWaId(pool, conversation.id, waId);
       }
       await claimConversation(conversation, req.user.email);
       await markAgentReplied(pool, conversation.id);

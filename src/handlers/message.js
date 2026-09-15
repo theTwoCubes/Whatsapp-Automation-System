@@ -12,6 +12,7 @@ import {
   setReplyLanguage,
   setLeadProfile,
   markIntroduced,
+  reconcileContactWaId,
   getMediaAsset,
   wasMediaSentRecently,
   markInboundRead,
@@ -450,7 +451,7 @@ export async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
     const recently = await wasMediaSentRecently(pool, conversationId, asset.id, config.mediaResendCooldownMinutes);
     if (recently) return;
 
-    const wamid = await meta.sendMedia(to, asset.kind, {
+    const { wamid, waId } = await meta.sendMedia(to, asset.kind, {
       id: asset.meta_media_id,
       caption: asset.caption,
       filename: asset.filename,
@@ -463,6 +464,7 @@ export async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
         body: asset.caption || `[${asset.kind}] ${asset.filename ?? ''}`.trim(),
         mediaAssetId: asset.id,
       });
+      await reconcileContactWaId(pool, conversationId, waId);
       realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
@@ -475,7 +477,7 @@ export async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
 export async function maybeSendReaction(deps, conversationId, to, wamid, emoji) {
   const { pool, meta, realtime, log } = deps;
   try {
-    const sentWamid = await meta.sendReaction(to, wamid, emoji);
+    const { wamid: sentWamid, waId } = await meta.sendReaction(to, wamid, emoji);
     if (sentWamid) {
       await recordOutbound(pool, {
         conversationId,
@@ -483,6 +485,7 @@ export async function maybeSendReaction(deps, conversationId, to, wamid, emoji) 
         type: 'reaction',
         reaction: { messageId: wamid, emoji },
       });
+      await reconcileContactWaId(pool, conversationId, waId);
       realtime?.emit({ type: 'refresh', conversationId });
     }
   } catch (err) {
@@ -499,12 +502,13 @@ async function sendAndRecord(deps, to, conversationId, body, { aiMs = null } = {
     }
 
     const metaStart = Date.now();
-    const wamid = await meta.sendText(to, body);
+    const { wamid, waId } = await meta.sendText(to, body);
     const metaMs = Date.now() - metaStart;
     recordMetaLatency(metaMs);
 
     if (wamid) {
       await recordOutbound(pool, { conversationId, waMessageId: wamid, body, aiMs, metaMs });
+      await reconcileContactWaId(pool, conversationId, waId);
       realtime?.emit({ type: 'refresh', conversationId });
     }
     log.info({ conversationId, metaMs }, 'reply sent to meta');

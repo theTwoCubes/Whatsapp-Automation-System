@@ -48,21 +48,25 @@ export async function resetTables(pool) {
   bustFaqCache();
 }
 
-// Records outbound sends instead of calling Meta.
+// Records outbound sends instead of calling Meta. Set canonicalWaId to
+// simulate Meta normalising the dialled number to a different wa_id, the way
+// it does for real for a handful of countries - every send method reports
+// that instead of the number it was given, same as the real client would.
 export class FakeMeta {
   constructor() {
     this.sends = [];
     this.templates = [];
+    this.canonicalWaId = null;
   }
   async sendText(to, body) {
     const wamid = `wamid.OUT${this.sends.length + 1}`;
     this.sends.push({ to, body, wamid });
-    return wamid;
+    return { wamid, waId: this.canonicalWaId || to };
   }
   async sendTemplate(to, name, language, components) {
     const wamid = `wamid.TPL${this.templates.length + 1}`;
     this.templates.push({ to, name, language, components, wamid });
-    return wamid;
+    return { wamid, waId: this.canonicalWaId || to };
   }
   async fetchTemplates() {
     return [
@@ -87,7 +91,7 @@ export class FakeMeta {
     this.media = this.media ?? [];
     const wamid = `wamid.MED${this.media.length + 1}`;
     this.media.push({ to, kind, opts, wamid });
-    return wamid;
+    return { wamid, waId: this.canonicalWaId || to };
   }
   async getMediaUrl(id) {
     return `https://media.example/${id}`;
@@ -102,7 +106,7 @@ export class FakeMeta {
     this.reactions = this.reactions ?? [];
     const wamid = `wamid.RXN${this.reactions.length + 1}`;
     this.reactions.push({ to, messageId, emoji, wamid });
-    return wamid;
+    return { wamid, waId: this.canonicalWaId || to };
   }
 }
 
