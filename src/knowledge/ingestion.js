@@ -1,54 +1,70 @@
-import { listFaqs, createFaq } from './faqs.js';
+import { listFaqs, createFaq, updateFaq } from './faqs.js';
 
 // Turns raw text (an FAQ dump, a doc, a note) into individual question and
 // answer pairs in a pack. If the AI client is available we use it to split the
 // text, otherwise a heuristic handles FAQ style Q: A: pairs and paragraphs.
 //
-// Duplicates are caught by comparing normalised question text against what is
+// Matches are caught by comparing normalised question text against what is
 // already in the pack. That is deliberately literal rather than similarity
-// based: the client can see exactly why something was skipped, and two
-// genuinely different questions never collapse into one.
+// based: the client can see exactly why something matched, and two genuinely
+// different questions never collapse into one. A matched question whose
+// answer has changed is updated in place rather than skipped - this is what
+// lets a client download a pack, tweak a couple of lines, and paste the whole
+// thing back without deleting first or ending up with duplicates.
 //
-// Returns { added, skipped, faqs } so the caller can report what happened.
-// Never throws for individual failures, they are counted as skips.
+// Returns { added, updated, skipped, faqs } so the caller can report what
+// happened. Never throws for individual failures, they are counted as skips.
 
 const MAX_UNITS_PER_INGEST = 200;
 
 export async function ingestText(pool, ai, raw, { topicId = null, source = 'ingested', actor = null } = {}) {
   const text = String(raw || '').trim();
-  if (!text) return { added: 0, skipped: 0, faqs: [] };
+  if (!text) return { added: 0, updated: 0, skipped: 0, faqs: [] };
 
   const candidates = (await extractCandidates(ai, text)).slice(0, MAX_UNITS_PER_INGEST);
 
-  const existing = new Set(
-    (await listFaqs(pool, { pack: topicId ?? 'base' })).map((f) => normalise(f.question)),
+  const existing = new Map(
+    (await listFaqs(pool, { pack: topicId ?? 'base' })).map((f) => [normalise(f.question), f]),
   );
 
   let added = 0;
+  let updated = 0;
   let skipped = 0;
   const faqs = [];
   for (const c of candidates) {
     const question = (c.question || '').trim();
     const answer = (c.answer || '').trim();
     const key = normalise(question);
-    if (!question || !answer || existing.has(key)) {
+    if (!question || !answer) {
       skipped += 1;
       continue;
     }
+    const match = existing.get(key);
     try {
-      const faq = await createFaq(
-        pool,
-        { topicId, question: question.slice(0, 300), answer, source },
-        actor,
-      );
-      existing.add(key);
-      added += 1;
-      faqs.push({ id: faq.id, question: faq.question });
+      if (match) {
+        if (match.answer.trim() === answer) {
+          skipped += 1;
+          continue;
+        }
+        const faq = await updateFaq(pool, match.id, { answer }, actor);
+        existing.set(key, faq);
+        updated += 1;
+        faqs.push({ id: faq.id, question: faq.question });
+      } else {
+        const faq = await createFaq(
+          pool,
+          { topicId, question: question.slice(0, 300), answer, source },
+          actor,
+        );
+        existing.set(key, faq);
+        added += 1;
+        faqs.push({ id: faq.id, question: faq.question });
+      }
     } catch {
       skipped += 1;
     }
   }
-  return { added, skipped, faqs };
+  return { added, updated, skipped, faqs };
 }
 
 function normalise(text) {

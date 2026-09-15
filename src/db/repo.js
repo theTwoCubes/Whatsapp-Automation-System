@@ -98,33 +98,40 @@ export async function recordInbound(pool, m) {
 // template, same as it already does everywhere else. Reuses an existing
 // conversation for that number if there is one instead of creating a
 // duplicate, and revives it out of the archive/soft-delete the same way a
-// real inbound message would.
-export async function findOrCreateComposeConversation(pool, { waId, name }) {
+// real inbound message would. business/email/topicId are optional, used by
+// bulk send where the client pastes in more than just a name and number.
+export async function findOrCreateComposeConversation(pool, { waId, name, business = null, email = null, topicId = null }) {
   const client = await pool.connect();
   try {
     await client.query('begin');
     const contact = await client.query(
-      `insert into contacts (wa_id, name)
-       values ($1, $2)
+      `insert into contacts (wa_id, name, business, email)
+       values ($1, $2, $3, $4)
        on conflict (wa_id) do update set
          name = coalesce(contacts.name, excluded.name),
+         business = coalesce(contacts.business, excluded.business),
+         email = coalesce(contacts.email, excluded.email),
          last_seen_at = now()
        returning id`,
-      [waId, name ?? null],
+      [waId, name ?? null, business, email],
     );
     const contactId = contact.rows[0].id;
 
+    // origin is only ever set on insert, never on conflict - a number we
+    // reach out to that turns out to already have an organic ('lead')
+    // conversation must not be relabelled as business-initiated.
     const conversation = await client.query(
-      `insert into conversations (contact_id)
-       values ($1)
+      `insert into conversations (contact_id, last_topic_id, origin)
+       values ($1, $2, 'business')
        on conflict (contact_id) do update set
          archived_at = null,
          deleted_at = null,
          state = case when conversations.deleted_at is not null then 'bot' else conversations.state end,
          assignee = case when conversations.deleted_at is not null then null else conversations.assignee end,
+         last_topic_id = coalesce(excluded.last_topic_id, conversations.last_topic_id),
          updated_at = now()
        returning id`,
-      [contactId],
+      [contactId, topicId],
     );
     await client.query('commit');
     return conversation.rows[0].id;
@@ -269,7 +276,8 @@ export async function getConversationHistory(pool, conversationId, limit = 12) {
 // campaign's topic), and how many messages they have sent so far.
 export async function getConversationContext(pool, conversationId) {
   const res = await pool.query(
-    `select ct.name as contact_name, c.created_at, c.reply_language,
+    `select ct.name as contact_name, ct.business as contact_business, ct.email as contact_email,
+            c.created_at, c.reply_language, c.introduced_at,
             t.name as topic_name,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
              and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
@@ -288,6 +296,31 @@ export async function getConversationContext(pool, conversationId) {
 // limited history window each time.
 export async function setReplyLanguage(pool, conversationId, language) {
   await pool.query('update conversations set reply_language = $2 where id = $1', [conversationId, language]);
+}
+
+// Marks that the bot has introduced itself in this chat, so the prompt never
+// tells it to do so twice. Once set it never clears - a cleared chat still
+// counts as an already-met lead, not a stranger.
+export async function markIntroduced(pool, conversationId) {
+  await pool.query('update conversations set introduced_at = now() where id = $1 and introduced_at is null', [conversationId]);
+}
+
+// Facts the AI picked up mid-conversation and never has to ask for again.
+// The lead's name comes from their WhatsApp profile already in almost every
+// case, so it is only filled in here if that was somehow empty - business and
+// email are never collected any other way, so a fresh answer always wins over
+// nothing, but never overwrites one already on file (the lead corrects it by
+// telling the AI again, not by having every mention overwrite the last).
+export async function setLeadProfile(pool, conversationId, { name, business, email } = {}) {
+  if (!name && !business && !email) return;
+  await pool.query(
+    `update contacts set
+       name = coalesce(contacts.name, $2),
+       business = coalesce(contacts.business, $3),
+       email = coalesce(contacts.email, $4)
+     where id = (select contact_id from conversations where id = $1)`,
+    [conversationId, name || null, business || null, email || null],
+  );
 }
 
 // Cancels any pending follow ups for a conversation and schedules a fresh set
@@ -383,6 +416,96 @@ export async function markDripStuck(pool, id) {
   await pool.query("update drip_jobs set status = 'stuck', updated_at = now() where id = $1", [id]);
 }
 
+// Bulk send: the client pastes a list of leads, picks a service and an
+// approved template, and every recipient becomes one row here. Processed by
+// the scheduler in small batches, mirroring the drip job queue above - same
+// reasons apply: Meta rate limits, and a crashed process should not lose or
+// duplicate sends.
+
+export async function queueBulkSend(pool, batchId, rows, templateName) {
+  if (rows.length === 0) return 0;
+  const values = [];
+  const params = [];
+  rows.forEach((r, i) => {
+    const base = i * 7;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`);
+    params.push(batchId, r.waId, r.name ?? null, r.business ?? null, r.email ?? null, r.topicId ?? null, templateName);
+  });
+  const res = await pool.query(
+    `insert into bulk_send_jobs (batch_id, wa_id, name, business, email, topic_id, template_name)
+     values ${values.join(', ')}
+     returning id`,
+    params,
+  );
+  return res.rows.length;
+}
+
+export async function claimBulkSendJobs(pool, limit = 20) {
+  const res = await pool.query(
+    `with due as (
+       select id from bulk_send_jobs
+       where status = 'pending'
+       order by id
+       limit $1
+       for update skip locked
+     ),
+     claimed as (
+       update bulk_send_jobs set status = 'sending', updated_at = now()
+       where id in (select id from due)
+       returning id, wa_id, name, business, email, topic_id, template_name
+     )
+     select * from claimed`,
+    [limit],
+  );
+  return res.rows;
+}
+
+export async function markBulkSendJob(pool, id, status, { error = null, conversationId = null } = {}) {
+  await pool.query(
+    `update bulk_send_jobs set status = $2, error = $3, conversation_id = coalesce($4, conversation_id), updated_at = now() where id = $1`,
+    [id, status, error, conversationId],
+  );
+}
+
+// Mirrors reclaimStuckDrips - a job left in 'sending' past this window means
+// the process that claimed it died before hearing back from Meta, not that
+// the send actually went through (that path marks 'stuck' explicitly instead
+// and is deliberately left alone here).
+export async function reclaimStuckBulkSendJobs(pool, staleMinutes = 15) {
+  const res = await pool.query(
+    `update bulk_send_jobs set status = 'pending', updated_at = now()
+     where status = 'sending' and updated_at < now() - make_interval(mins => $1)
+     returning id`,
+    [staleMinutes],
+  );
+  return res.rows.map((r) => r.id);
+}
+
+export async function bulkSendBatchProgress(pool, batchId) {
+  const res = await pool.query(
+    `select status, count(*)::int as count from bulk_send_jobs where batch_id = $1 group by status`,
+    [batchId],
+  );
+  const byStatus = Object.fromEntries(res.rows.map((r) => [r.status, r.count]));
+  const total = res.rows.reduce((n, r) => n + r.count, 0);
+  return { total, byStatus };
+}
+
+export async function listRecentBulkSendBatches(pool, limit = 20) {
+  const res = await pool.query(
+    `select batch_id, template_name, min(created_at) as started_at, count(*)::int as total,
+            count(*) filter (where status = 'sent')::int as sent,
+            count(*) filter (where status in ('failed', 'stuck'))::int as failed,
+            count(*) filter (where status in ('pending', 'sending'))::int as pending
+     from bulk_send_jobs
+     group by batch_id, template_name
+     order by min(created_at) desc
+     limit $1`,
+    [limit],
+  );
+  return res.rows;
+}
+
 // Console side reads and writes.
 
 export async function getAgentByEmail(pool, email) {
@@ -420,7 +543,7 @@ export async function setAgentRole(pool, email, role) {
 export async function listConversations(pool, { includeArchived = false } = {}) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
-            c.pinned_at, c.archived_at, c.muted_until, c.blocked_at,
+            c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.origin,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, m.type as last_message_type,
             coalesce(m.sent_at, m.created_at) as last_at,
@@ -455,6 +578,33 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
               coalesce(m.sent_at, m.created_at) desc nulls last
      limit 200`,
     [includeArchived],
+  );
+  return res.rows;
+}
+
+// Everything the client's export needs, one row per lead: name, phone, email
+// and business if we ever learned them, which service they're associated
+// with, and where the chat currently stands. Not paginated - this is a
+// download, not a list view - but capped so a runaway contact base cannot
+// build an unbounded workbook in memory.
+export async function listContactsForExport(pool, { topicId = null } = {}) {
+  const params = [];
+  let topicClause = '';
+  if (topicId != null) {
+    params.push(topicId);
+    topicClause = `and coalesce(ca.topic_id, c.last_topic_id) = $${params.length}`;
+  }
+  const res = await pool.query(
+    `select ct.name, ct.wa_id, ct.email, ct.business, c.state,
+            t.name as topic_name
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
+     where c.deleted_at is null ${topicClause}
+     order by ct.name nulls last, ct.wa_id
+     limit 5000`,
+    params,
   );
   return res.rows;
 }

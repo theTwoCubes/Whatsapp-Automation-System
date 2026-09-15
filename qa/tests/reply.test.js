@@ -327,6 +327,50 @@ test('the language the model chose comes back on the decision, trimmed and lengt
   assert.equal(decision2.replyLanguage.length, 40, 'an implausibly long value is capped rather than stored as-is');
 });
 
+test('the model is told to introduce itself by name on a fresh chat, and told not to once it already has', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const leadSystem = ai.lastMessages[1].content;
+  assert.match(leadSystem, /have not introduced yourself/i);
+  assert.match(leadSystem, /Adi/, 'the configured bot name is what it is told to introduce itself as');
+
+  await pool.query('update conversations set introduced_at = now() where id = $1', [id]);
+  const ai2 = new SpyAi();
+  await buildReply(pool, ai2, testConfig, id, {});
+  const leadSystem2 = ai2.lastMessages[1].content;
+  assert.match(leadSystem2, /already introduced yourself/i);
+  assert.doesNotMatch(leadSystem2, /have not introduced/i);
+});
+
+test('a lead detail the model picks up on comes back on the decision, sanitised', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({
+    action: 'answer', reply: 'Nice to meet you!', reply_language: 'English',
+    lead_name: '  Priya  ', lead_business: 'Priya Bakes', lead_email: 'priya@example.com',
+  }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.deepEqual(decision.leadProfile, { name: 'Priya', business: 'Priya Bakes', email: 'priya@example.com' });
+
+  const id2 = await conversation('hi');
+  const ai2 = new SpyAi(JSON.stringify({ action: 'answer', reply: 'hi', lead_email: 'not-an-email' }));
+  const decision2 = await buildReply(pool, ai2, testConfig, id2, {});
+  assert.equal(decision2.leadProfile, null, 'an unusable email and no other field means nothing worth storing');
+});
+
+test('once the lead\'s business and email are known, the model is shown them and does not have to ask again', async () => {
+  const id = await conversation();
+  await pool.query(
+    `update contacts set business = $2, email = $3 where id = (select contact_id from conversations where id = $1)`,
+    [id, 'Priya Bakes', 'priya@example.com'],
+  );
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const leadSystem = ai.lastMessages[1].content;
+  assert.match(leadSystem, /Priya Bakes/);
+  assert.match(leadSystem, /priya@example\.com/);
+});
+
 test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });

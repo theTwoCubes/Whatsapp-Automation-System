@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2, MoreVertical, X } from 'lucide-react';
+import { Search, Plus, FlaskConical, BookOpen, ChevronDown, ChevronUp, Lightbulb, Trash2, MoreVertical, X, Download } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
 import { InputField } from '../../components/ui/Field.jsx';
@@ -13,6 +13,39 @@ import {
 } from './Dashboard.jsx';
 
 import { isCapacitor } from '../../push.js';
+
+// Shared by the whole-store JSON export and the per-pack plain-text export:
+// native share sheet on the APK (blob downloads don't work there), a plain
+// browser download otherwise.
+async function downloadTextFile(filename, text, mimeType) {
+  if (isCapacitor()) {
+    try {
+      const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
+      await Share.share({ title: filename, text, dialogTitle: `Export ${filename}` });
+      return;
+    } catch {
+      try {
+        await navigator.clipboard.writeText(text);
+        return 'clipboard';
+      } catch (err) {
+        throw err;
+      }
+    }
+  }
+  const blob = new Blob([text], { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Plain Q:/A: text - the same shape the "Paste an FAQ document" box expects,
+// so a downloaded pack can be edited and pasted straight back in.
+function faqsToText(faqs) {
+  return faqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n');
+}
 
 
 // Simulator Modal
@@ -561,7 +594,7 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
 }
 
 // FAQ Pane
-function FaqPane({ pack, faqCount, onDeleted, onChange }) {
+function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
   const [data, setData]           = useState(null);
   const [question, setQuestion]   = useState('');
   const [answer, setAnswer]       = useState('');
@@ -569,6 +602,8 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
   const [raw, setRaw]             = useState('');
   const [addOpen, setAddOpen]     = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const toast = useToast();
 
   const reload = useCallback(() => {
@@ -592,10 +627,32 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
   const importText = async () => {
     try {
       const res = await api.importFaqs(raw, pack === 'base' ? null : pack);
-      toast.success(`Added ${res.added}, skipped ${res.skipped} (already covered)`);
+      const parts = [`${res.added} added`];
+      if (res.updated) parts.push(`${res.updated} updated`);
+      parts.push(`${res.skipped} unchanged`);
+      toast.success(parts.join(', '));
       setRaw(''); setImportOpen(false);
       refresh();
     } catch (e) { toast.error(e.message); }
+  };
+
+  const downloadPack = async () => {
+    if (rows.length === 0) { toast.info('Nothing to download in this pack yet'); return; }
+    try {
+      const result = await downloadTextFile(`${(packName || 'answers').replace(/[^a-z0-9]+/gi, '-')}.txt`, faqsToText(rows), 'text/plain');
+      if (result === 'clipboard') toast.success('Copied to clipboard (share not available)');
+    } catch (e) { toast.error('Download failed: ' + e.message); }
+  };
+
+  const deleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      await api.bulkFaqs(rows.map((r) => r.id), 'delete');
+      toast.success(`Deleted all ${rows.length} answer${rows.length === 1 ? '' : 's'} in this pack`);
+      setConfirmDeleteAll(false);
+      refresh();
+    } catch (e) { toast.error(e.message); }
+    finally { setDeletingAll(false); }
   };
 
   const move = async (index, delta) => {
@@ -615,9 +672,17 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
         <PackSettings topicId={pack} faqCount={faqCount} onDeleted={onDeleted} onChanged={onChange} />
       )}
 
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <span className="text-sm text-gray-400">{rows.length} answer{rows.length !== 1 ? 's' : ''}</span>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="ghost" size="sm" onClick={downloadPack} disabled={rows.length === 0}>
+            <Download size={14} /> Download
+          </Button>
+          {rows.length > 0 && (
+            <Button variant="danger-ghost" size="sm" onClick={() => setConfirmDeleteAll(true)}>
+              <Trash2 size={14} /> Delete all
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => { setImportOpen((v) => !v); setAddOpen(false); }}>Import document</Button>
           <Button variant="primary" size="sm" onClick={() => { setAddOpen((v) => !v); setImportOpen(false); }}>
             <Plus size={14} /> Add answer
@@ -646,7 +711,7 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
         <Card className="mb-4 p-4">
           <FormStack>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Paste an FAQ document, price list, or raw notes. We'll split it into individual answers automatically. Anything already in this pack is skipped.
+              Paste an FAQ document, price list, or raw notes. We'll split it into individual answers automatically. A question that already exists in this pack gets its answer updated instead of duplicated — so you can download this pack, edit a few lines, and paste the whole thing back in.
             </p>
             <textarea
               className="field-textarea"
@@ -674,6 +739,30 @@ function FaqPane({ pack, faqCount, onDeleted, onChange }) {
               onMove={(delta) => move(i, delta)} onChanged={refresh} />
           ))}
         </Card>
+      )}
+
+      {confirmDeleteAll && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/40"
+          onClick={() => !deletingAll && setConfirmDeleteAll(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100">
+              <div className="text-base font-semibold text-gray-900">Delete all {rows.length} answer{rows.length === 1 ? '' : 's'}?</div>
+            </div>
+            <div className="px-5 py-5 text-sm text-gray-600 leading-relaxed">
+              This removes every answer in this pack. Download a copy first if you want to keep a record — this can't be undone from here.
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/70">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteAll(false)} disabled={deletingAll}>Cancel</Button>
+              <Button variant="danger" size="sm" onClick={deleteAll} disabled={deletingAll}>
+                {deletingAll ? 'Deleting…' : 'Delete all'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -946,34 +1035,8 @@ export default function Knowledge() {
     try {
       const data = await api.exportFaqs();
       const jsonStr = JSON.stringify(data, null, 2);
-
-      if (isCapacitor()) {
-        try {
-          // Try native share sheet first
-          const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
-          await Share.share({
-            title: 'knowledge-base.json',
-            text: jsonStr,
-            dialogTitle: 'Export Knowledge Base',
-          });
-        } catch (shareErr) {
-          // Fallback: write to clipboard
-          try {
-            await navigator.clipboard.writeText(jsonStr);
-            toast.success('Copied to clipboard (share not available)');
-          } catch {
-            toast.error('Export failed: ' + shareErr.message);
-          }
-        }
-      } else {
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href = url;
-        a.download = `answers-${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      const result = await downloadTextFile(`answers-${new Date().toISOString().slice(0, 10)}.json`, jsonStr, 'application/json');
+      if (result === 'clipboard') toast.success('Copied to clipboard (share not available)');
     } catch (e) {
       toast.error('Export failed: ' + e.message);
     }
@@ -1067,6 +1130,7 @@ export default function Knowledge() {
             : <FaqPane
                 key={`${pack}-${reloadKey}`}
                 pack={pack}
+                packName={packs.find((p) => String(p.topic_id ?? 'base') === String(pack))?.name}
                 faqCount={packs.find((p) => String(p.topic_id ?? 'base') === String(pack))?.faq_count ?? 0}
                 onDeleted={async () => { await reloadPacks(); setPack('base'); setReloadKey((k) => k + 1); }}
                 onChange={() => setReloadKey((k) => k + 1)}

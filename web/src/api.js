@@ -73,6 +73,10 @@ export const api = {
   clearChat: (id) => req(`/conversations/${id}/clear`, { method: 'POST' }),
   conversation: (id) => req(`/conversations/${id}`),
   composeConversation: (waId, name) => req('/conversations/compose', { method: 'POST', body: JSON.stringify({ waId, name }) }),
+  bulkSend: (text, templateName, topicId) =>
+    req('/bulk-send', { method: 'POST', body: JSON.stringify({ text, templateName, topicId }) }),
+  bulkSendBatches: () => req('/bulk-send/batches'),
+  bulkSendProgress: (batchId) => req(`/bulk-send/${batchId}`),
   olderMessages: (id, before) => req(`/conversations/${id}/messages?before=${before}`),
   send: (id, body, replyTo = null) => req(`/conversations/${id}/messages`, { method: 'POST', body: JSON.stringify({ body, replyTo }) }),
   sendReaction: (id, wamid, emoji) => req(`/conversations/${id}/reactions`, { method: 'POST', body: JSON.stringify({ wamid, emoji }) }),
@@ -157,6 +161,19 @@ export const api = {
     }
     const blob = await res.blob();
     return { url: URL.createObjectURL(blob), size: blob.size, contentType: blob.type };
+  },
+  exportContacts: async (topicId = null) => {
+    const token = getToken();
+    const qs = topicId != null ? `?topicId=${encodeURIComponent(topicId)}` : '';
+    const res = await fetch(`/api/contacts/export${qs}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      clearToken();
+      throw new Error('unauthorized');
+    }
+    if (!res.ok) throw new Error('export failed');
+    return res.blob();
   },
   uploadMedia: async (file, topicId = null, description = '') => {
     const token = getToken();

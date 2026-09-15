@@ -5,7 +5,7 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyWebsocket from '@fastify/websocket';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, getConversationById, addActivePackIds, setLastTopicId, addMediaAsset, recordOutbound, clearChat } from '../../src/db/repo.js';
+import { createAgent, getConversationById, addActivePackIds, setLastTopicId, addMediaAsset, recordOutbound, clearChat, findOrCreateComposeConversation } from '../../src/db/repo.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
@@ -169,6 +169,20 @@ test('the service filter follows the most recently discussed service, not the fi
   await app.close();
 });
 
+test('the conversation list reports who started it, for the inbound/outbound filter', async () => {
+  const organicId = await makeConversation();
+  const composedId = await findOrCreateComposeConversation(pool, { waId: '919000009999', name: 'Reached Out To' });
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
+  const conversations = res.json().conversations;
+
+  assert.equal(conversations.find((c) => c.id === organicId).origin, 'lead', 'the lead messaged in on their own');
+  assert.equal(conversations.find((c) => c.id === composedId).origin, 'business', 'we reached out first, via compose or bulk send');
+  await app.close();
+});
+
 test('clearing a chat resets its list preview instead of still showing the wiped message', async () => {
   const id = await makeConversation();
 
@@ -205,6 +219,36 @@ test('a file the bot sent from the media library can still be downloaded', async
   const token = await tokenFor(app);
   const res = await app.inject({ method: 'GET', url: `/api/messages/${msgId}/media`, headers: { authorization: `Bearer ${token}` } });
   assert.equal(res.statusCode, 200, 'a bot-sent file must resolve through the media library, not just raw inbound payloads');
+  await app.close();
+});
+
+test('the contacts export produces a real xlsx workbook, optionally filtered to one service', async () => {
+  const id = await makeConversation();
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await setLastTopicId(pool, id, topic.id);
+  await pool.query('update contacts set email = $2, business = $3 where id = (select contact_id from conversations where id = $1)', [id, 'lead@example.com', 'Acme Co']);
+
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+
+  const all = await app.inject({ method: 'GET', url: '/api/contacts/export', headers: { authorization: `Bearer ${token}` } });
+  assert.equal(all.statusCode, 200);
+  assert.equal(all.headers['content-type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(all.rawPayload);
+  const sheet = workbook.getWorksheet('Leads');
+  const row = sheet.getRow(2);
+  assert.equal(row.getCell(3).value, 'lead@example.com');
+  assert.equal(row.getCell(4).value, 'Acme Co');
+  assert.equal(row.getCell(5).value, 'Logo Design');
+
+  const otherTopic = await upsertTopic(pool, { slug: 'branding', name: 'Branding' });
+  const filtered = await app.inject({ method: 'GET', url: `/api/contacts/export?topicId=${otherTopic.id}`, headers: { authorization: `Bearer ${token}` } });
+  const filteredWorkbook = new ExcelJS.Workbook();
+  await filteredWorkbook.xlsx.load(filtered.rawPayload);
+  assert.equal(filteredWorkbook.getWorksheet('Leads').rowCount, 1, 'only the header row - no lead is in the Branding pack');
   await app.close();
 });
 

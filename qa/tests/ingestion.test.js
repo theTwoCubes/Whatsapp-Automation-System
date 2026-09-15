@@ -108,6 +108,21 @@ test('re-importing the same document adds nothing the second time', async () => 
   assert.equal(second.skipped, 1);
 });
 
+test('re-pasting a pack with one answer edited updates it in place instead of duplicating', async () => {
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  const first = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: The logo package is 20000 rupees plus GST.', { topicId: topic.id });
+  assert.equal(first.added, 1);
+
+  const second = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: The logo package is now 25000 rupees plus GST.', { topicId: topic.id });
+  assert.equal(second.added, 0, 'the question already exists, so this is an update not a new entry');
+  assert.equal(second.updated, 1);
+  assert.equal(second.skipped, 0);
+
+  const list = (await pool.query('select question, answer from faqs where topic_id = $1', [topic.id])).rows;
+  assert.equal(list.length, 1, 'still only one answer, not a duplicate');
+  assert.equal(list[0].answer, 'The logo package is now 25000 rupees plus GST.');
+});
+
 test('the same question worded with different punctuation is still a duplicate', async () => {
   const first = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: 20000 rupees.', {});
   assert.equal(first.added, 1);

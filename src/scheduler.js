@@ -1,12 +1,15 @@
 import {
   claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
   getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage,
+  setLeadProfile, markIntroduced,
+  claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
 import { getSettings } from './settings.js';
 import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
 import { pushHandoff, maybeSendMedia, maybeSendReaction } from './handlers/message.js';
+import { MetaApiError } from './meta/client.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
 // hands stalled chats back to the bot, and the weekly learning pass. In
@@ -17,6 +20,7 @@ export function startScheduler(deps, intervalMs = 60000) {
     try {
       await runDueDrips(deps);
       await runAutoResume(deps);
+      await runBulkSend(deps);
       await runWeeklyRefinementIfDue(deps);
       // Hard-delete soft-deleted chats past their grace period, at most once
       // an hour so the delete query is not run on every minute tick.
@@ -81,6 +85,60 @@ export async function runDueDrips(deps) {
   return jobs.length;
 }
 
+// Sends a batch of client-pasted leads their opening template message, a few
+// at a time per tick so a list of hundreds does not slam Meta all at once and
+// so a crash mid-run loses nothing - exactly the same shape as runDueDrips,
+// just against bulk_send_jobs instead of drip_jobs.
+export async function runBulkSend(deps) {
+  const { pool, meta, config, log } = deps;
+
+  const reclaimed = await reclaimStuckBulkSendJobs(pool, 15);
+  if (reclaimed.length > 0) log.warn({ jobIds: reclaimed }, 'reclaimed bulk send jobs abandoned mid-send');
+
+  const jobs = await claimBulkSendJobs(pool, 20);
+
+  for (const job of jobs) {
+    let delivered = false;
+    let conversationId = null;
+    try {
+      conversationId = await findOrCreateComposeConversation(pool, {
+        waId: job.wa_id, name: job.name, business: job.business, email: job.email, topicId: job.topic_id,
+      });
+      const templateRow = await pool.query('select language from templates where name = $1 limit 1', [job.template_name]);
+      const language = templateRow.rows[0]?.language || config.dripLanguage;
+      const wamid = await meta.sendTemplate(job.wa_id, job.template_name, language);
+      delivered = true;
+      await markBulkSendJob(pool, job.id, 'sent', { conversationId });
+      if (wamid) {
+        await recordOutbound(pool, {
+          conversationId,
+          waMessageId: wamid,
+          type: 'template',
+          body: `[template] ${job.template_name}`,
+        });
+      }
+      log.info({ jobId: job.id, to: job.wa_id }, 'bulk send template sent');
+    } catch (err) {
+      if (delivered) {
+        // Meta already confirmed delivery - marking this 'failed' would let
+        // it get retried and double message the lead. Leave it for a human.
+        try {
+          await markBulkSendJob(pool, job.id, 'stuck', { conversationId });
+        } catch (markErr) {
+          log.error({ jobId: job.id, markErr }, 'failed to even mark a delivered bulk send stuck');
+        }
+        log.error({ jobId: job.id, err }, 'bulk send delivered but failed to record - needs manual follow up, not auto retried');
+      } else {
+        const message = err instanceof MetaApiError ? err.message : (err?.message || 'send failed');
+        await markBulkSendJob(pool, job.id, 'failed', { error: message, conversationId });
+        log.error({ jobId: job.id, err }, 'bulk send failed');
+      }
+    }
+  }
+
+  return jobs.length;
+}
+
 // Builds the header component for a drip's template message when a media
 // asset is attached to the step. Reuses the same Meta media id already
 // uploaded for regular sends - no separate upload needed. Template headers
@@ -131,6 +189,12 @@ export async function runAutoResume(deps) {
 
       if (decision?.replyLanguage) {
         await setReplyLanguage(pool, row.id, decision.replyLanguage);
+      }
+      if (decision) {
+        await markIntroduced(pool, row.id);
+      }
+      if (decision?.leadProfile) {
+        await setLeadProfile(pool, row.id, decision.leadProfile);
       }
 
       // Mirrors respondToLead in handlers/message.js - the model's decision

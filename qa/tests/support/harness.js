@@ -140,6 +140,7 @@ export const testConfig = {
   businessName: 'Test Studio',
   businessAbout: 'We design logos and brands.',
   businessTone: 'friendly',
+  botName: 'Adi',
   fallbackMessage: 'Thanks, the team will get back to you.',
   handoffMessage: 'Connecting you with a person now.',
   attachmentMessage: 'Got your file, connecting you with a person now.',

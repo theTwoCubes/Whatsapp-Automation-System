@@ -315,3 +315,19 @@ test('the language the ai chose is persisted and carried into its next reply', a
   const conv = await pool.query('select reply_language from conversations limit 1');
   assert.equal(conv.rows[0].reply_language, 'Gujarati');
 });
+
+test('the first successful ai reply marks the chat introduced, and a lead detail it learns is saved to the contact', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: "Hey, I'm Adi! Nice to meet you.", reply_language: 'English',
+    lead_name: 'Priya', lead_business: 'Priya Bakes', lead_email: 'priya@example.com',
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.INTRO1', body: 'hi there' }), d);
+
+  const row = await pool.query(
+    `select c.introduced_at, ct.business, ct.email from conversations c join contacts ct on ct.id = c.contact_id limit 1`,
+  );
+  assert.ok(row.rows[0].introduced_at, 'the chat is marked introduced after a real ai reply');
+  assert.equal(row.rows[0].business, 'Priya Bakes');
+  assert.equal(row.rows[0].email, 'priya@example.com');
+});

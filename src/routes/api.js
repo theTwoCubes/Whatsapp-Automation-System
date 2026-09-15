@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from '../auth.js';
 import { REACTION_EMOJIS } from '../ai/reactions.js';
 import { MetaApiError } from '../meta/client.js';
@@ -62,7 +62,13 @@ import {
   listAudit,
   getMessageRaw,
   opsStats,
+  listContactsForExport,
+  queueBulkSend,
+  bulkSendBatchProgress,
+  listRecentBulkSendBatches,
 } from '../db/repo.js';
+import ExcelJS from 'exceljs';
+import { parseLeadsText } from '../leads/parseLeads.js';
 import { getStats as getTelemetryStats } from '../ai/telemetry.js';
 
 // Pulls the media id out of an inbound message payload.
@@ -254,6 +260,43 @@ export function registerApi(app, deps) {
     }),
   }));
 
+  // Downloadable lead list for the client's own CRM/spreadsheet use - name,
+  // phone, email and business where we've learned them, filtered to one
+  // service or every lead depending on which service tab the export was
+  // triggered from.
+  app.get('/api/contacts/export', { preHandler: auth }, async (req, reply) => {
+    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    const contacts = await listContactsForExport(pool, { topicId });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Leads');
+    sheet.columns = [
+      { header: 'Name', key: 'name', width: 24 },
+      { header: 'Phone', key: 'phone', width: 18 },
+      { header: 'Email', key: 'email', width: 28 },
+      { header: 'Business', key: 'business', width: 24 },
+      { header: 'Service', key: 'service', width: 22 },
+      { header: 'Status', key: 'status', width: 14 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    for (const c of contacts) {
+      sheet.addRow({
+        name: c.name || '',
+        phone: c.wa_id,
+        email: c.email || '',
+        business: c.business || '',
+        service: c.topic_name || '',
+        status: c.state,
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.xlsx"`)
+      .send(Buffer.from(buffer));
+  });
+
   // Lets an agent start a conversation with a number that hasn't messaged in,
   // from the console's Compose button. Only ever creates the conversation
   // shell - with no window_expires_at set, it opens exactly like any other
@@ -283,6 +326,65 @@ export function registerApi(app, deps) {
     realtime.emit({ type: 'refresh' });
     return { id };
   });
+
+  const MAX_BULK_SEND_ROWS = 2000;
+
+  // Bulk send: the client pastes a list of leads (name, phone, optionally
+  // business and email, any order), picks a service and an approved
+  // template, and every recipient is queued as its own job for the scheduler
+  // to work through - see runBulkSend in scheduler.js for why this is not
+  // sent synchronously from this request.
+  app.post('/api/bulk-send', {
+    preHandler: [auth, writeLimit],
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', minLength: 1 },
+          topicId: {},
+          templateName: { type: 'string', minLength: 1, maxLength: 512 },
+        },
+        required: ['text', 'templateName'],
+        additionalProperties: false,
+      },
+    },
+  }, async (req, reply) => {
+    const { text, templateName } = req.body;
+    let topicId = null;
+    if (req.body?.topicId != null) {
+      topicId = Number(req.body.topicId);
+      if (!Number.isInteger(topicId)) return reply.code(400).send({ error: 'topicId must be a whole number' });
+      const exists = await pool.query('select 1 from topics where id = $1', [topicId]);
+      if (exists.rowCount === 0) return reply.code(400).send({ error: 'that service no longer exists' });
+    }
+
+    const approved = await listTemplates(pool);
+    if (!approved.some((t) => t.name === templateName)) {
+      return reply.code(400).send({ error: 'pick an approved template' });
+    }
+
+    const { rows, invalid } = parseLeadsText(text);
+    if (rows.length === 0) {
+      return reply.code(400).send({ error: 'no valid phone numbers found in the pasted list' });
+    }
+    if (rows.length > MAX_BULK_SEND_ROWS) {
+      return reply.code(400).send({ error: `too many leads in one go - up to ${MAX_BULK_SEND_ROWS} at a time` });
+    }
+
+    const batchId = randomUUID();
+    const rowsWithTopic = rows.map((r) => ({ ...r, topicId }));
+    const queued = await queueBulkSend(pool, batchId, rowsWithTopic, templateName);
+    await audit(req, 'bulk send queued', `batch ${batchId}`, `${queued} leads, template ${templateName}`);
+    return { batchId, queued, skipped: invalid.length, total: rows.length + invalid.length };
+  });
+
+  app.get('/api/bulk-send/batches', { preHandler: auth }, async () => ({
+    batches: await listRecentBulkSendBatches(pool),
+  }));
+
+  app.get('/api/bulk-send/:batchId', { preHandler: auth }, async (req) => ({
+    progress: await bulkSendBatchProgress(pool, req.params.batchId),
+  }));
 
   app.post('/api/conversations/:id/pin', { preHandler: [auth, writeLimit], schema: idParams }, async (req) => {
     const on = req.body?.on !== false;
@@ -1041,14 +1143,16 @@ export function registerApi(app, deps) {
   });
 
   // Bulk import: paste an FAQ document or raw notes and split it into entries
-  // in a pack. Duplicates are skipped by comparing the question text.
+  // in a pack. A question that already exists gets its answer updated in
+  // place rather than skipped, so a download -> edit -> re-paste round trip
+  // never creates duplicates.
   app.post('/api/faqs/import', { preHandler: adminAuth }, async (req, reply) => {
     const text = (req.body?.text ?? '').trim();
     const topicId = req.body?.topicId ? Number(req.body.topicId) : null;
     if (!text) return reply.code(400).send({ error: 'text is required' });
     try {
       const res = await ingestText(pool, deps.ai, text, { topicId, actor: req.user.email });
-      await audit(req, 'faqs imported', topicId ? `topic ${topicId}` : 'base', `added ${res.added}, skipped ${res.skipped}`);
+      await audit(req, 'faqs imported', topicId ? `topic ${topicId}` : 'base', `added ${res.added}, updated ${res.updated}, skipped ${res.skipped}`);
       return res;
     } catch (err) {
       return reply.code(400).send({ error: safeErrorMessage(err, app.log) });

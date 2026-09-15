@@ -10,6 +10,8 @@ import {
   addActivePackIds,
   setLastTopicId,
   setReplyLanguage,
+  setLeadProfile,
+  markIntroduced,
   getMediaAsset,
   wasMediaSentRecently,
   markInboundRead,
@@ -293,6 +295,7 @@ async function respondToLead(deps, conversationId, items) {
   // by name from the catalog, in which case we pull it in and call back once.
   const packs = await assemblePacks(pool, conversationId, topicId, text);
   let decision;
+  let aiSucceeded = false;
   const aiStart = Date.now();
   try {
     decision = await buildReply(pool, ai, settings, conversationId, {
@@ -315,6 +318,7 @@ async function respondToLead(deps, conversationId, items) {
     }
     const aiMs = Date.now() - aiStart;
     recordAiSuccess(aiMs);
+    aiSucceeded = true;
     log.info({ conversationId, aiMs, handoff: decision?.handoff }, 'ai reply built');
   } catch (err) {
     const aiMs = Date.now() - aiStart;
@@ -332,6 +336,16 @@ async function respondToLead(deps, conversationId, items) {
   // of re-guessing from a limited history window every single turn.
   if (decision?.replyLanguage) {
     await setReplyLanguage(pool, conversationId, decision.replyLanguage);
+  }
+
+  // Only marked once the model has genuinely had a turn to introduce itself -
+  // the canned fallback message never mentions the bot's name, so a run where
+  // the AI was down should not burn the one chance to do this for real.
+  if (aiSucceeded) {
+    await markIntroduced(pool, conversationId);
+  }
+  if (decision?.leadProfile) {
+    await setLeadProfile(pool, conversationId, decision.leadProfile);
   }
 
   // The AI decided this needs a person.

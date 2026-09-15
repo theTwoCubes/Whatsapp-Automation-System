@@ -100,6 +100,7 @@ function AIBehaviour() {
         business_name:       form.business_name,
         business_about:      form.business_about,
         business_tone:       form.business_tone,
+        bot_name:            form.bot_name,
         fallback_message:    form.fallback_message,
         handoff_message:     form.handoff_message,
         attachment_message:  form.attachment_message,
@@ -142,6 +143,10 @@ function AIBehaviour() {
               helper="The name the AI uses when it refers to you in a chat."
               placeholder="Acme Studio"
               {...bind('business_name')} />
+            <InputField label="AI's name"
+              helper="What the AI calls itself when it introduces itself to a new lead, once per chat."
+              placeholder="Adi"
+              {...bind('bot_name')} />
             <InputField label="About the business" textarea
               helper="A short description the AI can lean on for general questions."
               placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."

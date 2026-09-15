@@ -107,6 +107,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     sendMediaId,
     reactEmoji: parsed.reactEmoji,
     replyLanguage: parsed.replyLanguage,
+    leadProfile: parsed.leadProfile,
     packs: faqs.packs,
     faqCount: faqs.faqCount,
     contextTokens: faqs.tokens,
@@ -123,8 +124,24 @@ function sanitizeLanguage(value) {
   return trimmed || null;
 }
 
+// A short free-text fact the model volunteered about the lead - trimmed and
+// capped since it rides into the contacts table and back into every future
+// prompt for this lead, same treatment as the language field.
+function sanitizeLeadField(value, maxLength = 120) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, maxLength);
+  return trimmed || null;
+}
+
+function sanitizeLeadEmail(value) {
+  const trimmed = sanitizeLeadField(value, 254);
+  // Loose sanity check only - this is a courtesy field for the client's own
+  // CRM export, not something anything is sent to, so no need to be strict.
+  return trimmed && /^\S+@\S+\.\S+$/.test(trimmed) ? trimmed : null;
+}
+
 function parseDecision(raw, catalog) {
-  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, reactEmoji: null, replyLanguage: null, leadProfile: null, warn: false, block: false };
   if (!raw) return { ...empty, reason: 'the assistant returned nothing' };
 
   let obj;
@@ -139,13 +156,19 @@ function parseDecision(raw, catalog) {
   const sendMediaId = Number.isInteger(Number(obj?.send_media_id)) ? Number(obj.send_media_id) : null;
   const reactEmoji = REACTION_EMOJIS.includes(obj?.react_emoji) ? obj.react_emoji : null;
   const replyLanguage = sanitizeLanguage(obj?.reply_language);
+  const leadProfile = {
+    name: sanitizeLeadField(obj?.lead_name),
+    business: sanitizeLeadField(obj?.lead_business),
+    email: sanitizeLeadEmail(obj?.lead_email),
+  };
+  const hasLeadProfile = Boolean(leadProfile.name || leadProfile.business || leadProfile.email);
 
   if (obj?.action === 'answer') {
     // A reaction alone (thanks / ok / a thumbs up worth message) is a
     // complete response - only truly empty output with nothing to react to
     // falls back to a handoff.
     if (!reply && !reactEmoji) return { ...empty, reason: 'the assistant answered with an empty message' };
-    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, reactEmoji, replyLanguage, warn: false, block: false };
+    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, reactEmoji, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false };
   }
 
   if (obj?.action === 'warn') {
@@ -220,6 +243,7 @@ function instructions(config, faqText, catalog, media, recentSends, allowPackReq
       '',
       'To reply to the customer:',
       '{"action": "answer", "reply": "your message", "send_media_id": null, "react_emoji": null, "reply_language": "English"}',
+      '- Add "lead_name", "lead_business", and/or "lead_email" to that same object, only on the turn you actually learn one of them, e.g. {"action": "answer", "reply": "...", "reply_language": "English", "lead_name": "Priya"}. Omit them entirely otherwise - do not repeat a value already known back every turn.',
       '',
       `To just react to their last message instead of typing a reply - only for a short "thanks", "ok", "great" or similar where a real person would tap an emoji rather than type something back. Use one of these exactly: ${REACTION_EMOJIS.join(' ')}. Leave "reply" empty when you do this:`,
       `{"action": "answer", "reply": "", "react_emoji": "${REACTION_EMOJIS[0]}", "reply_language": "English"}`,
@@ -284,7 +308,7 @@ function instructions(config, faqText, catalog, media, recentSends, allowPackReq
     : '';
 
   return [
-    `You are a team member at ${config.businessName}, chatting with potential customers on WhatsApp. You are not a bot reading a script. You are a smart, warm, helpful person who knows the business inside out and genuinely wants to help people.`,
+    `You are ${config.botName}, a team member at ${config.businessName}, chatting with potential customers on WhatsApp. You are not a bot reading a script. You are a smart, warm, helpful person who knows the business inside out and genuinely wants to help people.`,
     '',
     'About the business (this is knowledge you have, use it naturally):',
     config.businessAbout || `${config.businessName} is a design studio.`,
@@ -297,6 +321,11 @@ function instructions(config, faqText, catalog, media, recentSends, allowPackReq
     '- Never use markdown, asterisks, bold, bullet points, numbered lists, or dashes for style. Plain sentences only.',
     '- Vary how you open each message and how you phrase things. Real conversations do not repeat the same structure or tone every single turn.',
     '- Do not re-greet or re-introduce things you already covered earlier in this chat. Once a conversation is underway, get straight to the point like you would with someone you are already talking to.',
+    '',
+    'Getting to know the lead:',
+    '- Early in the chat (once, not on every message), it is natural to ask their name if you do not have it, and casually ask what their business is or what they need it for - the way any team member starting a new conversation would. Weave it into the conversation, do not interrogate them with a checklist.',
+    '- This is a soft ask, never a requirement. If they skip it, answer something else, or clearly just want to get straight to business, drop it and move on - do not ask again later in the same chat, and never block or stall a real answer waiting on it.',
+    '- Whenever they tell you their name, business, or email (even in passing), fill in "lead_name", "lead_business", or "lead_email" on that reply so it is remembered - you will not need to ask again once it is known (see "About the customer" above).',
     '',
     'Language:',
     '- Reply in whichever language actually fits the conversation right now, not necessarily whichever one you started in. Leads often move between Hindi, English, Gujarati, or a mix, over the course of one chat, and a good team member follows that naturally instead of sticking rigidly to the first language used.',
@@ -352,10 +381,14 @@ function instructions(config, faqText, catalog, media, recentSends, allowPackReq
 
 function leadContext(config, context) {
   const leadName = context?.contact_name?.trim();
+  const leadBusiness = context?.contact_business?.trim();
+  const leadEmail = context?.contact_email?.trim();
   const turnCount = Number(context?.turn_count ?? 0);
   return [
     'About the customer you are replying to:',
     leadName ? `Their name is ${leadName}.` : 'They have not given a name yet.',
+    leadBusiness ? `Their business: ${leadBusiness}.` : null,
+    leadEmail ? `Their email: ${leadEmail}.` : null,
     `${describeDuration(context?.created_at)}, and they have sent ${turnCount} message${turnCount === 1 ? '' : 's'} so far.`,
     context?.topic_name
       ? `They came in through the "${context.topic_name}" service, so the answers for that service are the ones most likely to apply.`
@@ -363,7 +396,10 @@ function leadContext(config, context) {
     context?.reply_language
       ? `You have been replying in ${context.reply_language} in this chat so far.`
       : 'You have not settled on a language for this chat yet - pick one based on how they write to you.',
-  ].join('\n');
+    context?.introduced_at
+      ? 'You have already introduced yourself by name in this chat - do not do it again.'
+      : `You have not introduced yourself yet in this chat - work your name (${config.botName}) into your very next reply naturally, the way a person would ("Hey, I'm ${config.botName}" or similar), not as a separate greeting message.`,
+  ].filter(Boolean).join('\n');
 }
 
 function describeDuration(since) {

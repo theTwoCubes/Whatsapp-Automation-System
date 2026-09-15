@@ -8,7 +8,7 @@ import {
   FileText, Image as ImageIcon, ChevronDown, LayoutList,
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
-  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter, MessageSquarePlus,
+  ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter, Plus, Users, MessageCirclePlus,
 } from 'lucide-react';
 
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
@@ -37,6 +37,32 @@ async function haptic(style = 'Light') {
     const { Haptics, ImpactStyle } = await import(/* @vite-ignore */ '@capacitor/haptics');
     await Haptics.impact({ style: ImpactStyle[style] });
   } catch { /* plugin not installed or unavailable */ }
+}
+
+// Saves a downloaded file (the xlsx export) to disk. A plain <a download>
+// click does not work inside the APK's WebView, so on native this writes to
+// the cache dir via Filesystem and opens the share sheet instead; on the web
+// it is a normal browser download.
+async function downloadBlob(filename, blob) {
+  if (window.Capacitor?.isNativePlatform?.()) {
+    const { Filesystem, Directory } = await import(/* @vite-ignore */ '@capacitor/filesystem');
+    const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const { uri } = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+    await Share.share({ title: filename, url: uri, dialogTitle: `Save ${filename}` });
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Module-scoped so the value persists across Console mount/unmount cycles
@@ -400,6 +426,148 @@ function ComposeModal({ onClose, onCreated }) {
   );
 }
 
+// Bulk Send Modal - paste a list of leads, pick a service and an approved
+// template, and every recipient is queued for the scheduler to work through
+// a few at a time. Polls the batch's progress while open so the client can
+// watch it go out without needing to refresh anything.
+function BulkSendModal({ onClose, onQueued }) {
+  const [text, setText]           = useState('');
+  const [topics, setTopics]       = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [topicId, setTopicId]     = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [busy, setBusy]           = useState(false);
+  const [batch, setBatch]         = useState(null); // { batchId, queued, skipped, total }
+  const [progress, setProgress]   = useState(null);
+  const toast = useToast();
+
+  useEffect(() => {
+    api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
+    api.templates().then((d) => setTemplates(d.templates || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!batch) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const { progress: p } = await api.bulkSendProgress(batch.batchId);
+        if (!cancelled) setProgress(p);
+      } catch { /* transient, next tick retries */ }
+    };
+    poll();
+    const timer = setInterval(poll, 2500);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [batch]);
+
+  const leadCount = text.split('\n').map((l) => l.trim()).filter(Boolean).length;
+
+  const submit = async () => {
+    if (!text.trim() || !templateName) return;
+    setBusy(true);
+    try {
+      const res = await api.bulkSend(text, templateName, topicId ? Number(topicId) : null);
+      setBatch(res);
+      onQueued?.();
+      toast.success(`Queued ${res.queued} lead${res.queued === 1 ? '' : 's'}${res.skipped ? `, ${res.skipped} skipped (no valid number)` : ''}`);
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const done = progress && (progress.byStatus?.pending ?? 0) + (progress.byStatus?.sending ?? 0) === 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-shrink-0 items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900">Bulk send</h2>
+          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-full hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        {!batch ? (
+          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Paste one lead per line - name, phone number, and business or email if you have them, in any order. Each one gets an approved template message; WhatsApp does not allow anything else to someone who hasn't messaged in first.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-base font-medium text-gray-800">Leads</label>
+              <textarea
+                className="field-textarea font-mono text-sm"
+                placeholder={'Priya, 91 98765 43210, priya@example.com\n91 90000 12345\nRahul, Rahul Traders, 91 91234 56789'}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={8}
+              />
+              {leadCount > 0 && <span className="text-xs text-gray-400">{leadCount} line{leadCount === 1 ? '' : 's'}</span>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-base font-medium text-gray-800">Service <span className="text-gray-400 font-normal">(optional)</span></label>
+              <select className="field-input h-10 px-3 text-sm" value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+                <option value="">No specific service</option>
+                {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-base font-medium text-gray-800">Template</label>
+              <select className="field-input h-10 px-3 text-sm" value={templateName} onChange={(e) => setTemplateName(e.target.value)}>
+                <option value="">Choose an approved template</option>
+                {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+              </select>
+              {templates.length === 0 && <p className="text-sm text-gray-400">No approved templates found - sync templates from Ops first.</p>}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="text-sm font-semibold text-gray-800 mb-1">
+                {done ? 'Done' : 'Sending…'}
+              </div>
+              <div className="text-sm text-gray-600">
+                {progress ? (
+                  <>
+                    {progress.byStatus?.sent || 0} sent
+                    {progress.byStatus?.failed ? `, ${progress.byStatus.failed} failed` : ''}
+                    {progress.byStatus?.stuck ? `, ${progress.byStatus.stuck} need a manual check` : ''}
+                    {' '}of {batch.queued} queued
+                    {batch.skipped ? ` (${batch.skipped} skipped for no valid number)` : ''}
+                  </>
+                ) : 'Loading progress…'}
+              </div>
+              {!done && (
+                <div className="w-full h-1.5 bg-gray-200 rounded-full mt-3 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${progress && batch.queued ? Math.round(((progress.byStatus?.sent || 0) + (progress.byStatus?.failed || 0) + (progress.byStatus?.stuck || 0)) / batch.queued * 100) : 0}%`,
+                      background: 'var(--accent)',
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+            <p className="text-sm text-gray-400">This keeps going in the background even if you close this window - come back to Bulk send to check on it again.</p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          {!batch ? (
+            <>
+              <Button variant="secondary" size="md" onClick={onClose} disabled={busy}>Cancel</Button>
+              <Button variant="primary" size="md" onClick={submit} disabled={busy || !text.trim() || !templateName}>
+                {busy ? 'Queuing…' : 'Queue send'}
+              </Button>
+            </>
+          ) : (
+            <Button variant="primary" size="md" onClick={onClose}>Close</Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Console Root
 export default function Console({ onConversationsChange, onThreadOpen, onOpenConversation }) {
   const [conversations, setConversations] = useState([]);
@@ -409,9 +577,13 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [query, setQuery]                 = useState('');
   const [filter, setFilter]               = useState('all');
   const [serviceFilter, setServiceFilter] = useState(null);
+  const [originFilter, setOriginFilter]   = useState(null); // null | 'lead' | 'business' — who started the conversation
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const serviceBtnRef                     = useRef(null);
   const [showCompose, setShowCompose]     = useState(false);
+  const [showFabMenu, setShowFabMenu]     = useState(false);
+  const [showBulkSend, setShowBulkSend]   = useState(false);
+  const [exportBusy, setExportBusy]       = useState(false);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
   const [ptrDist, setPtrDist]             = useState(0);
@@ -665,12 +837,13 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     // not apply to it — everything the server returned should show.
     if (filter !== 'all' && filter !== 'archived') list = list.filter((c) => c.state === filter);
     if (serviceFilter != null) list = list.filter((c) => c.topic_id === serviceFilter);
+    if (originFilter != null) list = list.filter((c) => (c.origin || 'lead') === originFilter);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) =>
       (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q)
     );
     return list;
-  }, [conversations, query, filter, serviceFilter]);
+  }, [conversations, query, filter, serviceFilter, originFilter]);
 
   // Which services have an active chat right now, with counts - built from
   // whatever is already loaded rather than a separate query. A dropdown
@@ -688,6 +861,19 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   }, [conversations]);
 
   const activeService = serviceFilter != null ? serviceOptions.find((s) => s.id === serviceFilter) : null;
+
+  const exportLeads = useCallback(async () => {
+    setExportBusy(true);
+    try {
+      const blob = await api.exportContacts(serviceFilter);
+      const suffix = activeService ? `-${activeService.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
+      await downloadBlob(`leads${suffix}-${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
+    } catch (e) {
+      toast.error('Export failed: ' + e.message);
+    } finally {
+      setExportBusy(false);
+    }
+  }, [serviceFilter, activeService, toast]);
 
   const counts = useMemo(() => ({
     all:     conversations.length,
@@ -742,7 +928,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
 
       {/* Chat List */}
       <div className={`
-        flex-shrink-0 flex-col border-r border-gray-200 bg-white overflow-hidden
+        relative flex-shrink-0 flex-col border-r border-gray-200 bg-white overflow-hidden
         w-full md:w-[440px]
         ${selected ? 'hidden md:flex' : 'flex'}
       `}>
@@ -767,23 +953,24 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               ref={serviceBtnRef}
               type="button"
               onClick={() => setShowServiceMenu((v) => !v)}
-              className={`flex-shrink-0 relative ${serviceFilter != null ? 'text-[var(--accent)]' : 'text-gray-400 hover:text-gray-600'}`}
-              title="Filter by service"
-              aria-label="Filter by service"
+              className={`flex-shrink-0 relative ${(serviceFilter != null || originFilter != null) ? 'text-[var(--accent)]' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Filter"
+              aria-label="Filter"
             >
               <ListFilter size={16} />
-              {serviceFilter != null && (
+              {(serviceFilter != null || originFilter != null) && (
                 <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
               )}
             </button>
             <button
               type="button"
-              onClick={() => setShowCompose(true)}
-              className="flex-shrink-0 text-gray-400 hover:text-gray-600"
-              title="Start a new conversation"
-              aria-label="Start a new conversation"
+              onClick={exportLeads}
+              disabled={exportBusy}
+              className="flex-shrink-0 text-gray-400 hover:text-gray-600 disabled:opacity-40"
+              title={activeService ? `Export ${activeService.name} leads` : 'Export all leads'}
+              aria-label="Export leads to Excel"
             >
-              <MessageSquarePlus size={17} />
+              <Download size={16} />
             </button>
           </div>
           {showServiceMenu && (
@@ -792,19 +979,36 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               services={serviceOptions}
               selected={serviceFilter}
               onSelect={setServiceFilter}
+              origin={originFilter}
+              onSelectOrigin={setOriginFilter}
               onClose={() => setShowServiceMenu(false)}
             />
           )}
-          {activeService && (
-            <button
-              type="button"
-              onClick={() => setServiceFilter(null)}
-              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
-              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
-            >
-              {activeService.name}
-              <X size={12} />
-            </button>
+          {(activeService || originFilter != null) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {activeService && (
+                <button
+                  type="button"
+                  onClick={() => setServiceFilter(null)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+                >
+                  {activeService.name}
+                  <X size={12} />
+                </button>
+              )}
+              {originFilter != null && (
+                <button
+                  type="button"
+                  onClick={() => setOriginFilter(null)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+                >
+                  {originFilter === 'lead' ? 'Inbound' : 'Outbound'}
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           )}
           {showCompose && (
             <ComposeModal
@@ -816,6 +1020,12 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
                 setServiceFilter(null);
                 setSelected(id);
               }}
+            />
+          )}
+          {showBulkSend && (
+            <BulkSendModal
+              onClose={() => setShowBulkSend(false)}
+              onQueued={() => loadList(true)}
             />
           )}
         </div>
@@ -900,6 +1110,45 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
             );
           })}
         </div>
+
+        {/* Start a conversation - WhatsApp-style floating action button. Tap
+            opens a tiny speed-dial with the single-lead and bulk options,
+            instead of two permanent buttons competing for the same corner. */}
+        <div className="absolute bottom-5 right-5 md:bottom-6 md:right-6 z-10 flex flex-col items-end gap-3">
+          {showFabMenu && (
+            <>
+              <button
+                type="button"
+                onClick={() => { setShowFabMenu(false); setShowBulkSend(true); }}
+                className="flex items-center gap-2 pl-3.5 pr-2 py-2 rounded-full bg-white text-gray-800 shadow-lg border border-gray-100 hover:bg-gray-50 transition-all"
+              >
+                <span className="text-sm font-medium whitespace-nowrap">Bulk send</span>
+                <span className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><Users size={16} /></span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowFabMenu(false); setShowCompose(true); }}
+                className="flex items-center gap-2 pl-3.5 pr-2 py-2 rounded-full bg-white text-gray-800 shadow-lg border border-gray-100 hover:bg-gray-50 transition-all"
+              >
+                <span className="text-sm font-medium whitespace-nowrap">New conversation</span>
+                <span className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><MessageCirclePlus size={16} /></span>
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowFabMenu((v) => !v)}
+            className="w-14 h-14 rounded-full bg-[var(--accent)] text-white shadow-lg hover:brightness-95 active:scale-95 transition-all flex items-center justify-center"
+            title="Start a conversation"
+            aria-label="Start a conversation"
+            aria-expanded={showFabMenu}
+          >
+            <Plus size={26} className={`transition-transform ${showFabMenu ? 'rotate-45' : ''}`} />
+          </button>
+        </div>
+        {showFabMenu && (
+          <div className="fixed inset-0 z-[9]" onClick={() => setShowFabMenu(false)} />
+        )}
       </div>
 
       {/* Thread */}
@@ -1223,7 +1472,7 @@ function ContextRow({ label, children }) {
 // button + popover instead of another row of tabs, since the number of
 // services (logo design, packaging, website, ...) can grow past what fits
 // on a phone screen without needing its own scroll.
-function ServiceFilterMenu({ anchorRef, services, selected, onSelect, onClose }) {
+function ServiceFilterMenu({ anchorRef, services, selected, onSelect, origin, onSelectOrigin, onClose }) {
   const [coords, setCoords] = useState(null);
   const menuRef = useRef(null);
 
@@ -1260,6 +1509,27 @@ function ServiceFilterMenu({ anchorRef, services, selected, onSelect, onClose })
       className="fixed z-[9998] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden py-1 max-h-80 overflow-y-auto"
       style={{ left: coords.left, top: coords.top, width: coords.width }}
     >
+      {onSelectOrigin && (
+        <>
+          <div className="px-3.5 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Who started it</div>
+          {[
+            { key: null, label: 'Any' },
+            { key: 'lead', label: 'Inbound — the lead messaged in' },
+            { key: 'business', label: 'Outbound — we messaged first' },
+          ].map((d) => (
+            <button
+              key={String(d.key)}
+              type="button"
+              onClick={() => { onSelectOrigin(d.key); onClose(); }}
+              className={`w-full flex items-center px-3.5 py-2 text-sm text-left hover:bg-gray-50 ${origin === d.key ? 'font-semibold text-gray-900' : 'text-gray-700'}`}
+            >
+              {d.label}
+            </button>
+          ))}
+          <div className="my-1 border-t border-gray-100" />
+          <div className="px-3.5 pt-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Service</div>
+        </>
+      )}
       <button
         type="button"
         onClick={() => { onSelect(null); onClose(); }}

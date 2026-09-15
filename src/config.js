@@ -65,6 +65,7 @@ export function loadConfig() {
     businessName: process.env.BUSINESS_NAME?.trim() || 'our studio',
     businessAbout: process.env.BUSINESS_ABOUT?.trim() || '',
     businessTone: process.env.BUSINESS_TONE?.trim() || 'friendly and professional',
+    botName: process.env.BOT_NAME?.trim() || 'Adi',
 
     fallbackMessage:
       process.env.FALLBACK_MESSAGE?.trim() ||
