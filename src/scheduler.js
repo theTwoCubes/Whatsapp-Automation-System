@@ -86,7 +86,7 @@ export async function runDueDrips(deps) {
   return jobs.length;
 }
 
-// Sends a batch of client-pasted leads their opening template message, a few
+// Sends a batch of xlsx-uploaded leads their opening template message, a few
 // at a time per tick so a list of hundreds does not slam Meta all at once and
 // so a crash mid-run loses nothing - exactly the same shape as runDueDrips,
 // just against bulk_send_jobs instead of drip_jobs.

@@ -94,7 +94,7 @@ export function loadConfig() {
 
     // Console. The jwt secret signs agent logins. The admin pair seeds the first
     // login on boot if no agent exists.
-    jwtSecret: process.env.JWT_SECRET?.trim() || 'dev-only-change-me',
+    jwtSecret: process.env.JWT_SECRET.trim(),
     adminEmail: process.env.ADMIN_EMAIL?.trim() || '',
     adminPassword: process.env.ADMIN_PASSWORD?.trim() || '',
 

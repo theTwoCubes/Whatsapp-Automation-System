@@ -103,3 +103,48 @@ Nothing in the code is tied to a specific account, so no code changes are needed
   and proxies to the app over the internal network.
 - Use a permanent System User token in production. The dev console tokens expire
   in hours.
+
+## Go-live checklist
+
+Everything above gets the system running. This is the final pass before real
+leads hit it - go through it in order, and do not skip an item because it was
+already true "last time."
+
+1. **`NODE_ENV=production` is actually set** in the deployed `.env` or compose
+   environment. This is what turns off full-payload webhook debug logging (lead
+   phone numbers and message text would otherwise be logged in full) and
+   pretty-printed dev log output.
+2. **Every secret in `.env` on the server is a real production value**, not a
+   leftover from testing: `JWT_SECRET` (long random string, never the literal
+   string used in dev), `META_APP_SECRET`, `META_ACCESS_TOKEN` (a permanent
+   System User token, not a short-lived dev-console one), `POSTGRES_PASSWORD`,
+   `ADMIN_PASSWORD`. Confirm by reading the actual deployed `.env`, not by
+   assuming it matches what's in `.env.example`.
+3. **The number is migrated off doubletick onto the client's own Meta app** -
+   this is the actual last go/no-go gate; nothing above technically requires it,
+   but going live without it means the console is running against the wrong
+   number.
+4. **`scripts/backup.sh` is scheduled**, not just present in the repo - confirm
+   the cron entry from the Backups section above is actually installed on the
+   VPS (`crontab -l`), not only documented.
+5. **Run `npm run qa` one final time** against a clean test database after any
+   further changes, and confirm all tests pass before deploying.
+6. **One manual pass through the golden path** on the real deployed URL, not
+   just localhost: log in, open an inbound conversation, send a reply, run a
+   small real bulk-send batch to completion, then reload the page and reopen
+   Bulk send to confirm the batch is still there. That last step is the direct,
+   end-to-end proof that bulk-send progress now survives a reload in the real
+   deployment, not just in dev.
+7. **Known accepted risk, not blocking**: `npm audit` on the repo root reports 9
+   moderate-severity findings, all transitive through `@capacitor/cli` and
+   `firebase-admin` (mobile build tooling, not runtime/request-path code).
+   `npm audit fix --force` was tried in a hardening pass and made things worse
+   (introduced a critical and 3 high findings elsewhere) - do not force-upgrade
+   these without a dedicated maintenance window and its own full test cycle.
+8. **Known limitation, not blocking at current scale**: rate limiters (login,
+   write, global API) are in-process memory, not shared. Fine for the current
+   single-app-container deployment; if the app is ever scaled to more than one
+   instance, revisit this (or accept weaker effective limits).
+
+Once every item above is checked, the product is production-ready by this
+audit's standard.

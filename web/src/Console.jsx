@@ -14,6 +14,13 @@ import {
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
 // agent (or the AI) can react with.
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+// Whichever batch is currently in flight, so reloading the page or reopening
+// Bulk send later resumes it instead of losing track (the server is still
+// the source of truth via GET /api/bulk-send/batches - this is just a
+// same-session shortcut to jump straight to it without waiting on that
+// fetch, and to drive the FAB's in-flight indicator at the Console root).
+const ACTIVE_BULK_BATCH_KEY = 'wa_console_active_bulk_batch';
 import { api, getToken } from './api.js';
 import { BrandContext } from './brand.js';
 import {
@@ -117,6 +124,19 @@ function daysSince(dateStr) {
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Yesterday';
   return `${diff} days ago`;
+}
+
+// Coarse "X minutes/hours/days ago" for the recent bulk-send list - finer
+// grained than daysSince above since a batch is often minutes old, not days.
+function relativeTime(dateStr) {
+  if (!dateStr) return '';
+  const diffMs = new Date() - new Date(dateStr);
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function windowLabel(conv) {
@@ -355,25 +375,40 @@ function Ticks({ status }) {
   return null;
 }
 
-// Bulk Send Modal - paste a list of leads, pick a service and an approved
+// Bulk Send Modal - upload an xlsx of leads, pick a service and an approved
 // template, and every recipient is queued for the scheduler to work through
 // a few at a time. Polls the batch's progress while open so the client can
-// watch it go out without needing to refresh anything.
-function BulkSendModal({ onClose, onQueued }) {
+// watch it go out without needing to refresh anything. Reopening later (even
+// after a reload) resumes an in-flight batch instead of losing track of it -
+// activeBatchId/onBatchChange are how the Console root shares that with this
+// modal and keeps a light live indicator outside it too.
+function BulkSendModal({ onClose, onQueued, activeBatchId, onBatchChange }) {
   const [file, setFile]           = useState(null);
   const [topics, setTopics]       = useState([]);
   const [templates, setTemplates] = useState([]);
   const [topicId, setTopicId]     = useState('');
   const [templateName, setTemplateName] = useState('');
   const [busy, setBusy]           = useState(false);
-  const [batch, setBatch]         = useState(null); // { batchId, queued, skipped, total }
+  // { batchId, queued, skipped?, total? } - skipped/total are only known
+  // right after a fresh submit; a resumed batch (from activeBatchId or the
+  // recent list) only has batchId and queued (backfilled from progress).
+  const [batch, setBatch]         = useState(activeBatchId ? { batchId: activeBatchId } : null);
   const [progress, setProgress]   = useState(null);
+  const [recent, setRecent]       = useState(null);
   const toast = useToast();
 
   useEffect(() => {
     api.topics().then((d) => setTopics(d.topics || [])).catch(() => {});
     api.templates().then((d) => setTemplates(d.templates || [])).catch(() => {});
   }, []);
+
+  // Shown above the upload form so reopening the modal never looks blank -
+  // an agent can see what already went out (or is still going out) instead
+  // of having to guess or requeue.
+  useEffect(() => {
+    if (batch) return;
+    api.bulkSendBatches().then((d) => setRecent(d.batches || [])).catch(() => setRecent([]));
+  }, [batch]);
 
   useEffect(() => {
     if (!batch) return;
@@ -384,14 +419,19 @@ function BulkSendModal({ onClose, onQueued }) {
         const { progress: p } = await api.bulkSendProgress(batch.batchId);
         if (cancelled) return;
         setProgress(p);
+        // Backfill queued for a resumed batch that only had a batchId.
+        setBatch((b) => (b && b.queued == null ? { ...b, queued: p.total } : b));
         // Nothing left pending or sending - stop polling, there is nothing
         // left to watch for.
-        if ((p.byStatus?.pending ?? 0) + (p.byStatus?.sending ?? 0) === 0) clearInterval(timer);
+        if ((p.byStatus?.pending ?? 0) + (p.byStatus?.sending ?? 0) === 0) {
+          clearInterval(timer);
+          onBatchChange?.(null);
+        }
       } catch { /* transient, next tick retries */ }
     }
     poll();
     return () => { cancelled = true; clearInterval(timer); };
-  }, [batch]);
+  }, [batch?.batchId]);
 
   const submit = async () => {
     if (!file || !templateName) return;
@@ -399,10 +439,18 @@ function BulkSendModal({ onClose, onQueued }) {
     try {
       const res = await api.bulkSend(file, templateName, topicId ? Number(topicId) : null);
       setBatch(res);
+      setProgress(null);
+      onBatchChange?.(res.batchId);
       onQueued?.();
       toast.success(`Queued ${res.queued} lead${res.queued === 1 ? '' : 's'}${res.skipped ? `, ${res.skipped} skipped (no valid mobile number)` : ''}`);
     } catch (e) { toast.error(e.message); }
     finally { setBusy(false); }
+  };
+
+  const resume = (b) => {
+    setProgress(null);
+    setBatch({ batchId: b.batch_id, queued: b.total });
+    onBatchChange?.(b.batch_id);
   };
 
   const done = progress && (progress.byStatus?.pending ?? 0) + (progress.byStatus?.sending ?? 0) === 0;
@@ -419,6 +467,39 @@ function BulkSendModal({ onClose, onQueued }) {
 
         {!batch ? (
           <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+            {recent && recent.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-base font-medium text-gray-800">Recent bulk sends</label>
+                <div className="flex flex-col divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+                  {recent.slice(0, 8).map((b) => {
+                    const inFlight = (b.pending ?? 0) > 0;
+                    return (
+                      <button
+                        key={b.batch_id}
+                        type="button"
+                        disabled={!inFlight}
+                        onClick={() => resume(b)}
+                        className={`text-left px-3 py-2 text-sm flex items-center justify-between gap-2 ${inFlight ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'}`}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium text-gray-800 truncate">
+                            {b.topic_name || 'No specific service'} — {b.template_name}
+                          </span>
+                          <span className="block text-gray-400">{relativeTime(b.started_at)}</span>
+                        </span>
+                        <span className="flex-shrink-0 text-gray-600">
+                          {inFlight ? (
+                            <span className="text-[var(--accent)] font-medium">sending…</span>
+                          ) : (
+                            <>{b.sent} sent{b.failed ? `, ${b.failed} failed` : ''}</>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <p className="text-sm text-gray-500 leading-relaxed">
               Upload an Excel file of leads. The first row must have column headers - one named <span className="font-medium text-gray-700">mobile</span> is required, <span className="font-medium text-gray-700">name</span>, <span className="font-medium text-gray-700">email</span> and <span className="font-medium text-gray-700">business</span> are picked up automatically if present, in any column order. Each lead gets an approved template message; WhatsApp does not allow anything else to someone who hasn't messaged in first.
             </p>
@@ -476,7 +557,7 @@ function BulkSendModal({ onClose, onQueued }) {
                 </div>
               )}
             </div>
-            <p className="text-sm text-gray-400">This keeps going in the background even if you close this window - come back to Bulk send to check on it again.</p>
+            <p className="text-sm text-gray-400">This keeps going in the background even if you close this window, reload, or come back later - reopen Bulk send and it picks up right where this left off.</p>
           </div>
         )}
 
@@ -510,6 +591,31 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const serviceBtnRef                     = useRef(null);
   const [showBulkSend, setShowBulkSend]   = useState(false);
+  const [activeBulkBatchId, setActiveBulkBatchId] = useState(() => localStorage.getItem(ACTIVE_BULK_BATCH_KEY));
+  const updateActiveBulkBatch = useCallback((id) => {
+    setActiveBulkBatchId(id);
+    if (id) localStorage.setItem(ACTIVE_BULK_BATCH_KEY, id);
+    else localStorage.removeItem(ACTIVE_BULK_BATCH_KEY);
+  }, []);
+  // Light polling for the FAB's in-flight dot while Bulk send is closed - the
+  // modal itself polls much faster (2.5s) while open, this is just enough to
+  // notice "still going" or "just finished" without opening it.
+  useEffect(() => {
+    if (!activeBulkBatchId || showBulkSend) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { progress } = await api.bulkSendProgress(activeBulkBatchId);
+        if (cancelled) return;
+        if ((progress.byStatus?.pending ?? 0) + (progress.byStatus?.sending ?? 0) === 0) {
+          updateActiveBulkBatch(null);
+        }
+      } catch { /* transient, next tick retries */ }
+    };
+    check();
+    const timer = setInterval(check, 15000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [activeBulkBatchId, showBulkSend, updateActiveBulkBatch]);
   const [exportBusy, setExportBusy]       = useState(false);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
@@ -941,6 +1047,8 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
             <BulkSendModal
               onClose={() => setShowBulkSend(false)}
               onQueued={() => loadList(true)}
+              activeBatchId={activeBulkBatchId}
+              onBatchChange={updateActiveBulkBatch}
             />
           )}
         </div>
@@ -1032,10 +1140,13 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
           type="button"
           onClick={() => setShowBulkSend(true)}
           className="absolute bottom-5 right-5 md:bottom-6 md:right-6 z-10 w-14 h-14 rounded-full bg-[var(--accent)] text-white shadow-lg hover:brightness-95 active:scale-95 transition-all flex items-center justify-center"
-          title="Bulk send"
-          aria-label="Bulk send"
+          title={activeBulkBatchId ? 'Bulk send - still sending' : 'Bulk send'}
+          aria-label={activeBulkBatchId ? 'Bulk send, a batch is still sending' : 'Bulk send'}
         >
           <Plus size={26} />
+          {activeBulkBatchId && (
+            <span className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+          )}
         </button>
       </div>
 

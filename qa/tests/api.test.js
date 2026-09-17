@@ -83,20 +83,18 @@ test('an agent can list conversations with a token', async () => {
   await app.close();
 });
 
+// findOrCreateComposeConversation no longer has an HTTP route of its own
+// (compose-a-fresh-conversation was folded into bulk send), but it's still
+// what runBulkSend calls per lead in scheduler.js, so its behavior is
+// exercised directly here rather than through the API.
 test('composing starts a fresh conversation with no window open, so only a template can be sent', async () => {
   const app = await buildApp(new FakeMeta());
   const token = await tokenFor(app);
-  const res = await app.inject({
-    method: 'POST', url: '/api/conversations/compose',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { waId: '+91 98765-43210', name: 'Cold Lead' },
-  });
-  assert.equal(res.statusCode, 200);
-  const { id } = res.json();
+  const id = await findOrCreateComposeConversation(pool, { waId: '919876543210', name: 'Cold Lead' });
   assert.ok(id);
 
   const conv = await getConversationById(pool, id);
-  assert.equal(conv.wa_id, '919876543210', 'punctuation stripped, digits only');
+  assert.equal(conv.wa_id, '919876543210');
   assert.equal(conv.window_expires_at, null, 'no inbound message yet, so no open window');
 
   const detail = await app.inject({ method: 'GET', url: `/api/conversations/${id}`, headers: { authorization: `Bearer ${token}` } });
@@ -105,32 +103,9 @@ test('composing starts a fresh conversation with no window open, so only a templ
 });
 
 test('composing twice for the same number reuses the one conversation', async () => {
-  const app = await buildApp(new FakeMeta());
-  const token = await tokenFor(app);
-  const first = await app.inject({
-    method: 'POST', url: '/api/conversations/compose',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { waId: '918000000000' },
-  });
-  const second = await app.inject({
-    method: 'POST', url: '/api/conversations/compose',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { waId: '918000000000' },
-  });
-  assert.equal(first.json().id, second.json().id);
-  await app.close();
-});
-
-test('an invalid phone number is rejected before touching the database', async () => {
-  const app = await buildApp(new FakeMeta());
-  const token = await tokenFor(app);
-  const res = await app.inject({
-    method: 'POST', url: '/api/conversations/compose',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { waId: '123' },
-  });
-  assert.equal(res.statusCode, 400);
-  await app.close();
+  const first = await findOrCreateComposeConversation(pool, { waId: '918000000000' });
+  const second = await findOrCreateComposeConversation(pool, { waId: '918000000000' });
+  assert.equal(first, second);
 });
 
 test('an organic conversation surfaces the service the ai pulled in, for the console\'s service filter', async () => {

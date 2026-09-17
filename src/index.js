@@ -47,10 +47,6 @@ async function main() {
   const realtime = createRealtime();
   const app = buildServer(config, pool, realtime);
 
-  if (process.env.NODE_ENV === 'production' && config.jwtSecret === 'dev-only-change-me') {
-    app.log.warn('JWT_SECRET is not set, using the insecure default. Set JWT_SECRET in production.');
-  }
-
   // Push notification sanity checks — noisy so a stale deploy is obvious.
   if (!pushConfigured()) {
     app.log.warn('VAPID keys are not set. Web push will silently no-op. Run: node scripts/generate-vapid.js >> .env');

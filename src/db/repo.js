@@ -493,13 +493,15 @@ export async function bulkSendBatchProgress(pool, batchId) {
 
 export async function listRecentBulkSendBatches(pool, limit = 20) {
   const res = await pool.query(
-    `select batch_id, template_name, min(created_at) as started_at, count(*)::int as total,
-            count(*) filter (where status = 'sent')::int as sent,
-            count(*) filter (where status in ('failed', 'stuck'))::int as failed,
-            count(*) filter (where status in ('pending', 'sending'))::int as pending
-     from bulk_send_jobs
-     group by batch_id, template_name
-     order by min(created_at) desc
+    `select j.batch_id, j.template_name, t.name as topic_name,
+            min(j.created_at) as started_at, count(*)::int as total,
+            count(*) filter (where j.status = 'sent')::int as sent,
+            count(*) filter (where j.status in ('failed', 'stuck'))::int as failed,
+            count(*) filter (where j.status in ('pending', 'sending'))::int as pending
+     from bulk_send_jobs j
+     left join topics t on t.id = j.topic_id
+     group by j.batch_id, j.template_name, t.name
+     order by min(j.created_at) desc
      limit $1`,
     [limit],
   );

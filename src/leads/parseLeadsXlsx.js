@@ -63,13 +63,15 @@ export async function parseLeadsXlsx(buffer) {
   const invalid = [];
   const seen = new Set();
   const lastRow = Math.min(sheet.rowCount, MAX_ROWS_SCANNED + 1);
+  let lastScannedRowHadContent = false;
   for (let r = 2; r <= lastRow; r++) {
     const row = sheet.getRow(r);
     const mobileRaw = cellText(row.getCell(columnFor.mobile));
     const name = columnFor.name ? cellText(row.getCell(columnFor.name)) : '';
     const email = columnFor.email ? cellText(row.getCell(columnFor.email)) : '';
     const business = columnFor.business ? cellText(row.getCell(columnFor.business)) : '';
-    if (!mobileRaw && !name && !email && !business) continue; // fully blank row
+    lastScannedRowHadContent = !!(mobileRaw || name || email || business);
+    if (!lastScannedRowHadContent) continue; // fully blank row
 
     const waId = mobileRaw.replace(/\D/g, '');
     if (waId.length < 8 || waId.length > 15) {
@@ -82,6 +84,11 @@ export async function parseLeadsXlsx(buffer) {
     rows.push({ waId, name: name || null, email: email || null, business: business || null });
   }
 
-  const truncated = sheet.rowCount > lastRow;
+  // sheet.rowCount is unreliable on its own - stray formatting on an unused
+  // range can inflate it into the millions even when real data ends much
+  // earlier. Only report truncation if the very last row we scanned still had
+  // real content, meaning we plausibly cut off mid-data rather than just
+  // hitting Excel's padded-out row count.
+  const truncated = sheet.rowCount > lastRow && lastScannedRowHadContent;
   return { rows, invalid, truncated };
 }

@@ -20,10 +20,12 @@ const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist
 
 export function buildServer(config, pool, realtime = createRealtime()) {
   const app = Fastify({
-    // Caddy sits directly in front of the app and sets X-Forwarded-For, so
-    // trust it to get the real client ip for rate limiting and logging
-    // instead of always seeing the proxy's own address.
-    trustProxy: true,
+    // Caddy sits directly in front of the app as the only proxy hop, so trust
+    // exactly one hop rather than the whole chain - Caddy appends to whatever
+    // X-Forwarded-For a client sends rather than replacing it, so trusting
+    // the full chain would let a client spoof req.ip (and defeat every
+    // IP-keyed rate limiter) just by sending its own X-Forwarded-For header.
+    trustProxy: 1,
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       redact: {
@@ -56,7 +58,11 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'SAMEORIGIN');
     reply.header('Referrer-Policy', 'no-referrer');
-    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https:");
+    // connect-src is 'self' only - the console's websocket (/api/stream) is
+    // same-origin, and every Meta/AI call is made server-side, never from the
+    // browser, so there is no legitimate reason for the page to reach any
+    // other host.
+    reply.header('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'");
     return payload;
   });
 

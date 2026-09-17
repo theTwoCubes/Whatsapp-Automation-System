@@ -38,7 +38,6 @@ import {
   softDeleteConversation,
   clearChat,
   getConversationById,
-  findOrCreateComposeConversation,
   getConversationMessages,
   listTemplates,
   syncTemplates,
@@ -102,6 +101,21 @@ function mediaKind(mime) {
   return 'document';
 }
 
+// What WhatsApp's Cloud API actually accepts per Meta's docs - anything
+// outside this list would fail on send anyway, so reject it here instead of
+// forwarding arbitrary uploaded content (an admin session compromise or
+// mistake) to Meta unchecked.
+const ALLOWED_MEDIA_MIMETYPES = new Set([
+  'image/jpeg', 'image/png', 'image/webp',
+  'video/mp4', 'video/3gpp',
+  'audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg',
+  'text/plain', 'application/pdf',
+  'application/vnd.ms-powerpoint', 'application/msword', 'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
 // The 24 hour service window is open while the last inbound was under 24 hours
 // ago, which we track as window_expires_at.
 function windowOpen(conversation) {
@@ -134,6 +148,10 @@ function bodyComponents(params) {
 export function registerApi(app, deps) {
   const { pool, meta, realtime } = deps;
   const loginLimiter = createRateLimiter({ max: 8, windowMs: 60000 });
+  // Keyed by account rather than IP, so a distributed attacker spread across
+  // many source IPs still cannot brute-force one specific known email faster
+  // than this, on top of (not instead of) the per-IP limiter above.
+  const loginLimiterByEmail = createRateLimiter({ max: 8, windowMs: 60000 });
   // Per-agent write throttle so a runaway client (or a stolen token) cannot
   // hammer the DB. Reads are not counted; only mutating requests are.
   const writeLimiter = createRateLimiter({ max: 120, windowMs: 60000 });
@@ -234,6 +252,12 @@ export function registerApi(app, deps) {
       return reply.code(429).send({ error: 'too many attempts, try again shortly', retryAfter: limit.retryAfter });
     }
     const { email, password } = req.body ?? {};
+    if (email) {
+      const emailLimit = loginLimiterByEmail(email.trim().toLowerCase());
+      if (!emailLimit.ok) {
+        return reply.code(429).send({ error: 'too many attempts, try again shortly', retryAfter: emailLimit.retryAfter });
+      }
+    }
     const agent = email ? await getAgentByEmail(pool, email) : null;
     // Always runs the same scrypt verify whether or not the account exists,
     // so response timing cannot be used to enumerate valid emails.
@@ -299,43 +323,13 @@ export function registerApi(app, deps) {
       .send(Buffer.from(buffer));
   });
 
-  // Lets an agent start a conversation with a number that hasn't messaged in,
-  // from the console's Compose button. Only ever creates the conversation
-  // shell - with no window_expires_at set, it opens exactly like any other
-  // outside-the-window chat, so the composer already only offers an approved
-  // template, same as everywhere else. No separate "template only" flag needed.
-  app.post('/api/conversations/compose', {
-    preHandler: [auth, writeLimit],
-    schema: {
-      body: {
-        type: 'object',
-        properties: {
-          waId: { type: 'string', minLength: 1, maxLength: 32 },
-          name: { type: 'string', maxLength: 120 },
-        },
-        required: ['waId'],
-        additionalProperties: false,
-      },
-    },
-  }, async (req, reply) => {
-    const waId = String(req.body.waId).replace(/\D/g, '');
-    if (waId.length < 8 || waId.length > 15) {
-      return reply.code(400).send({ error: 'enter a valid phone number with country code, digits only' });
-    }
-    const name = (req.body?.name ?? '').trim() || null;
-    const id = await findOrCreateComposeConversation(pool, { waId, name });
-    await audit(req, 'conversation composed', `conversation ${id}`, waId);
-    realtime.emit({ type: 'refresh' });
-    return { id };
-  });
-
   const MAX_BULK_SEND_ROWS = 2000;
 
-  // Bulk send: the client pastes a list of leads (name, phone, optionally
-  // business and email, any order), picks a service and an approved
-  // template, and every recipient is queued as its own job for the scheduler
-  // to work through - see runBulkSend in scheduler.js for why this is not
-  // sent synchronously from this request.
+  // Bulk send: the client uploads an .xlsx of leads (mobile required, name /
+  // business / email optional, any column order), picks a service and an
+  // approved template, and every recipient is queued as its own job for the
+  // scheduler to work through - see runBulkSend in scheduler.js for why this
+  // is not sent synchronously from this request.
   app.post('/api/bulk-send', { preHandler: [auth, writeLimit] }, async (req, reply) => {
     let file = null;
     let topicIdRaw = null;
@@ -914,7 +908,16 @@ export function registerApi(app, deps) {
     try {
       const url = await meta.getMediaUrl(mediaId);
       const { buffer, contentType } = await meta.downloadMedia(url);
-      reply.header('Content-Type', contentType);
+      // The lead who sent this file controls contentType - it comes straight
+      // from their own client, unverified. Anything outside a safe allowlist
+      // is forced to a generic download type, and Content-Disposition keeps
+      // the browser from ever rendering it inline on the console's own
+      // origin (e.g. as HTML/SVG), regardless of what the sender claimed.
+      const safeType = /^(image|audio|video)\//.test(contentType) || contentType === 'application/pdf'
+        ? contentType
+        : 'application/octet-stream';
+      reply.header('Content-Type', safeType);
+      reply.header('Content-Disposition', 'attachment; filename="media"');
       reply.header('Cache-Control', 'private, max-age=300');
       return reply.send(buffer);
     } catch (err) {
@@ -1284,6 +1287,9 @@ export function registerApi(app, deps) {
       // fall through to the missing file check below
     }
     if (!file) return reply.code(400).send({ error: 'a file is required' });
+    if (!ALLOWED_MEDIA_MIMETYPES.has(file.mimetype)) {
+      return reply.code(400).send({ error: `"${file.mimetype}" is not a file type WhatsApp can send` });
+    }
 
     try {
       const kind = mediaKind(file.mimetype);
