@@ -103,6 +103,7 @@ function Agents() {
   const [password, setPassword] = useState('');
   const [role, setRole]         = useState('agent');
   const [removeId, setRemoveId] = useState(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [adding, setAdding]     = useState(false);
   const toast = useToast();
 
@@ -121,12 +122,15 @@ function Agents() {
   };
 
   const confirmRemove = async () => {
+    if (removeBusy) return;
+    setRemoveBusy(true);
     try {
       await api.deleteAgent(removeId);
       setRemoveId(null);
       toast.success('Removed from the team');
       reload();
     } catch (e) { toast.error(e.message); }
+    finally { setRemoveBusy(false); }
   };
 
   const agents = data?.agents || [];
@@ -268,6 +272,7 @@ function Agents() {
           variant="danger"
           onConfirm={confirmRemove}
           onClose={() => setRemoveId(null)}
+          busy={removeBusy}
         />
       )}
     </div>

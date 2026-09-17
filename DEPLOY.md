@@ -90,8 +90,10 @@ Nothing in the code is tied to a specific account, so no code changes are needed
 ## Monitoring and scaling
 
 - `GET /health` is a liveness check, `GET /ready` also checks the database, and
-  `GET /metrics` exposes Prometheus style counters. Restrict `/metrics` at Caddy
-  if you do not want the counts public.
+  `GET /metrics` exposes Prometheus style counters. `/metrics` has no auth of
+  its own, so `deploy/Caddyfile` blocks it from the public internet by
+  default - check it from the VPS itself, or wire a monitoring agent that
+  runs alongside the app on the same Docker network.
 - The drip scheduler claims jobs atomically with `for update skip locked`, so you
   can run more than one app instance without double sending follow ups. The live
   update websocket is per instance, which is fine for one server; put it behind a

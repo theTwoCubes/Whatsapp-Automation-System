@@ -1,5 +1,14 @@
 # Caddy terminates HTTPS for the domain and proxies everything to the app.
 # It gets and renews certificates automatically. Websockets are upgraded as is.
 {$DOMAIN} {
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# /metrics has no auth of its own (see src/server.js) - it is not meant to
+	# be public. Keep it unreachable from outside; check it from the VPS
+	# itself instead, e.g. `docker compose -f docker-compose.prod.yml exec
+	# app wget -qO- localhost:3000/metrics`.
+	@metrics path /metrics
+	respond @metrics 404
+
 	reverse_proxy app:3000
 }

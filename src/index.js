@@ -2,8 +2,6 @@ import { loadConfig } from './config.js';
 import { createPool } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
 import { buildServer } from './server.js';
-import { MetaClient } from './meta/client.js';
-import { AiClient } from './ai/client.js';
 import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 import { pushConfigured } from './push.js';
@@ -46,6 +44,11 @@ async function main() {
 
   const realtime = createRealtime();
   const app = buildServer(config, pool, realtime);
+  // Same meta/ai instances the console's routes use, so a provider or key
+  // change made from the console reaches the scheduler too, not just live
+  // chat replies.
+  const meta = app.metaClient;
+  const ai = app.aiClient;
 
   // Push notification sanity checks — noisy so a stale deploy is obvious.
   if (!pushConfigured()) {
@@ -60,8 +63,6 @@ async function main() {
     }
   } catch { /* table may not exist on the very first migrate — ignore */ }
 
-  const meta = new MetaClient(config, app.log);
-  const ai = new AiClient(config, app.log);
   // Pick up any AI provider or key saved from the console on a previous run.
   ai.reconfigure(await getSettings(pool, config));
   const stopScheduler = startScheduler({ pool, meta, ai, config, realtime, log: app.log });

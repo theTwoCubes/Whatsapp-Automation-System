@@ -11,7 +11,7 @@ import {
 } from '../knowledge/refinement.js';
 import { getEditableSettings, editableKeys, invalidateSettings, getBranding, getAiSettings, saveAiSettings } from '../settings.js';
 import { createRateLimiter } from '../ratelimit.js';
-import { listTopics, upsertTopic, updateTopic, deleteTopic } from '../knowledge/topics.js';
+import { listTopics, upsertTopic, updateTopic, deleteTopic, getTopicBySlug } from '../knowledge/topics.js';
 import { ingestText } from '../knowledge/ingestion.js';
 import {
   listFaqs,
@@ -516,7 +516,8 @@ export function registerApi(app, deps) {
   // client already holds.
   app.get('/api/conversations/:id/messages', { preHandler: auth, schema: idParams }, async (req) => {
     const before = req.query?.before ? Number(req.query.before) : null;
-    const limit = Math.min(Number(req.query?.limit) || 50, 100);
+    const rawLimit = Number(req.query?.limit);
+    const limit = Math.min(Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : 50, 100);
     const { messages, hasMore } = await getConversationMessages(pool, req.params.id, {
       limit,
       beforeId: Number.isInteger(before) ? before : null,
@@ -746,6 +747,8 @@ export function registerApi(app, deps) {
       if (!Number.isInteger(topicId)) {
         return reply.code(400).send({ error: 'topicId must be a whole number' });
       }
+      const exists = await pool.query('select 1 from topics where id = $1', [topicId]);
+      if (exists.rowCount === 0) return reply.code(400).send({ error: 'that service no longer exists' });
     }
     await linkCampaignTopic(pool, req.params.id, topicId);
     await audit(req, 'campaign topic linked', `campaign ${req.params.id}`);
@@ -1116,6 +1119,15 @@ export function registerApi(app, deps) {
     const keywords = (req.body?.keywords ?? '').trim() || null;
     const dripSteps = (req.body?.dripSteps ?? '').trim() || null;
     if (!name || !slug) return reply.code(400).send({ error: 'name and slug are required' });
+    // upsertTopic is an insert-or-update on slug, which is exactly what an
+    // edit needs but not what "add a new service" should ever silently do -
+    // two different names that normalize to the same slug (e.g. "Web Design"
+    // and "web-design!!") would otherwise overwrite an unrelated topic with
+    // no signal to the admin that anything but a create happened.
+    const existing = await getTopicBySlug(pool, slug);
+    if (existing) {
+      return reply.code(409).send({ error: `a service named "${existing.name}" already uses this slug - edit that one instead, or pick a more distinct name` });
+    }
     const topic = await upsertTopic(pool, { slug, name, description, keywords, dripSteps });
     await audit(req, 'topic added', slug);
     return { topic };

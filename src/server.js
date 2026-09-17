@@ -94,6 +94,12 @@ export function buildServer(config, pool, realtime = createRealtime()) {
 
   const meta = new MetaClient(config, app.log);
   const ai = new AiClient(config, app.log);
+  // Exposed so index.js can hand the exact same instances to the scheduler -
+  // otherwise an AI provider/key change from the console (which calls
+  // ai.reconfigure() on this instance) would only ever take effect for live
+  // chat replies, never for auto-resume or the weekly refinement pass.
+  app.decorate('metaClient', meta);
+  app.decorate('aiClient', ai);
 
   app.register(fastifyJwt, { secret: config.jwtSecret });
   app.register(fastifyWebsocket);
@@ -123,8 +129,9 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     }
   });
 
-  // Prometheus style metrics. Restrict this at the proxy if you do not want the
-  // counts public.
+  // Prometheus style metrics. No auth of its own - deploy/Caddyfile blocks
+  // this path from the public internet, so it is only reachable from inside
+  // the VPS (or a monitoring agent running alongside the app).
   app.get('/metrics', async (_req, reply) => {
     const m = await metrics(pool);
     reply.header('Content-Type', 'text/plain; version=0.0.4');

@@ -13,6 +13,7 @@ import {
 function BusinessProfile() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -31,6 +32,8 @@ function BusinessProfile() {
   }, []);
 
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       await api.saveProfile({
         ...form,
@@ -38,6 +41,7 @@ function BusinessProfile() {
       });
       toast.success('Business profile saved — changes go live on WhatsApp within a few minutes');
     } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
   };
 
   if (!data) return (
@@ -75,7 +79,7 @@ function BusinessProfile() {
             placeholder="https://yourbusiness.com, https://instagram.com/yourbusiness"
             value={form.websites} onChange={(e) => setForm({ ...form, websites: e.target.value })} />
           <FormActions>
-            <Button variant="primary" size="sm" onClick={save}>Save profile</Button>
+            <Button variant="primary" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</Button>
           </FormActions>
         </FormStack>
       </CardBody>
@@ -88,6 +92,7 @@ function BusinessProfile() {
 function AIBehaviour() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -95,6 +100,8 @@ function AIBehaviour() {
   }, []);
 
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       await api.saveSettings({
         business_name:       form.business_name,
@@ -112,6 +119,7 @@ function AIBehaviour() {
       });
       toast.success('Settings saved — the AI will use these in its next conversation');
     } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
   };
 
   if (!data) return (
@@ -228,7 +236,7 @@ function AIBehaviour() {
       </Section>
 
       <div className="flex items-center justify-end">
-        <Button variant="primary" size="sm" onClick={save}>Save settings</Button>
+        <Button variant="primary" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
       </div>
     </div>
   );

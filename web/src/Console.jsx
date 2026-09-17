@@ -616,6 +616,16 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     const timer = setInterval(check, 15000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [activeBulkBatchId, showBulkSend, updateActiveBulkBatch]);
+  // A bulk send started in another tab (or another agent's session on this
+  // browser) should show up here too, not just after a reload - the storage
+  // event only fires in OTHER tabs, never the one that made the change.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === ACTIVE_BULK_BATCH_KEY) setActiveBulkBatchId(e.newValue);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   const [exportBusy, setExportBusy]       = useState(false);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
@@ -1829,6 +1839,7 @@ function ChatActionsMenu({ conversation, act, onChanged, onCleared, toast, onClo
 function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOlder, showContext, onToggleContext, onBack, wsOffline }) {
   const { conversation, messages, hasMore } = thread;
   const [text, setText]               = useState('');
+  const [sending, setSending]         = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showLibrary, setShowLibrary]     = useState(false);
   const [confirmMedia, setConfirmMedia]   = useState(null);
@@ -1889,6 +1900,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
   }, [messages.length]);
 
   const act = async (fn, successMsg) => {
+    setSending(true);
     try {
       const result = await fn();
       setText('');
@@ -1897,11 +1909,15 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
       return result;
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setSending(false);
     }
   };
 
   const send = () => {
-    if (!text.trim()) return;
+    // Also guards against a fast double-Enter/double-click sending the same
+    // message twice - text does not clear until the request resolves.
+    if (!text.trim() || sending) return;
     haptic('Light');
     const replyWamid = replyTo?.wa_message_id || null;
     act(() => api.send(conversation.id, text.trim(), replyWamid), 'Message sent');
@@ -2377,13 +2393,14 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
+              disabled={sending}
               aria-label="Message"
             />
             {/* Send */}
             <button
               className="w-11 h-11 md:w-12 md:h-12 rounded-xl flex items-center justify-center text-white transition-all duration-100 disabled:opacity-40 flex-shrink-0"
               style={{ background: 'var(--accent)' }}
-              disabled={!text.trim()}
+              disabled={!text.trim() || sending}
               onClick={send}
               aria-label="Send message"
             >
@@ -2416,6 +2433,7 @@ function LibraryPanel({ conversationId, onClose, onSent }) {
   const [topics, setTopics]   = useState([]);
   const [topicId, setTopicId] = useState(null);
   const [media, setMedia]     = useState([]);
+  const [sendingId, setSendingId] = useState(null);
   const toast                  = useToast();
 
   useEffect(() => {
@@ -2426,12 +2444,16 @@ function LibraryPanel({ conversationId, onClose, onSent }) {
   }, [topicId]);
 
   const send = async (assetId) => {
+    if (sendingId) return;
+    setSendingId(assetId);
     try {
       await api.sendMedia(conversationId, assetId);
       toast.success('File sent');
       await onSent();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setSendingId(null);
     }
   };
 
@@ -2477,7 +2499,9 @@ function LibraryPanel({ conversationId, onClose, onSent }) {
                 {m.description && <div className="text-xs text-gray-400 truncate">{m.description}</div>}
               </div>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => send(m.id)}>Send</Button>
+            <Button variant="secondary" size="sm" onClick={() => send(m.id)} disabled={sendingId != null}>
+              {sendingId === m.id ? 'Sending…' : 'Send'}
+            </Button>
           </div>
         ))}
       </div>
@@ -2490,6 +2514,7 @@ function TemplatePanel({ conversationId, templates, onSync, onClose, onSent }) {
   const [name, setName]     = useState('');
   const [params, setParams] = useState([]);
   const [syncing, setSyncing] = useState(false);
+  const [sending, setSending] = useState(false);
   const toast = useToast();
 
   const selected = templates.find((t) => t.name === name);
@@ -2498,6 +2523,8 @@ function TemplatePanel({ conversationId, templates, onSync, onClose, onSent }) {
   useEffect(() => setParams(Array(count).fill('')), [name, count]);
 
   const send = async () => {
+    if (sending) return;
+    setSending(true);
     try {
       await api.sendTemplate(conversationId, name, params);
       setName('');
@@ -2505,6 +2532,8 @@ function TemplatePanel({ conversationId, templates, onSync, onClose, onSent }) {
       await onSent();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -2589,9 +2618,10 @@ function TemplatePanel({ conversationId, templates, onSync, onClose, onSent }) {
             className="w-full h-10 flex items-center justify-center gap-2 text-sm font-semibold text-white rounded-lg transition-all disabled:opacity-50"
             style={{ background: 'var(--accent)' }}
             onClick={send}
+            disabled={sending}
           >
             <Send size={14} />
-            Send Template
+            {sending ? 'Sending…' : 'Send Template'}
           </button>
         )}
       </div>
