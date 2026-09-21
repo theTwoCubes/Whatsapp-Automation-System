@@ -15,6 +15,7 @@ import { createRealtime } from './realtime.js';
 import { seedAdmin } from './auth.js';
 import { metrics } from './db/repo.js';
 import { createRateLimiter } from './ratelimit.js';
+import { captureError } from './monitoring.js';
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
@@ -86,6 +87,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
     const statusCode = err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
     if (statusCode >= 500) {
       req.log.error({ err }, 'unhandled route error');
+      captureError(err, { method: req.method, url: req.url });
       reply.code(500).send({ error: 'something went wrong on our end' });
       return;
     }

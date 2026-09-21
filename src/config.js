@@ -40,6 +40,10 @@ export function loadConfig() {
     port,
     graphApiVersion: process.env.GRAPH_API_VERSION?.trim() || 'v21.0',
 
+    // Optional error tracking (see src/monitoring.js) - a no-op until set.
+    sentryDsn: process.env.SENTRY_DSN?.trim() || '',
+    sentryEnvironment: process.env.SENTRY_ENVIRONMENT?.trim() || 'production',
+
     // AI. Two providers are supported. AI_PROVIDER picks the primary, the other
     // is used as automatic failover. With no key the bot falls back to a canned
     // reply, so testing without a key still works.

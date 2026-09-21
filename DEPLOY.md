@@ -115,6 +115,27 @@ Nothing in the code is tied to a specific account, so no code changes are needed
   update websocket is per instance, which is fine for one server; put it behind a
   shared channel if you ever run several.
 
+### Error tracking (optional)
+
+Set `SENTRY_DSN` in `.env` (a free project at sentry.io is enough for one
+client) to have unhandled exceptions, 500-level route errors, and webhook
+processing failures reported there instead of only living in server logs.
+Leave it blank and nothing changes - this is purely additive.
+
+### Uptime monitoring (do this - it's outside the app, so nothing here does it for you)
+
+Nothing currently watches this server from the outside. Set up a free checker
+(UptimeRobot, Better Uptime, or similar) against:
+
+- `https://YOUR-DOMAIN/health` every 1-5 minutes - alerts if the process itself
+  is down.
+- `https://YOUR-DOMAIN/ready` - alerts specifically if the database connection
+  is the problem, which `/health` alone won't catch.
+
+Point the alert at whatever you'll actually see quickly (email, SMS, a
+WhatsApp number of your own). This needs your own account with the monitoring
+service - there's no API key for it to add here.
+
 ## Notes
 
 - The app is not exposed directly; Caddy is the only thing on ports 80 and 443

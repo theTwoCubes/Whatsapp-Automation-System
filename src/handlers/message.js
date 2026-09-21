@@ -34,6 +34,7 @@ import { getTopic } from '../knowledge/topics.js';
 import { parseDripSteps } from '../config.js';
 import { handToPending } from '../handoff.js';
 import { notifyAgentsOfHandoff } from '../push.js';
+import { captureError } from '../monitoring.js';
 
 // Fires a push to every subscribed device. Fetches contact bits in a single
 // query so the caller does not need to pass them in from every handoff site.
@@ -110,6 +111,7 @@ export async function processWebhook(body, deps) {
         }
       } catch (err) {
         log.error({ err }, 'webhook change failed, parking in dead-letter');
+        captureError(err, { where: 'processWebhook' });
         await deadLetterWebhook(pool, change, err.message).catch((dlErr) =>
           log.error({ dlErr }, 'failed to write dead-letter row'),
         );

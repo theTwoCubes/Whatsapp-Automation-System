@@ -6,6 +6,7 @@ import { createRealtime } from './realtime.js';
 import { startScheduler } from './scheduler.js';
 import { pushConfigured } from './push.js';
 import { getSettings } from './settings.js';
+import { initMonitoring, captureError } from './monitoring.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -32,6 +33,8 @@ async function main() {
     console.error(err.message);
     process.exit(1);
   }
+
+  initMonitoring(config);
 
   const pool = createPool(config);
   try {
@@ -87,10 +90,12 @@ async function main() {
   // then shut down cleanly rather than leaving the process in a broken state.
   process.on('uncaughtException', (err) => {
     app.log.error({ err }, 'uncaught exception');
+    captureError(err, { where: 'uncaughtException' });
     void shutdown('uncaughtException');
   });
   process.on('unhandledRejection', (err) => {
     app.log.error({ err }, 'unhandled rejection');
+    captureError(err, { where: 'unhandledRejection' });
     void shutdown('unhandledRejection');
   });
 
