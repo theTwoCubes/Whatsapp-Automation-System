@@ -145,6 +145,10 @@ export const api = {
   deleteMedia: (id) => req(`/media/${id}`, { method: 'DELETE' }),
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
+  paymentLinks: (topicId = null) => req(`/payment-links${topicId ? `?topicId=${topicId}` : ''}`),
+  addPaymentLink: (body) => req('/payment-links', { method: 'POST', body: JSON.stringify(body) }),
+  updatePaymentLink: (id, body) => req(`/payment-links/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePaymentLink: (id) => req(`/payment-links/${id}`, { method: 'DELETE' }),
   audit: () => req('/audit'),
   getVapidKey: () => req('/push/vapid-public-key'),
   pushSubscribe: (body) => req('/push/subscribe', { method: 'POST', body: JSON.stringify(body) }),
