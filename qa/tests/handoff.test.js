@@ -87,13 +87,29 @@ test('accepting a pending handoff claims it for the agent', async () => {
   await app.close();
 });
 
-test('rejecting a pending handoff sends it back to the bot', async () => {
+test('rejecting a pending handoff moves it to rejected, not back to the bot', async () => {
   const id = await pendingConversation();
   const app = await buildApp();
   const token = await tokenFor(app);
   const h = { authorization: `Bearer ${token}` };
 
   const res = await app.inject({ method: 'POST', url: `/api/conversations/${id}/reject`, headers: h });
+  assert.equal(res.statusCode, 200);
+
+  const conv = await getConversationById(pool, id);
+  assert.equal(conv.state, 'rejected');
+  assert.equal(conv.assignee, null);
+  await app.close();
+});
+
+test('handback resumes a rejected conversation to the bot', async () => {
+  const id = await pendingConversation();
+  const app = await buildApp();
+  const token = await tokenFor(app);
+  const h = { authorization: `Bearer ${token}` };
+
+  await app.inject({ method: 'POST', url: `/api/conversations/${id}/reject`, headers: h });
+  const res = await app.inject({ method: 'POST', url: `/api/conversations/${id}/handback`, headers: h });
   assert.equal(res.statusCode, 200);
 
   const conv = await getConversationById(pool, id);

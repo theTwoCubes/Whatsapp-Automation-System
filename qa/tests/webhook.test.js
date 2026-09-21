@@ -2,6 +2,7 @@ import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
+import { handToRejected, handToBot } from '../../src/handoff.js';
 import { inboundText, inboundImage, inboundReaction, inboundButtonReply, inboundInteractiveReply, inboundLocation, statusUpdate, adReferral } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
@@ -101,6 +102,21 @@ test('once a handoff is pending the bot stays quiet', async () => {
 
   await processWebhook(inboundText({ id: 'wamid.H3', body: 'are you there' }), d);
   assert.equal(d.meta.sends.length, sendsAfterHandoff, 'no new bot reply while pending on a human');
+});
+
+test('a rejected conversation stays quiet until an agent resumes it', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi there' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.R1', body: 'hello' }), d);
+  const conversationId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+
+  await handToRejected(pool, conversationId);
+  await processWebhook(inboundText({ id: 'wamid.R2', body: 'still there?' }), d);
+  assert.equal(d.meta.sends.length, 1, 'no reply while rejected');
+
+  await handToBot(pool, conversationId);
+  await processWebhook(inboundText({ id: 'wamid.R3', body: 'hello again' }), d);
+  assert.equal(d.meta.sends.length, 2, 'bot replies again once resumed');
 });
 
 test('ai failure falls back to a canned reply instead of going silent', async () => {

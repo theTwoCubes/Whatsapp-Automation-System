@@ -82,7 +82,15 @@ export async function recordInbound(pool, m) {
     );
 
     await client.query('commit');
-    return { isNew: inserted.rowCount > 0, conversationId, contactId, state, campaignId, topicId };
+    return {
+      isNew: inserted.rowCount > 0,
+      conversationId,
+      contactId,
+      state,
+      campaignId,
+      topicId,
+      messageId: inserted.rows[0]?.id ?? null,
+    };
   } catch (err) {
     await client.query('rollback');
     throw err;
@@ -261,7 +269,7 @@ export async function updateStatus(pool, s) {
 // Recent messages for a conversation in chronological order, for the AI context.
 export async function getConversationHistory(pool, conversationId, limit = 12) {
   const res = await pool.query(
-    `select direction, body from messages
+    `select direction, body, attachment_context from messages
      where conversation_id = $1 and body is not null
        and created_at > coalesce((select cleared_at from conversations where id = $1), '1970-01-01')
      order by created_at desc, id desc
@@ -277,6 +285,7 @@ export async function getConversationHistory(pool, conversationId, limit = 12) {
 export async function getConversationContext(pool, conversationId) {
   const res = await pool.query(
     `select ct.name as contact_name, ct.business as contact_business, ct.email as contact_email,
+            ct.address as contact_address, ct.lead_details as contact_lead_details,
             c.created_at, c.reply_language, c.introduced_at,
             t.name as topic_name,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
@@ -311,15 +320,22 @@ export async function markIntroduced(pool, conversationId) {
 // email are never collected any other way, so a fresh answer always wins over
 // nothing, but never overwrites one already on file (the lead corrects it by
 // telling the AI again, not by having every mention overwrite the last).
-export async function setLeadProfile(pool, conversationId, { name, business, email } = {}) {
-  if (!name && !business && !email) return;
+// details is a free-form bag (requirement, budget, timeline, and anything
+// else service-specific) - merged key by key the same way name/business/email
+// are: an existing value on file wins, a new value only fills a gap that was
+// previously empty. That's why it's `new || existing` and not the other way
+// round - in jsonb `||`, the right-hand side wins on a shared key.
+export async function setLeadProfile(pool, conversationId, { name, business, email, address, details } = {}) {
+  if (!name && !business && !email && !address && (!details || Object.keys(details).length === 0)) return;
   await pool.query(
     `update contacts set
        name = coalesce(contacts.name, $2),
        business = coalesce(contacts.business, $3),
-       email = coalesce(contacts.email, $4)
+       email = coalesce(contacts.email, $4),
+       address = coalesce(contacts.address, $5),
+       lead_details = $6::jsonb || contacts.lead_details
      where id = (select contact_id from conversations where id = $1)`,
-    [conversationId, name || null, business || null, email || null],
+    [conversationId, name || null, business || null, email || null, address || null, JSON.stringify(details || {})],
   );
 }
 
@@ -1073,6 +1089,98 @@ export async function getMediaAsset(pool, id) {
   return (
     await pool.query('select id, meta_media_id, filename, mime_type, kind, caption from media_assets where id = $1', [id])
   ).rows[0] ?? null;
+}
+
+// Payment links, one per topic per purpose (e.g. an analysis fee and a
+// project deposit for the same service). Same shape and guardrails as media
+// assets: admin manages the list, the AI is shown a catalog and picks one by
+// id, never allowed to invent a url.
+export async function addPaymentLink(pool, p) {
+  const r = await pool.query(
+    `insert into payment_links (topic_id, label, amount_inr, url, description)
+     values ($1, $2, $3, $4, $5)
+     returning id`,
+    [p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null],
+  );
+  return r.rows[0].id;
+}
+
+export async function updatePaymentLink(pool, id, p) {
+  await pool.query(
+    `update payment_links set
+       label = $2, amount_inr = $3, url = $4, description = $5, active = $6, updated_at = now()
+     where id = $1`,
+    [id, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.active !== false],
+  );
+}
+
+export async function deletePaymentLink(pool, id) {
+  await pool.query('delete from payment_links where id = $1', [id]);
+}
+
+// topicId: a real id filters to that service, omitted/null returns everything
+// (including links with no topic, which apply to any conversation).
+export async function listPaymentLinks(pool, { topicId = null } = {}) {
+  if (topicId) {
+    return (
+      await pool.query(
+        `select id, topic_id, label, amount_inr, url, description, active, created_at
+         from payment_links where topic_id = $1 order by id desc`,
+        [topicId],
+      )
+    ).rows;
+  }
+  return (
+    await pool.query(
+      `select id, topic_id, label, amount_inr, url, description, active, created_at
+       from payment_links order by topic_id nulls last, id desc`,
+    )
+  ).rows;
+}
+
+// Links the AI can choose to send for this reply: whatever belongs to the
+// services in play, plus anything with no service at all (general links).
+export async function getPaymentLinkCatalog(pool, topicIds = []) {
+  const ids = topicIds.map(Number).filter((n) => Number.isFinite(n));
+  const res = await pool.query(
+    `select id, label, amount_inr, url, description, topic_id
+     from payment_links
+     where active = true
+       and (topic_id is null or topic_id = any($1::bigint[]))
+     order by topic_id nulls last, id desc
+     limit 50`,
+    [ids],
+  );
+  return res.rows;
+}
+
+export async function getPaymentLink(pool, id) {
+  return (
+    await pool.query('select id, label, amount_inr, url from payment_links where id = $1', [id])
+  ).rows[0] ?? null;
+}
+
+// Records a factual, extraction-only note about an inbound image/PDF against
+// that exact message, so a human reading the thread and the AI's next turn
+// both have it without re-opening the file.
+export async function saveAttachmentContext(pool, messageId, note) {
+  if (!messageId || !note) return;
+  await pool.query('update messages set attachment_context = $2 where id = $1', [messageId, note]);
+}
+
+// How many images/documents this lead has sent in the last N minutes - the
+// throttle that keeps someone from running up the vision API bill by
+// spamming files. Counts inbound image/document messages regardless of
+// whether they were actually analysed (a skipped one still counts, so the
+// window can't be dodged by sending faster than the analysis takes).
+export async function countRecentAttachments(pool, conversationId, minutes) {
+  const res = await pool.query(
+    `select count(*)::int as n from messages
+     where conversation_id = $1 and direction = 'inbound' and type in ('image', 'document')
+       and created_at > now() - make_interval(mins => $2)`,
+    [conversationId, minutes],
+  );
+  return res.rows[0]?.n ?? 0;
 }
 
 // Ops panel stats: DB-side counters for the admin health panel.

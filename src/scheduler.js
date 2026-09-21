@@ -8,7 +8,7 @@ import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
 import { getSettings } from './settings.js';
 import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
-import { pushHandoff, maybeSendMedia, maybeSendReaction } from './handlers/message.js';
+import { pushHandoff, maybeSendMedia, maybeSendPaymentLink, maybeSendReaction } from './handlers/message.js';
 import { MetaApiError } from './meta/client.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
@@ -252,6 +252,7 @@ export async function runAutoResume(deps) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
         await reconcileContactWaId(pool, row.id, waId);
         if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
+        if (decision?.sendPaymentLinkId) await maybeSendPaymentLink(deps, row.id, row.wa_id, decision.sendPaymentLinkId);
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
       }
     } catch (err) {

@@ -1218,10 +1218,12 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
   const alias = useAlias(c.wa_id);
   const name = alias || c.name || c.wa_id;
   // State-tinted left rail: accent for pending handoff, slate while a human
-  // is in the chat, transparent otherwise. Visible at a glance in a long list.
+  // is in the chat, red while rejected (bot silent, waiting on an agent to
+  // resume it), transparent otherwise. Visible at a glance in a long list.
   const railColor =
-    c.state === 'pending' ? 'bg-[var(--accent)]' :
-    c.state === 'human'   ? 'bg-slate-400' :
+    c.state === 'pending'  ? 'bg-[var(--accent)]' :
+    c.state === 'human'    ? 'bg-slate-400' :
+    c.state === 'rejected' ? 'bg-red-400' :
     'bg-transparent';
   return (
     <button

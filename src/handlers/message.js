@@ -15,6 +15,7 @@ import {
   reconcileContactWaId,
   getMediaAsset,
   wasMediaSentRecently,
+  getPaymentLink,
   markInboundRead,
   isConversationBlocked,
   setConversationBlocked,
@@ -384,6 +385,9 @@ async function respondToLead(deps, conversationId, items) {
   if (sent && decision?.sendMediaId) {
     await maybeSendMedia(deps, conversationId, to, decision.sendMediaId);
   }
+  if (sent && decision?.sendPaymentLinkId) {
+    await maybeSendPaymentLink(deps, conversationId, to, decision.sendPaymentLinkId);
+  }
 
   if (sent) {
     const dripSteps = await resolveDripSteps(pool, settings, packs);
@@ -469,6 +473,27 @@ export async function maybeSendMedia(deps, conversationId, to, mediaAssetId) {
     }
   } catch (err) {
     log.warn({ conversationId, mediaAssetId, err }, 'failed to send media attachment');
+  }
+}
+
+// Sends the payment link the model chose, as a short follow up to its reply.
+// Just a plain text send - there is nothing to upload, no cooldown to check,
+// a lead is free to ask for the same link again (e.g. they lost it).
+export async function maybeSendPaymentLink(deps, conversationId, to, paymentLinkId) {
+  const { pool, meta, realtime, log } = deps;
+  try {
+    const link = await getPaymentLink(pool, paymentLinkId);
+    if (!link) return;
+
+    const body = `${link.label}${link.amount_inr ? ` - ₹${link.amount_inr}` : ''}\n${link.url}`;
+    const { wamid, waId } = await meta.sendText(to, body);
+    if (wamid) {
+      await recordOutbound(pool, { conversationId, waMessageId: wamid, body });
+      await reconcileContactWaId(pool, conversationId, waId);
+      realtime?.emit({ type: 'refresh', conversationId });
+    }
+  } catch (err) {
+    log.warn({ conversationId, paymentLinkId, err }, 'failed to send payment link');
   }
 }
 

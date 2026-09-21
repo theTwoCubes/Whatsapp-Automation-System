@@ -240,6 +240,58 @@ test('media already sent in this chat is listed so the model knows not to resend
   assert.match(system, /portfolio\.pdf, sent/);
 });
 
+test('a payment link with a description is offered to the model in the catalog', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, amount_inr, url, description) values ('Logo analysis fee', 450, 'https://rzp.io/l/abc', 'For reviewing a previous logo') returning id",
+    )
+  ).rows[0].id;
+
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, new RegExp(`\\[id ${linkId}\\] Logo analysis fee \\(₹450\\) - For reviewing a previous logo`));
+  assert.match(system, /send_payment_link_id/);
+});
+
+test('send_payment_link_id is only trusted when the link was actually in the catalog given', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, url) values ('Deposit', 'https://rzp.io/l/xyz') returning id",
+    )
+  ).rows[0].id;
+
+  const id = await conversation();
+  const good = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here you go.', send_payment_link_id: Number(linkId) }));
+  const goodDecision = await buildReply(pool, good, testConfig, id, {});
+  assert.equal(goodDecision.sendPaymentLinkId, Number(linkId));
+
+  const bad = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Here you go.', send_payment_link_id: 99999 }));
+  const badDecision = await buildReply(pool, bad, testConfig, id, {});
+  assert.equal(badDecision.sendPaymentLinkId, null, 'an id not in the catalog given is dropped rather than trusted');
+});
+
+test('an inactive payment link is not offered to the model', async () => {
+  await pool.query(
+    "insert into payment_links (label, url, active) values ('Old link', 'https://rzp.io/l/old', false)",
+  );
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.doesNotMatch(system, /Old link/);
+});
+
+test('the prompt tells the model pricing is fixed and never to hand off for negotiation', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /no negotiation/i);
+  assert.doesNotMatch(system, /negotiate pricing on a specific quoted amount/i, 'the old negotiation-is-a-handoff-reason line must be gone');
+});
+
 test('an answer can react instead of typing a reply, using an emoji from the fixed list', async () => {
   const id = await conversation();
   const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: '', react_emoji: REACTION_EMOJIS[0] }));
@@ -350,12 +402,37 @@ test('a lead detail the model picks up on comes back on the decision, sanitised'
     lead_name: '  Priya  ', lead_business: 'Priya Bakes', lead_email: 'priya@example.com',
   }));
   const decision = await buildReply(pool, ai, testConfig, id, {});
-  assert.deepEqual(decision.leadProfile, { name: 'Priya', business: 'Priya Bakes', email: 'priya@example.com' });
+  assert.deepEqual(decision.leadProfile, { name: 'Priya', business: 'Priya Bakes', email: 'priya@example.com', address: null, details: {} });
 
   const id2 = await conversation('hi');
   const ai2 = new SpyAi(JSON.stringify({ action: 'answer', reply: 'hi', lead_email: 'not-an-email' }));
   const decision2 = await buildReply(pool, ai2, testConfig, id2, {});
   assert.equal(decision2.leadProfile, null, 'an unusable email and no other field means nothing worth storing');
+});
+
+test('address, requirement, budget, and timeline are picked up and sanitised the same way', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({
+    action: 'answer', reply: 'Got it.', reply_language: 'English',
+    lead_address: '  221B Baker Street  ', lead_requirement: 'A logo for a bakery',
+    lead_budget: '10-15k', lead_timeline: 'next month',
+  }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.deepEqual(decision.leadProfile, {
+    name: null, business: null, email: null, address: '221B Baker Street',
+    details: { requirement: 'A logo for a bakery', budget: '10-15k', timeline: 'next month' },
+  });
+});
+
+test('a handoff decision can still carry the collected lead profile for the team log', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({
+    action: 'handoff', reply: 'Connecting you now.', reason: 'qualified: wants a full logo project',
+    lead_name: 'Priya', lead_requirement: 'Full brand identity',
+  }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.handoff, true);
+  assert.deepEqual(decision.leadProfile, { name: 'Priya', business: null, email: null, address: null, details: { requirement: 'Full brand identity' } });
 });
 
 test('once the lead\'s business and email are known, the model is shown them and does not have to ask again', async () => {
