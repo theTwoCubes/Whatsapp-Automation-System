@@ -946,6 +946,31 @@ export async function listAudit(pool, limit = 100) {
   return (await pool.query('select id, actor, action, target, detail, created_at from audit_log order by id desc limit $1', [limit])).rows;
 }
 
+// Internal, agent-only notes on a conversation - never sent to the lead.
+export async function addConversationNote(pool, conversationId, agentEmail, note) {
+  const r = await pool.query(
+    'insert into conversation_notes (conversation_id, agent_email, note) values ($1, $2, $3) returning id, agent_email, note, created_at',
+    [conversationId, agentEmail, note],
+  );
+  return r.rows[0];
+}
+
+export async function listConversationNotes(pool, conversationId) {
+  return (
+    await pool.query(
+      'select id, agent_email, note, created_at from conversation_notes where conversation_id = $1 order by created_at desc',
+      [conversationId],
+    )
+  ).rows;
+}
+
+export async function deleteConversationNote(pool, id, agentEmail, isAdmin) {
+  const res = isAdmin
+    ? await pool.query('delete from conversation_notes where id = $1', [id])
+    : await pool.query('delete from conversation_notes where id = $1 and agent_email = $2', [id, agentEmail]);
+  return res.rowCount > 0;
+}
+
 export async function metrics(pool) {
   const r = await pool.query(
     `select

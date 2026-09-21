@@ -336,6 +336,52 @@ test('a payment link must be a real http or https url', async () => {
   await app.close();
 });
 
+test('internal notes can be added, listed, and deleted by their author or an admin', async () => {
+  const convId = await makeConversation();
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const add = await app.inject({
+    method: 'POST', url: `/api/conversations/${convId}/notes`, headers: auth(t),
+    payload: { note: 'Called them, will follow up tomorrow' },
+  });
+  assert.equal(add.statusCode, 200);
+  const noteId = add.json().note.id;
+
+  const list = await app.inject({ method: 'GET', url: `/api/conversations/${convId}/notes`, headers: auth(t) });
+  assert.equal(list.json().notes.length, 1);
+  assert.equal(list.json().notes[0].agent_email, 'a@b.com');
+
+  const del = await app.inject({ method: 'DELETE', url: `/api/conversations/${convId}/notes/${noteId}`, headers: auth(t) });
+  assert.equal(del.statusCode, 200);
+
+  const afterDelete = await app.inject({ method: 'GET', url: `/api/conversations/${convId}/notes`, headers: auth(t) });
+  assert.equal(afterDelete.json().notes.length, 0);
+  await app.close();
+});
+
+test('a note cannot be deleted by someone other than its author unless they are admin', async () => {
+  const convId = await makeConversation();
+  await createAgent(pool, { email: 'agent2@b.com', name: 'Agent Two', passwordHash: hashPassword('secret2'), role: 'agent' });
+  const app = await buildApp(new FakeMeta());
+  const t1 = await token(app);
+  const t2res = await app.inject({ method: 'POST', url: '/api/login', payload: { email: 'agent2@b.com', password: 'secret2' } });
+  const t2 = t2res.json().token;
+
+  const add = await app.inject({
+    method: 'POST', url: `/api/conversations/${convId}/notes`, headers: auth(t1),
+    payload: { note: 'First agent note' },
+  });
+  const noteId = add.json().note.id;
+
+  const deniedDelete = await app.inject({ method: 'DELETE', url: `/api/conversations/${convId}/notes/${noteId}`, headers: auth(t2) });
+  assert.equal(deniedDelete.statusCode, 404, 'a non-admin cannot delete someone else\'s note');
+
+  const stillThere = await app.inject({ method: 'GET', url: `/api/conversations/${convId}/notes`, headers: auth(t1) });
+  assert.equal(stillThere.json().notes.length, 1);
+  await app.close();
+});
+
 test('branding is public and editable', async () => {
   const app = await buildApp(new FakeMeta());
   const pub = await app.inject({ method: 'GET', url: '/api/branding' });

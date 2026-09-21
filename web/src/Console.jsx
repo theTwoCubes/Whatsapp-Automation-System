@@ -1556,6 +1556,9 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         </div>
       )}
 
+      {/* Internal notes - agent-only, never sent to the lead */}
+      <NotesSection conversationId={c.id} />
+
       {/* Actions */}
       <div className="px-4 md:px-6 py-4 md:py-5 flex flex-col gap-2">
         <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Actions</div>
@@ -1585,6 +1588,88 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         )}
       </div>
     </aside>
+  );
+}
+
+// Internal notes: agent-only context on a conversation, never sent to the
+// lead. Own local state and its own fetch, same pattern as PaymentLinksPane -
+// self-contained so ContextPanel doesn't need to know about it beyond
+// rendering it.
+function NotesSection({ conversationId }) {
+  const [notes, setNotes]   = useState(null);
+  const [draft, setDraft]   = useState('');
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  const reload = useCallback(() => {
+    api.notes(conversationId).then((d) => setNotes(d.notes || [])).catch(() => setNotes([]));
+  }, [conversationId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const add = async () => {
+    const note = draft.trim();
+    if (!note) return;
+    setSaving(true);
+    try {
+      await api.addNote(conversationId, note);
+      setDraft('');
+      reload();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (noteId) => {
+    try {
+      await api.deleteNote(conversationId, noteId);
+      reload();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  return (
+    <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-3">
+      <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">
+        Internal notes <span className="normal-case font-normal text-gray-400">(never sent to the lead)</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <textarea
+          className="field-textarea text-sm"
+          rows={2}
+          placeholder="Leave a note for the team about this chat…"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button variant="secondary" size="sm" className="self-end" onClick={add} disabled={!draft.trim() || saving}>
+          {saving ? 'Adding…' : 'Add note'}
+        </Button>
+      </div>
+      {notes === null ? null : notes.length === 0 ? (
+        <span className="text-xs text-gray-400">No notes yet.</span>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {notes.map((n) => (
+            <div key={n.id} className="flex items-start justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-xs text-gray-700 whitespace-pre-wrap break-words">{n.note}</div>
+                <div className="text-[11px] text-gray-400 mt-1">{n.agent_email} · {daysSince(n.created_at)}</div>
+              </div>
+              <button
+                onClick={() => remove(n.id)}
+                className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                aria-label="Delete note"
+                title="Delete note"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

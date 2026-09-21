@@ -64,6 +64,9 @@ import {
   deletePaymentLink,
   addAudit,
   listAudit,
+  addConversationNote,
+  listConversationNotes,
+  deleteConversationNote,
   getMessageRaw,
   opsStats,
   listContactsForExport,
@@ -539,6 +542,35 @@ export function registerApi(app, deps) {
     await audit(req, 'lead details updated', `conversation ${req.params.id}`, Object.keys(req.body).join(', '));
     realtime.emit({ type: 'refresh', conversationId: conversation.id });
     return { contact };
+  });
+
+  // Internal notes: agent-only context on a conversation, never sent to the
+  // lead. Any agent can add one; only the author or an admin can delete one.
+  app.get('/api/conversations/:id/notes', { preHandler: auth, schema: idParams }, async (req) => ({
+    notes: await listConversationNotes(pool, req.params.id),
+  }));
+
+  app.post('/api/conversations/:id/notes', {
+    preHandler: [auth, writeLimit],
+    schema: { ...idParams, body: { type: 'object', properties: { note: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['note'] } },
+  }, async (req, reply) => {
+    const note = req.body.note.trim();
+    if (!note) return reply.code(400).send({ error: 'note cannot be empty' });
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    const saved = await addConversationNote(pool, req.params.id, req.user.email, note);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { note: saved };
+  });
+
+  app.delete('/api/conversations/:id/notes/:noteId', {
+    preHandler: [auth, writeLimit],
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]+$' }, noteId: { type: 'string', pattern: '^[0-9]+$' } }, required: ['id', 'noteId'] } },
+  }, async (req, reply) => {
+    const deleted = await deleteConversationNote(pool, req.params.noteId, req.user.email, req.user.role === 'admin');
+    if (!deleted) return reply.code(404).send({ error: 'not found, or not yours to delete' });
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true };
   });
 
   // Older page for infinite scroll-up. before is the oldest message id the
