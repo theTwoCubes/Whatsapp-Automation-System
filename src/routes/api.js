@@ -77,6 +77,18 @@ import ExcelJS from 'exceljs';
 import { parseLeadsXlsx } from '../leads/parseLeadsXlsx.js';
 import { getStats as getTelemetryStats } from '../ai/telemetry.js';
 
+// A payment link only ever needs to be clicked by a lead on WhatsApp or an
+// admin in the console (rendered as a plain <a href>) - rejecting anything
+// that isn't a real http(s) url keeps a stray javascript: or data: url from
+// ever being stored and later clicked from the admin's own browser.
+function isHttpUrl(value) {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 // Pulls the media id out of an inbound message payload.
 function mediaIdFromRaw(raw) {
   if (!raw) return null;
@@ -1354,6 +1366,7 @@ export function registerApi(app, deps) {
     const label = (req.body?.label ?? '').trim();
     const url = (req.body?.url ?? '').trim();
     if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
     const id = await addPaymentLink(pool, {
       topicId: req.body?.topicId ? Number(req.body.topicId) : null,
       label,
@@ -1369,6 +1382,7 @@ export function registerApi(app, deps) {
     const label = (req.body?.label ?? '').trim();
     const url = (req.body?.url ?? '').trim();
     if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
     await updatePaymentLink(pool, req.params.id, {
       label,
       amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,

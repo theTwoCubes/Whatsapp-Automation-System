@@ -8,7 +8,8 @@ is done from the console, not from Meta.
 - WhatsApp: the client's `META_PHONE_NUMBER_ID`, `META_WABA_ID`, a permanent
   System User `META_ACCESS_TOKEN`, and the `META_APP_SECRET`.
 - AI: an `OPENAI_API_KEY` and/or `GEMINI_API_KEY`, and `AI_PROVIDER` for the
-  primary. The other is used as automatic failover.
+  primary. The other is used as automatic failover. Set `GEMINI_API_KEY`
+  even if OpenAI is primary - it's also what reads an inbound photo/PDF.
 - A `JWT_SECRET`, and the first console login (`ADMIN_EMAIL`, `ADMIN_PASSWORD`).
 - Firebase (for Push Notifications): A Firebase project with an Android app configured for the package `com.wamanager.console`. You need the `google-services.json` file.
 
@@ -28,7 +29,12 @@ Sign in and open Admin:
 - Business profile: fill in the about, description, email and website. This is the
   client's public WhatsApp profile.
 - Knowledge base: add the client's services, pricing and FAQs. This is what the
-  bot answers from.
+  bot answers from. State plainly that pricing is fixed if it is - the bot only
+  refuses to negotiate when the knowledge base actually says so.
+- Payment links (Knowledge → Payment Links): if a service has a paid step (a
+  deposit, a paid consultation, anything with a real payment link), add it here
+  with a description of when it applies. Leave this empty for services with no
+  such step.
 - Settings: set the business name, tone, the fallback and handoff messages, the
   drip schedule, and the auto resume timeout.
 - Templates: create the day 3, 5 and 8 follow up templates and any re-engagement

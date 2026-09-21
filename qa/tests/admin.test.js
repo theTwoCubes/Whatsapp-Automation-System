@@ -325,6 +325,17 @@ test('a payment link needs a label and a url', async () => {
   await app.close();
 });
 
+test('a payment link must be a real http or https url', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({
+    method: 'POST', url: '/api/payment-links', headers: auth(t),
+    payload: { label: 'Deposit', url: 'javascript:alert(1)' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
 test('branding is public and editable', async () => {
   const app = await buildApp(new FakeMeta());
   const pub = await app.inject({ method: 'GET', url: '/api/branding' });

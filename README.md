@@ -42,10 +42,11 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 - Facts are stored in a tiered structure: a shared base layer available to
   every conversation, and per Topic packs for individual services or ad
   campaigns.
-- Retrieval is hybrid, combining vector similarity search (pgvector) with
-  Postgres full text search, merged by reciprocal rank fusion and biased
-  toward the lead's linked Topic while keeping base knowledge eligible.
-  Results are packed into a fixed token budget so prompts stay bounded.
+- Retrieval is pack based, not a similarity search: the base pack plus the
+  lead's linked Topic (and any Topic its keywords match) are handed to the
+  model close to verbatim, packed into a fixed token budget so prompts stay
+  bounded. The model can also ask for one more Topic pack by name mid-reply
+  if the current answers do not cover the question.
 - Facts can be added one at a time, or pasted in bulk (an FAQ document, raw
   notes) and split automatically into atomic, individually deduplicated
   units. New entries are checked against existing ones by embedding
@@ -62,10 +63,22 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
   closely matches what the lead asked about and attaches it automatically.
   A cooldown keeps the bot from repeatedly resending the same file to the
   same conversation without hard blocking a lead who genuinely asks again.
-- Media a lead sends is never silently dropped. Any inbound attachment
-  queues an immediate handoff to a human instead.
+- Media a lead sends is never silently dropped. An inbound photo or PDF is
+  read once with Gemini vision for a short, factual, non-judgemental
+  description (never a critique or analysis of the file itself, which stays
+  a paid, human step where that applies) - rate limited per conversation so
+  it cannot be used to run up the vision bill. Sending a file is never, on
+  its own, a reason to hand a conversation to a person.
 - A human agent can also browse the library by Topic from the chat composer
   and send any file directly, independent of the bot.
+
+### Payment links
+
+- Like the media library, a payment link (label, amount, url, and a
+  description the AI reads) can be attached to a Topic from the console.
+  The AI offers the right one when the approved answers for that service
+  call for it, and treats a lead's own "I've paid" as one signal toward
+  qualifying them, not something it verifies against a payment provider.
 
 ### Message handling
 
@@ -75,16 +88,28 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 - Every inbound webhook delivery is deduplicated by message id, so a retry
   from Meta never produces a duplicate reply.
 
-### Handoff and human takeover
+### Lead qualification and handoff
 
-- A handoff is a two step process. When the bot judges a conversation needs
-  a person, when a lead explicitly asks for one, or when a lead sends an
-  attachment, the conversation moves to a pending queue with a short reason
-  attached, rather than jumping straight to looking like it is already
-  being handled.
-- Any agent can accept a pending handoff, claiming it and becoming its
-  owner, or reject it, sending it straight back to the bot for anyone else
-  who is waiting.
+- The bot only hands a conversation to a person once the lead is actually
+  qualified: a real name, what their business or project is, what they
+  specifically want, and genuine intent to move forward - not just because
+  it is unsure of one fact, a price got pushed back on, or a file came in.
+  Name, business, email, address, requirement, budget, and timeline are
+  picked up conversationally as they come up and saved to the lead, visible
+  in full on the console's chat sidebar and the dashboard's leads table.
+- Pricing never negotiates. A discount request gets a firm, friendly answer
+  and the conversation continues - it is never, on its own, a reason to
+  hand off.
+- A handoff is a two step process. Once the bot judges a lead is qualified,
+  or a lead explicitly and sincerely asks for a person, the conversation
+  moves to a pending queue with a short reason attached (summarising who
+  they are and what they want), rather than jumping straight to looking
+  like it is already being handled.
+- Any agent can accept a pending handoff, or reject it - either way that
+  agent becomes the conversation's owner, since accepting means "this
+  needed a person, that's me" and rejecting means "the bot should not have
+  flagged this, but I will deal with it myself" rather than send it back to
+  the bot unowned.
 - An agent can also take over a bot owned conversation directly at any
   time. Replying to any conversation that is not already an agent's own
   claims it automatically and stops any scheduled follow ups on it.
