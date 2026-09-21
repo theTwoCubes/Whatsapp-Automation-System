@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from '../auth.js';
 import { REACTION_EMOJIS } from '../ai/reactions.js';
 import { MetaApiError } from '../meta/client.js';
-import { handToHuman, handToBot, handToRejected } from '../handoff.js';
+import { handToHuman, handToBot } from '../handoff.js';
 import {
   runWeeklyRefinement,
   listProposals,
@@ -699,12 +699,12 @@ export function registerApi(app, deps) {
     return { ok: true };
   });
 
-  // Accepting or rejecting a pending handoff. A handoff the bot or a lead
-  // queued sits pending until an agent claims it or rejects it. Rejecting no
-  // longer sends it straight back to the bot - it moves to 'rejected' and
-  // stays quiet until an agent explicitly resumes it (handback) or takes it
-  // over themselves, so rejecting a lead cannot immediately look like the bot
-  // deciding to talk to them again on its own.
+  // Accepting or rejecting a pending handoff. Either way the agent who acted
+  // becomes the owner - accept means "yes, this needed a person, that's me",
+  // reject means "the AI shouldn't have flagged this, but I'll deal with it
+  // myself rather than send it back to the bot or leave it untouched". The
+  // bot never talks to this lead again while it's human owned; the agent
+  // gives it back explicitly (handback) whenever they're done with it.
   app.post('/api/conversations/:id/accept', { preHandler: [auth, writeLimit], schema: idParams }, async (req, reply) => {
     const conversation = await getConversationById(pool, req.params.id);
     if (!conversation) return reply.code(404).send({ error: 'not found' });
@@ -723,7 +723,7 @@ export function registerApi(app, deps) {
     if (conversation.state !== 'pending') {
       return reply.code(409).send({ error: 'this conversation is not waiting on a handoff' });
     }
-    await handToRejected(pool, req.params.id);
+    await handToHuman(pool, req.params.id, req.user.email);
     await audit(req, 'handoff rejected', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };

@@ -102,7 +102,7 @@ test('accepting a pending handoff claims it for the agent', async () => {
   await app.close();
 });
 
-test('rejecting a pending handoff moves it to rejected, not back to the bot', async () => {
+test('rejecting a pending handoff makes the rejecting agent the owner, not the bot', async () => {
   const id = await pendingConversation();
   const app = await buildApp();
   const token = await tokenFor(app);
@@ -112,12 +112,12 @@ test('rejecting a pending handoff moves it to rejected, not back to the bot', as
   assert.equal(res.statusCode, 200);
 
   const conv = await getConversationById(pool, id);
-  assert.equal(conv.state, 'rejected');
-  assert.equal(conv.assignee, null);
+  assert.equal(conv.state, 'human');
+  assert.equal(conv.assignee, 'a@b.com');
   await app.close();
 });
 
-test('handback resumes a rejected conversation to the bot', async () => {
+test('handback gives a rejected-then-claimed conversation back to the bot', async () => {
   const id = await pendingConversation();
   const app = await buildApp();
   const token = await tokenFor(app);
