@@ -59,9 +59,25 @@ Run it from cron on the server, for example daily at 2am:
 
     0 2 * * * cd /path/to/project && ./scripts/backup.sh >> backups/backup.log 2>&1
 
-Restore a dump with:
+To actually recover from a backup (overwrites the live database - only for a
+real incident):
 
     gunzip -c backups/FILE.sql.gz | docker compose -f docker-compose.prod.yml exec -T db psql -U whatsapp whatsapp
+
+### Restore drill
+
+A backup nobody has ever restored is a hope, not a plan. `scripts/restore.sh`
+restores a dump into a throwaway database (`whatsapp_restore_check` by
+default) instead, so checking a backup is actually good never touches the
+live one:
+
+    bash scripts/restore.sh backups/FILE.sql.gz
+
+Then spot check a few tables (`select count(*) from contacts;` and the like)
+against the live database, and drop the scratch database when done - the
+script prints the exact command. Do this after any schema change that
+touches backup/restore-sensitive areas, and periodically regardless (monthly
+is reasonable) so a real incident is never the first time it's been tried.
 
 ## Updating
 
