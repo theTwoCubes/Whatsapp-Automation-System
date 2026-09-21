@@ -1498,6 +1498,9 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
           <div className="flex flex-col gap-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
             <span className="text-xs font-semibold text-gray-600">Reason flagged</span>
             <span className="text-xs text-gray-700 italic">"{c.handoff_reason}"</span>
+            {c.suggested_agent && (
+              <span className="text-xs text-gray-500 mt-0.5">Suggested: {c.suggested_agent}</span>
+            )}
           </div>
         )}
         {c.opted_out_at && (
@@ -2371,6 +2374,9 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-gray-900">Waiting for a team member</div>
             <div className="text-xs text-gray-600 mt-0.5 break-words">{conversation.handoff_reason}</div>
+            {conversation.suggested_agent && (
+              <div className="text-xs text-gray-400 mt-1">Suggested: {conversation.suggested_agent}</div>
+            )}
             <div className="flex gap-2 mt-3">
               <Button variant="primary" size="sm"
                 onClick={() => act(() => api.acceptHandoff(conversation.id), 'Accepted')}>

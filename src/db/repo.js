@@ -614,7 +614,7 @@ export async function setAgentRole(pool, email, role) {
 
 export async function listConversations(pool, { includeArchived = false } = {}) {
   const res = await pool.query(
-    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
+    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason, c.suggested_agent,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.origin,
             ct.wa_id, ct.name, ca.headline as campaign,
             m.body as last_message, m.type as last_message_type,
@@ -810,7 +810,7 @@ export async function reconcileContactWaId(pool, conversationId, canonicalWaId) 
 export async function getConversationById(pool, id) {
   await pool.query('update conversations set last_read_at = now() where id = $1', [id]);
   const res = await pool.query(
-    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
+    `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason, c.suggested_agent,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.deleted_at,
             c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
             ct.opted_out_at,
@@ -1024,6 +1024,30 @@ export async function listConversationTags(pool, conversationId) {
       [conversationId],
     )
   ).rows;
+}
+
+// A fairness hint for a pending handoff: cycles through every agent in id
+// order using a cursor stored in settings, so "whose turn is it" rotates
+// evenly instead of the same fast-clicking agent always grabbing the queue.
+// Purely a suggestion - the pending queue itself still lets anyone accept.
+export async function pickNextAgentRoundRobin(pool) {
+  const agents = (await pool.query('select id, email from agents order by id')).rows;
+  if (agents.length === 0) return null;
+
+  const cursor = await pool.query("select value from settings where key = 'last_suggested_agent_id'");
+  const lastId = cursor.rows[0]?.value ?? null;
+  // agents.id is bigserial - node-pg returns bigint columns as strings, so
+  // this must compare as strings too or it always misses (lastIndex stuck at
+  // -1, "next" always the first agent).
+  const lastIndex = lastId != null ? agents.findIndex((a) => String(a.id) === String(lastId)) : -1;
+  const next = agents[(lastIndex + 1) % agents.length];
+
+  await pool.query(
+    `insert into settings (key, value, updated_at) values ('last_suggested_agent_id', $1, now())
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [String(next.id)],
+  );
+  return next.email;
 }
 
 export async function metrics(pool) {

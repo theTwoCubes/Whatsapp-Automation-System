@@ -47,16 +47,22 @@ async function tokenFor(app) {
   return res.json().token;
 }
 
-async function pendingConversation() {
+async function pendingConversation(from) {
   const ai = new FakeAi(JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }));
-  await processWebhook(inboundText({ id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), {
+  await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), {
     meta: new FakeMeta(),
     ai,
     pool,
     config: testConfig,
     log: silentLog,
   });
-  return (await pool.query('select id from conversations limit 1')).rows[0].id;
+  const waId = from || '918766226219';
+  return (
+    await pool.query(
+      `select c.id from conversations c join contacts ct on ct.id = c.contact_id where ct.wa_id = $1`,
+      [waId],
+    )
+  ).rows[0].id;
 }
 
 test('an attachment alone does not queue a pending handoff', async () => {
@@ -85,6 +91,41 @@ test('the ai can still hand off after an attachment, once it judges the lead is 
   const row = (await pool.query('select state, handoff_reason from conversations limit 1')).rows[0];
   assert.equal(row.state, 'pending');
   assert.match(row.handoff_reason, /qualified/i);
+});
+
+test('a new pending handoff gets a round-robin suggested agent that rotates', async () => {
+  await createAgent(pool, { email: 'b@b.com', name: 'B', passwordHash: hashPassword('secret'), role: 'agent' });
+  await createAgent(pool, { email: 'c@b.com', name: 'C', passwordHash: hashPassword('secret'), role: 'agent' });
+
+  const id1 = await pendingConversation('919000000001');
+  const id2 = await pendingConversation('919000000002');
+  const id3 = await pendingConversation('919000000003');
+  const id4 = await pendingConversation('919000000004');
+
+  const suggestions = [];
+  for (const id of [id1, id2, id3, id4]) {
+    const conv = await getConversationById(pool, id);
+    suggestions.push(conv.suggested_agent);
+  }
+  assert.deepEqual(suggestions, ['a@b.com', 'b@b.com', 'c@b.com', 'a@b.com'], 'rotates through every agent in order, then wraps around');
+});
+
+test('suggested_agent is cleared once a handoff is accepted, rejected, or given back', async () => {
+  const id = await pendingConversation();
+  const app = await buildApp();
+  const token = await tokenFor(app);
+  const h = { authorization: `Bearer ${token}` };
+
+  const before = await getConversationById(pool, id);
+  assert.ok(before.suggested_agent, 'a suggestion exists while pending');
+
+  await app.inject({ method: 'POST', url: `/api/conversations/${id}/accept`, headers: h });
+  const afterAccept = await getConversationById(pool, id);
+  assert.equal(afterAccept.suggested_agent, null);
+
+  await app.inject({ method: 'POST', url: `/api/conversations/${id}/handback`, headers: h });
+  const afterHandback = await getConversationById(pool, id);
+  assert.equal(afterHandback.suggested_agent, null);
 });
 
 test('accepting a pending handoff claims it for the agent', async () => {
