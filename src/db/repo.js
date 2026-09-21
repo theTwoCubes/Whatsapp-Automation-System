@@ -627,7 +627,12 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
             -- this reflects what the conversation is about right now rather
             -- than an arbitrary member of the full set it has ever touched).
             coalesce(ca.topic_id, c.last_topic_id) as topic_id,
-            t.name as topic_name
+            t.name as topic_name,
+            coalesce((
+              select json_agg(json_build_object('id', tg.id, 'name', tg.name, 'color', tg.color) order by tg.name)
+              from conversation_tags ctg join tags tg on tg.id = ctg.tag_id
+              where ctg.conversation_id = c.id
+            ), '[]') as tags
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
@@ -810,7 +815,12 @@ export async function getConversationById(pool, id) {
             c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
             ct.opted_out_at,
             coalesce(ca.topic_id, c.last_topic_id) as topic_id,
-            t.name as topic_name
+            t.name as topic_name,
+            coalesce((
+              select json_agg(json_build_object('id', tg.id, 'name', tg.name, 'color', tg.color) order by tg.name)
+              from conversation_tags ctg join tags tg on tg.id = ctg.tag_id
+              where ctg.conversation_id = c.id
+            ), '[]') as tags
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
@@ -969,6 +979,51 @@ export async function deleteConversationNote(pool, id, agentEmail, isAdmin) {
     ? await pool.query('delete from conversation_notes where id = $1', [id])
     : await pool.query('delete from conversation_notes where id = $1 and agent_email = $2', [id, agentEmail]);
   return res.rowCount > 0;
+}
+
+// Freeform tags (won, lost, spam, follow-up-later, ...) any agent can put on
+// a conversation. The tag list itself is shared/reused by name so the same
+// label always means the same thing across every conversation it's on.
+export async function listTags(pool) {
+  return (await pool.query('select id, name, color from tags order by name')).rows;
+}
+
+export async function getOrCreateTag(pool, name, color) {
+  const trimmed = name.trim();
+  const existing = await pool.query('select id, name, color from tags where lower(name) = lower($1)', [trimmed]);
+  if (existing.rows[0]) return existing.rows[0];
+  const created = await pool.query(
+    'insert into tags (name, color) values ($1, $2) returning id, name, color',
+    [trimmed, color || '#6b7280'],
+  );
+  return created.rows[0];
+}
+
+export async function deleteTag(pool, id) {
+  await pool.query('delete from tags where id = $1', [id]);
+}
+
+export async function tagConversation(pool, conversationId, tagId) {
+  await pool.query(
+    'insert into conversation_tags (conversation_id, tag_id) values ($1, $2) on conflict do nothing',
+    [conversationId, tagId],
+  );
+}
+
+export async function untagConversation(pool, conversationId, tagId) {
+  await pool.query('delete from conversation_tags where conversation_id = $1 and tag_id = $2', [conversationId, tagId]);
+}
+
+export async function listConversationTags(pool, conversationId) {
+  return (
+    await pool.query(
+      `select t.id, t.name, t.color from conversation_tags ct
+       join tags t on t.id = ct.tag_id
+       where ct.conversation_id = $1
+       order by t.name`,
+      [conversationId],
+    )
+  ).rows;
 }
 
 export async function metrics(pool) {

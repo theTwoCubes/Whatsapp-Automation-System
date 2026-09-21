@@ -336,6 +336,50 @@ test('a payment link must be a real http or https url', async () => {
   await app.close();
 });
 
+test('tags can be created, applied, listed on a conversation, and removed', async () => {
+  const convId = await makeConversation();
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const create = await app.inject({ method: 'POST', url: '/api/tags', headers: auth(t), payload: { name: 'Hot lead', color: '#dc2626' } });
+  assert.equal(create.statusCode, 200);
+  const tagId = create.json().tag.id;
+
+  const reuse = await app.inject({ method: 'POST', url: '/api/tags', headers: auth(t), payload: { name: 'hot lead' } });
+  assert.equal(reuse.json().tag.id, tagId, 'creating with the same name (any case) reuses the existing tag');
+
+  const apply = await app.inject({ method: 'POST', url: `/api/conversations/${convId}/tags`, headers: auth(t), payload: { tagId } });
+  assert.equal(apply.statusCode, 200);
+
+  const list = await app.inject({ method: 'GET', url: `/api/conversations/${convId}`, headers: auth(t) });
+  assert.deepEqual(list.json().conversation.tags.map((x) => x.name), ['Hot lead']);
+
+  const remove = await app.inject({ method: 'DELETE', url: `/api/conversations/${convId}/tags/${tagId}`, headers: auth(t) });
+  assert.equal(remove.statusCode, 200);
+
+  const after = await app.inject({ method: 'GET', url: `/api/conversations/${convId}`, headers: auth(t) });
+  assert.deepEqual(after.json().conversation.tags, []);
+  await app.close();
+});
+
+test('only an admin can delete a tag outright', async () => {
+  await createAgent(pool, { email: 'agent3@b.com', name: 'Agent Three', passwordHash: hashPassword('secret3'), role: 'agent' });
+  const app = await buildApp(new FakeMeta());
+  const adminToken = await token(app);
+  const create = await app.inject({ method: 'POST', url: '/api/tags', headers: auth(adminToken), payload: { name: 'Spam' } });
+  const tagId = create.json().tag.id;
+
+  const agentLogin = await app.inject({ method: 'POST', url: '/api/login', payload: { email: 'agent3@b.com', password: 'secret3' } });
+  const agentToken = agentLogin.json().token;
+
+  const denied = await app.inject({ method: 'DELETE', url: `/api/tags/${tagId}`, headers: auth(agentToken) });
+  assert.equal(denied.statusCode, 403);
+
+  const allowed = await app.inject({ method: 'DELETE', url: `/api/tags/${tagId}`, headers: auth(adminToken) });
+  assert.equal(allowed.statusCode, 200);
+  await app.close();
+});
+
 test('internal notes can be added, listed, and deleted by their author or an admin', async () => {
   const convId = await makeConversation();
   const app = await buildApp(new FakeMeta());

@@ -67,6 +67,11 @@ import {
   addConversationNote,
   listConversationNotes,
   deleteConversationNote,
+  listTags,
+  getOrCreateTag,
+  deleteTag,
+  tagConversation,
+  untagConversation,
   getMessageRaw,
   opsStats,
   listContactsForExport,
@@ -569,6 +574,48 @@ export function registerApi(app, deps) {
   }, async (req, reply) => {
     const deleted = await deleteConversationNote(pool, req.params.noteId, req.user.email, req.user.role === 'admin');
     if (!deleted) return reply.code(404).send({ error: 'not found, or not yours to delete' });
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true };
+  });
+
+  // Freeform tags: shared list, any agent can create/apply/remove one on a
+  // conversation. Deleting a tag itself (not just removing it from one chat)
+  // is admin-only since it disappears everywhere at once.
+  app.get('/api/tags', { preHandler: auth }, async () => ({ tags: await listTags(pool) }));
+
+  app.post('/api/tags', {
+    preHandler: [auth, writeLimit],
+    schema: { body: { type: 'object', properties: { name: { type: 'string', minLength: 1, maxLength: 40 }, color: { type: 'string', maxLength: 20 } }, required: ['name'] } },
+  }, async (req, reply) => {
+    const name = req.body.name.trim();
+    if (!name) return reply.code(400).send({ error: 'name is required' });
+    const tag = await getOrCreateTag(pool, name, req.body.color);
+    return { tag };
+  });
+
+  app.delete('/api/tags/:tagId', { preHandler: adminAuth }, async (req) => {
+    await deleteTag(pool, req.params.tagId);
+    await audit(req, 'tag deleted', `tag ${req.params.tagId}`);
+    realtime.emit({ type: 'refresh' });
+    return { ok: true };
+  });
+
+  app.post('/api/conversations/:id/tags', {
+    preHandler: [auth, writeLimit],
+    schema: { ...idParams, body: { type: 'object', properties: { tagId: { type: 'integer' } }, required: ['tagId'] } },
+  }, async (req, reply) => {
+    const conversation = await getConversationById(pool, req.params.id);
+    if (!conversation) return reply.code(404).send({ error: 'not found' });
+    await tagConversation(pool, req.params.id, req.body.tagId);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true };
+  });
+
+  app.delete('/api/conversations/:id/tags/:tagId', {
+    preHandler: [auth, writeLimit],
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[0-9]+$' }, tagId: { type: 'string', pattern: '^[0-9]+$' } }, required: ['id', 'tagId'] } },
+  }, async (req) => {
+    await untagConversation(pool, req.params.id, req.params.tagId);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
     return { ok: true };
   });

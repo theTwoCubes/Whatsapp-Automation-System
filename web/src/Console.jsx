@@ -589,6 +589,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [filter, setFilter]               = useState('all');
   const [serviceFilter, setServiceFilter] = useState(null);
   const [originFilter, setOriginFilter]   = useState(null); // null | 'lead' | 'business' — who started the conversation
+  const [tagFilter, setTagFilter]         = useState(null); // null | tag id
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const serviceBtnRef                     = useRef(null);
   const [showBulkSend, setShowBulkSend]   = useState(false);
@@ -882,12 +883,23 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     if (filter !== 'all' && filter !== 'archived') list = list.filter((c) => c.state === filter);
     if (serviceFilter != null) list = list.filter((c) => c.topic_id === serviceFilter);
     if (originFilter != null) list = list.filter((c) => (c.origin || 'lead') === originFilter);
+    if (tagFilter != null) list = list.filter((c) => (c.tags || []).some((t) => t.id === tagFilter));
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((c) =>
       (c.name || '').toLowerCase().includes(q) || (c.wa_id || '').includes(q)
     );
     return list;
-  }, [conversations, query, filter, serviceFilter, originFilter]);
+  }, [conversations, query, filter, serviceFilter, originFilter, tagFilter]);
+
+  // Every tag currently on any loaded conversation, for the filter strip -
+  // built from what's already in memory rather than a separate query.
+  const tagsInUse = useMemo(() => {
+    const map = new Map();
+    for (const c of conversations) {
+      for (const t of c.tags || []) map.set(t.id, t);
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [conversations]);
 
   // Which services have an active chat right now, with counts - built from
   // whatever is already loaded rather than a separate query. A dropdown
@@ -1052,6 +1064,25 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
                   <X size={12} />
                 </button>
               )}
+            </div>
+          )}
+          {tagsInUse.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {tagsInUse.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTagFilter(tagFilter === t.id ? null : t.id)}
+                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border"
+                  style={
+                    tagFilter === t.id
+                      ? { background: t.color, borderColor: t.color, color: 'white' }
+                      : { borderColor: t.color, color: t.color }
+                  }
+                >
+                  {t.name}
+                </button>
+              ))}
             </div>
           )}
           {showBulkSend && (
@@ -1265,6 +1296,15 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
             ) : null}
           </div>
         </div>
+        {c.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {c.tags.map((t) => (
+              <span key={t.id} className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: `${t.color}22`, color: t.color }}>
+                {t.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </button>
   );
@@ -1556,6 +1596,9 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         </div>
       )}
 
+      {/* Tags - shared list, filterable in the conversation list */}
+      <TagsSection conversationId={c.id} tags={c.tags} onChanged={onChanged} />
+
       {/* Internal notes - agent-only, never sent to the lead */}
       <NotesSection conversationId={c.id} />
 
@@ -1595,6 +1638,90 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
 // lead. Own local state and its own fetch, same pattern as PaymentLinksPane -
 // self-contained so ContextPanel doesn't need to know about it beyond
 // rendering it.
+// A handful of distinct, readable colours to cycle through for a newly
+// created tag, rather than every new tag defaulting to the same grey.
+const TAG_COLORS = ['#6b7280', '#dc2626', '#d97706', '#16a34a', '#0891b2', '#4f46e5', '#c026d3'];
+
+function TagsSection({ conversationId, tags, onChanged }) {
+  const [allTags, setAllTags]     = useState(null);
+  const [adding, setAdding]       = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const toast = useToast();
+
+  useEffect(() => {
+    api.tags().then((d) => setAllTags(d.tags || [])).catch(() => setAllTags([]));
+  }, []);
+
+  const currentIds = new Set((tags || []).map((t) => t.id));
+
+  const toggle = async (tag) => {
+    try {
+      if (currentIds.has(tag.id)) await api.untagConversation(conversationId, tag.id);
+      else await api.tagConversation(conversationId, tag.id);
+      onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const createAndApply = async () => {
+    const name = newTagName.trim();
+    if (!name) return;
+    try {
+      const color = TAG_COLORS[(allTags?.length || 0) % TAG_COLORS.length];
+      const { tag } = await api.createTag(name, color);
+      setAllTags((prev) => [...(prev || []), tag].sort((a, b) => a.name.localeCompare(b.name)));
+      await api.tagConversation(conversationId, tag.id);
+      setNewTagName('');
+      setAdding(false);
+      onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  return (
+    <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-2">
+      <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Tags</div>
+      <div className="flex flex-wrap gap-1.5 items-center">
+        {(allTags || []).map((t) => {
+          const on = currentIds.has(t.id);
+          return (
+            <button
+              key={t.id}
+              onClick={() => toggle(t)}
+              className="text-xs font-medium px-2 py-1 rounded-full border transition-colors"
+              style={on ? { background: t.color, borderColor: t.color, color: 'white' } : { borderColor: t.color, color: t.color }}
+            >
+              {t.name}
+            </button>
+          );
+        })}
+        {adding ? (
+          <span className="flex items-center gap-1">
+            <input
+              autoFocus
+              className="text-xs border border-gray-200 rounded-full px-2 py-1 w-24 outline-none"
+              value={newTagName}
+              onChange={(e) => setNewTagName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') createAndApply(); if (e.key === 'Escape') setAdding(false); }}
+              placeholder="New tag"
+            />
+            <button onClick={createAndApply} className="text-xs font-medium text-[var(--accent-text)]">Add</button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setAdding(true)}
+            className="text-xs text-gray-400 border border-dashed border-gray-300 rounded-full px-2 py-1 hover:border-gray-400"
+          >
+            + New
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NotesSection({ conversationId }) {
   const [notes, setNotes]   = useState(null);
   const [draft, setDraft]   = useState('');
