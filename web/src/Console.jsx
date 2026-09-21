@@ -1459,6 +1459,12 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
             <span className="text-xs text-gray-700 italic">"{c.handoff_reason}"</span>
           </div>
         )}
+        {c.opted_out_at && (
+          <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <BellOff size={12} className="flex-shrink-0" />
+            Opted out of follow ups - drips and bulk sends skip this contact. They still get normal replies.
+          </div>
+        )}
       </div>
 
       {/* Lead details - saved to the contact, shared with the whole team,

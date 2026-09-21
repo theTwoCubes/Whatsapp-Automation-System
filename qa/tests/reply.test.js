@@ -292,6 +292,23 @@ test('the prompt tells the model pricing is fixed and never to hand off for nego
   assert.doesNotMatch(system, /negotiate pricing on a specific quoted amount/i, 'the old negotiation-is-a-handoff-reason line must be gone');
 });
 
+test('the prompt tells the model how to honour a stop-messaging request', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+  const system = ai.lastMessages[0].content;
+  assert.match(system, /"action": "opt_out"/);
+});
+
+test('an opt_out decision reports optOut and never a handoff', async () => {
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'opt_out', reply: 'Understood, no more messages.' }));
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.optOut, true);
+  assert.equal(decision.handoff, false);
+  assert.equal(decision.reply, 'Understood, no more messages.');
+});
+
 test('an answer can react instead of typing a reply, using an emoji from the fixed list', async () => {
   const id = await conversation();
   const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: '', react_emoji: REACTION_EMOJIS[0] }));

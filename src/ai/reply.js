@@ -110,6 +110,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     handoff: parsed.handoff,
     warn: parsed.warn || false,
     block: parsed.block || false,
+    optOut: parsed.optOut || false,
     reason: parsed.reason,
     requestedPackIds: parsed.requestedPackIds,
     sendMediaId,
@@ -150,7 +151,7 @@ function sanitizeLeadEmail(value) {
 }
 
 function parseDecision(raw, catalog) {
-  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, leadProfile: null, warn: false, block: false };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, leadProfile: null, warn: false, block: false, optOut: false };
   if (!raw) return { ...empty, reason: 'the assistant returned nothing' };
 
   let obj;
@@ -193,7 +194,7 @@ function parseDecision(raw, catalog) {
     // complete response - only truly empty output with nothing to react to
     // falls back to a handoff.
     if (!reply && !reactEmoji) return { ...empty, reason: 'the assistant answered with an empty message' };
-    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, reactEmoji, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false };
+    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, reactEmoji, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
   }
 
   if (obj?.action === 'warn') {
@@ -201,11 +202,19 @@ function parseDecision(raw, catalog) {
     // message downstream - that would hand an abuse/injection attempt a
     // friendly canned reply instead of any warning at all.
     const warnReply = reply || 'This is a business chat and I can only help with questions about our services.';
-    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: true, block: false };
+    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: true, block: false, optOut: false };
   }
 
   if (obj?.action === 'block') {
-    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: true };
+    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: true, optOut: false };
+  }
+
+  if (obj?.action === 'opt_out') {
+    // Same shape as block, minus actually blocking them - see optOutContact
+    // in db/repo.js. They can still message in and get a normal reply later;
+    // this only stops us reaching out to them first.
+    const optOutReply = reply || "Understood, you won't receive further messages from us. Reply anytime if you need help.";
+    return { reply: optOutReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: false, optOut: true };
   }
 
   if (obj?.action === 'need_packs') {
@@ -217,11 +226,11 @@ function parseDecision(raw, catalog) {
     if (valid.length === 0) {
       return { ...empty, reason: 'the assistant asked for a pack that does not exist' };
     }
-    return { reply: '', handoff: false, reason: '', requestedPackIds: valid, sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false };
+    return { reply: '', handoff: false, reason: '', requestedPackIds: valid, sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false, optOut: false };
   }
 
   if (obj?.action === 'handoff') {
-    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false };
+    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
   }
   return { ...empty, reason: 'the assistant returned an unknown action' };
 }
@@ -279,6 +288,10 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
       '',
       'To block a customer after repeated abuse or threats (use sparingly, only after a warn):',
       '{"action": "block", "reply": "final message before blocking", "reason": "why, for the team log", "reply_language": "English"}',
+      '',
+      'To honour a request to stop getting messages (any phrasing - "please stop texting me", "take me off your list", the same in another language, and so on):',
+      '{"action": "opt_out", "reply": "a short, genuine acknowledgement", "reply_language": "English"}',
+      '- This only stops future follow ups, it is not a block - they can still message in later and get a normal reply.',
     ];
     if (allowPackRequests) {
       actions.push(

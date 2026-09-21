@@ -111,6 +111,7 @@ function AIBehaviour() {
         fallback_message:    form.fallback_message,
         handoff_message:     form.handoff_message,
         attachment_message:  form.attachment_message,
+        opt_out_message:     form.opt_out_message,
         resume_minutes:      form.resume_minutes,
         website_url:         form.website_url,
         contact_phone:       form.contact_phone,
@@ -211,6 +212,10 @@ function AIBehaviour() {
               helper="The AI now looks at photos and documents itself and replies naturally, so this line is not sent anymore. Left here in case that ever needs to change."
               placeholder="Thanks for sending that over! Could you tell me a bit more about it in words too?"
               {...bind('attachment_message')} />
+            <InputField label="When a customer asks to stop getting messages" textarea
+              helper="Sent once, immediately, when a lead opts out. Follow ups stop for them right away - this just confirms it."
+              placeholder="Understood, you won't receive further messages from us. Reply anytime if you need help."
+              {...bind('opt_out_message')} />
           </FormStack>
           </CardBody>
         </Card>

@@ -22,6 +22,8 @@ import {
   deadLetterWebhook,
   countRecentAttachments,
   saveAttachmentContext,
+  optOutContact,
+  isContactOptedOut,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
@@ -160,6 +162,30 @@ function describeInboundBody(message, quickReplyText) {
   }
 }
 
+// Hard, deterministic opt-out phrases - checked before the AI ever sees the
+// message, so honouring a stop request never depends on a model call
+// succeeding or interpreting it correctly. Anchored to (close to) the whole
+// message rather than "contains stop" anywhere, since that word shows up in
+// plenty of unrelated sentences. Deliberately narrow and English-only - softer
+// phrasing, other languages, and anything more conversational than this is
+// still caught by the AI's own "opt_out" action (see ai/reply.js), this is
+// only the unambiguous fast path.
+const OPT_OUT_PATTERNS = [
+  /^stop$/i,
+  /^unsubscribe$/i,
+  /^unsub$/i,
+  /^opt.?out$/i,
+  /^remove me$/i,
+  /^stop (messaging|texting|contacting)( me)?$/i,
+  /^please stop( messaging| texting| contacting)?( me)?$/i,
+  /^do(n'?t| not) (message|text|contact) me( again)?$/i,
+];
+
+function isOptOutRequest(text) {
+  const trimmed = (text || '').trim().replace(/[.!]+$/, '');
+  return OPT_OUT_PATTERNS.some((re) => re.test(trimmed));
+}
+
 async function handleMessage(value, message, deps) {
   const { pool, meta, config, realtime, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
@@ -238,6 +264,17 @@ async function handleMessage(value, message, deps) {
       const preview = effectiveText ? 'New message' : `Sent a ${message.type}`;
       await pushHandoff(pool, result.conversationId, preview, log, { kind: 'inbound' });
     }
+    return;
+  }
+
+  // An unambiguous opt-out is honoured immediately, before the AI or the
+  // debounce batcher ever see it - drips stop right away and stay stopped
+  // for this contact everywhere (bulk sends too), not just this chat.
+  if (message.type === 'text' && isOptOutRequest(effectiveText)) {
+    const settings = await getSettings(pool, config);
+    await optOutContact(pool, result.conversationId);
+    log.info({ conversationId: result.conversationId }, 'lead opted out, drips cancelled');
+    await sendAndRecord(deps, message.from, result.conversationId, settings.optOutMessage);
     return;
   }
 
@@ -388,6 +425,14 @@ async function respondToLead(deps, conversationId, items) {
     return;
   }
 
+  if (decision?.optOut) {
+    const reply = decision.reply || settings.optOutMessage;
+    await sendAndRecord(deps, to, conversationId, reply);
+    await optOutContact(pool, conversationId);
+    log.info({ conversationId }, 'ai honoured an opt-out request, drips cancelled');
+    return;
+  }
+
   if (decision?.reactEmoji) {
     const targetWamid = items[items.length - 1]?.wamid;
     if (targetWamid) await maybeSendReaction(deps, conversationId, to, targetWamid, decision.reactEmoji);
@@ -405,7 +450,7 @@ async function respondToLead(deps, conversationId, items) {
     await maybeSendPaymentLink(deps, conversationId, to, decision.sendPaymentLinkId);
   }
 
-  if (sent) {
+  if (sent && !(await isContactOptedOut(pool, conversationId))) {
     const dripSteps = await resolveDripSteps(pool, settings, packs);
     await scheduleDrips(pool, conversationId, dripSteps);
   }

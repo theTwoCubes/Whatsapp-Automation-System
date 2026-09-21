@@ -204,6 +204,42 @@ test('POST /api/bulk-send rejects a topicId for a service that does not exist, w
   await app.close();
 });
 
+test('an opted-out number is excluded from a bulk send and reported back', async () => {
+  await insertApprovedTemplate();
+  await pool.query("insert into contacts (wa_id, opted_out_at) values ('919000000099', now())");
+  const app = await buildApp(new FakeMeta());
+  const token = await tokenFor(app);
+  const file = await buildLeadsXlsx(['Mobile', 'Name'], [
+    { Mobile: '919000000098', Name: 'Included' },
+    { Mobile: '919000000099', Name: 'Opted out' },
+  ]);
+
+  const res = await bulkSendRequest(app, token, { file, fields: { templateName: 'drip_day3' } });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.queued, 1);
+  assert.equal(body.optedOut, 1);
+  assert.equal(body.total, 2);
+
+  const jobs = await pool.query('select wa_id from bulk_send_jobs');
+  assert.deepEqual(jobs.rows.map((r) => r.wa_id), ['919000000098']);
+  await app.close();
+});
+
+test('a bulk send job queued before an opt-out is marked skipped, not sent', async () => {
+  const batchId = randomUUID();
+  await queueBulkSend(pool, batchId, [{ waId: '919000000097', name: 'Late opt out' }], 'drip_day3');
+  await pool.query("insert into contacts (wa_id, opted_out_at) values ('919000000097', now())");
+
+  const meta = new FakeMeta();
+  const processed = await runBulkSend({ pool, meta, config: testConfig, log: silentLog });
+  assert.equal(processed, 0, 'nothing gets sent to an opted-out number');
+  assert.equal(meta.templates.length, 0);
+
+  const progress = await bulkSendBatchProgress(pool, batchId);
+  assert.equal(progress.byStatus.skipped, 1);
+});
+
 test('GET /api/bulk-send/batches lists recent batches with their progress', async () => {
   await insertApprovedTemplate();
   const app = await buildApp(new FakeMeta());

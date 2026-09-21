@@ -148,6 +148,7 @@ export const testConfig = {
   fallbackMessage: 'Thanks, the team will get back to you.',
   handoffMessage: 'Connecting you with a person now.',
   attachmentMessage: 'Got your file, connecting you with a person now.',
+  optOutMessage: "Understood, you won't receive further messages from us.",
   faqBudgetTokens: 6000,
   messageBatchDebounceMs: 30,
   messageBatchMaxWaitMs: 200,

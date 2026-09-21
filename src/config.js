@@ -76,6 +76,9 @@ export function loadConfig() {
     attachmentMessage:
       process.env.ATTACHMENT_MESSAGE?.trim() ||
       "Thanks for sending that over, I'm connecting you with someone from our team to take a look.",
+    optOutMessage:
+      process.env.OPT_OUT_MESSAGE?.trim() ||
+      "Understood, you won't receive further messages from us. Reply anytime if you need help.",
 
     // Media resend cooldown, in minutes. Within this window the bot avoids
     // sending the same file to the same conversation again, but a lead who

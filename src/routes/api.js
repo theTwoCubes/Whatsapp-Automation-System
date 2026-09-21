@@ -70,6 +70,7 @@ import {
   reconcileContactWaId,
   updateContactDetails,
   queueBulkSend,
+  filterOptedOutWaIds,
   bulkSendBatchProgress,
   listRecentBulkSendBatches,
 } from '../db/repo.js';
@@ -398,11 +399,20 @@ export function registerApi(app, deps) {
       return reply.code(400).send({ error: `too many leads in one go - up to ${MAX_BULK_SEND_ROWS} at a time` });
     }
 
+    const optedOut = new Set(await filterOptedOutWaIds(pool, rows.map((r) => r.waId)));
+    const sendable = rows.filter((r) => !optedOut.has(r.waId));
+
     const batchId = randomUUID();
-    const rowsWithTopic = rows.map((r) => ({ ...r, topicId }));
+    const rowsWithTopic = sendable.map((r) => ({ ...r, topicId }));
     const queued = await queueBulkSend(pool, batchId, rowsWithTopic, templateName);
     await audit(req, 'bulk send queued', `batch ${batchId}`, `${queued} leads, template ${templateName}`);
-    return { batchId, queued, skipped: invalid.length, total: rows.length + invalid.length };
+    return {
+      batchId,
+      queued,
+      skipped: invalid.length + optedOut.size,
+      optedOut: optedOut.size,
+      total: rows.length + invalid.length,
+    };
   });
 
   app.get('/api/bulk-send/batches', { preHandler: auth }, async () => ({

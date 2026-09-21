@@ -3,6 +3,7 @@ import {
   getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage,
   setLeadProfile, markIntroduced, reconcileContactWaId,
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
+  optOutContact,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -235,6 +236,19 @@ export async function runAutoResume(deps) {
         await setConversationBlocked(pool, row.id, true);
         await cancelDrips(pool, row.id);
         log.info({ conversationId: row.id, reason: decision.reason }, 'auto resume: ai blocked conversation');
+        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+        continue;
+      }
+
+      if (decision?.optOut) {
+        const reply = decision.reply || settings.optOutMessage;
+        const { wamid, waId } = await meta.sendText(row.wa_id, reply);
+        if (wamid) {
+          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+          await reconcileContactWaId(pool, row.id, waId);
+        }
+        await optOutContact(pool, row.id);
+        log.info({ conversationId: row.id }, 'auto resume: ai honoured an opt-out request');
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
         continue;
       }

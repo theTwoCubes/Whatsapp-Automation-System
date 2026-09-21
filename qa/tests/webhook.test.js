@@ -92,6 +92,42 @@ test('asking for a human queues the conversation and stops the bot', async () =>
   assert.equal(d.meta.sends[0].body, 'Let me connect you with someone.');
 });
 
+test('a hard opt-out phrase is honoured immediately, without ever calling the ai', async () => {
+  const ai = new FakeAi();
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.OO1', body: 'hello, tell me about your logo packages' }), d);
+  await processWebhook(inboundText({ id: 'wamid.OO2', body: 'STOP' }), d);
+
+  assert.equal(ai.calls, 1, 'the opt-out message itself never reaches the ai');
+  assert.equal(d.meta.sends.length, 2, 'a greeting reply, then the opt-out confirmation');
+  assert.equal(d.meta.sends[1].body, testConfig.optOutMessage);
+
+  const contact = await pool.query('select opted_out_at from contacts limit 1');
+  assert.ok(contact.rows[0].opted_out_at, 'the contact is marked opted out');
+});
+
+test('softer opt-out phrasing is caught by the ai action, not just the hard keyword list', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'opt_out', reply: 'Understood, no more messages from us.' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.OO3', body: 'please take me off your messaging list, thanks' }), d);
+
+  assert.equal(d.meta.sends[0].body, 'Understood, no more messages from us.');
+  const contact = await pool.query('select opted_out_at from contacts limit 1');
+  assert.ok(contact.rows[0].opted_out_at);
+});
+
+test('an opted-out contact still gets a normal reply if they message in again', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.OO4', body: 'stop' }), d);
+  await processWebhook(inboundText({ id: 'wamid.OO5', body: 'actually, tell me about pricing' }), d);
+
+  assert.equal(d.meta.sends.length, 2);
+  assert.equal(d.meta.sends[1].body, 'Here is a helpful answer.');
+
+  const drips = await pool.query('select count(*)::int as n from drip_jobs');
+  assert.equal(drips.rows[0].n, 0, 'no drips get scheduled for an opted-out contact even on a later normal reply');
+});
+
 test('once a handoff is pending the bot stays quiet', async () => {
   const ai = new FakeAi(
     JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }),

@@ -372,6 +372,37 @@ export async function cancelDrips(pool, conversationId) {
   );
 }
 
+// Opts the contact behind a conversation out of every future drip and bulk
+// send, and cancels anything already scheduled. Does not touch their ability
+// to message in and get a normal reply - see the migration's comment.
+export async function optOutContact(pool, conversationId) {
+  await pool.query(
+    `update contacts set opted_out_at = now()
+     where id = (select contact_id from conversations where id = $1) and opted_out_at is null`,
+    [conversationId],
+  );
+  await cancelDrips(pool, conversationId);
+}
+
+export async function isContactOptedOut(pool, conversationId) {
+  const res = await pool.query(
+    `select ct.opted_out_at from conversations c join contacts ct on ct.id = c.contact_id where c.id = $1`,
+    [conversationId],
+  );
+  return Boolean(res.rows[0]?.opted_out_at);
+}
+
+// wa_ids that are opted out, so a bulk send (or any future outreach list)
+// can filter them out before queueing rather than after.
+export async function filterOptedOutWaIds(pool, waIds) {
+  if (waIds.length === 0) return [];
+  const res = await pool.query(
+    'select wa_id from contacts where wa_id = any($1::text[]) and opted_out_at is not null',
+    [waIds],
+  );
+  return res.rows.map((r) => r.wa_id);
+}
+
 // Atomically claims the follow ups that are due and whose conversation is still
 // owned by the bot, marking them 'sending' so another running instance cannot
 // pick up the same job. Uses SKIP LOCKED so concurrent schedulers never block
@@ -382,7 +413,8 @@ export async function claimDueDrips(pool, limit = 20) {
        select d.id
        from drip_jobs d
        join conversations c on c.id = d.conversation_id
-       where d.status = 'pending' and d.run_at <= now() and c.state = 'bot'
+       join contacts ct on ct.id = c.contact_id
+       where d.status = 'pending' and d.run_at <= now() and c.state = 'bot' and ct.opted_out_at is null
        order by d.run_at
        limit $1
        for update skip locked
@@ -457,6 +489,15 @@ export async function queueBulkSend(pool, batchId, rows, templateName) {
 }
 
 export async function claimBulkSendJobs(pool, limit = 20) {
+  // A contact can opt out after their bulk send job was already queued but
+  // before it went out - marked skipped (not silently left pending forever,
+  // and not claimed/sent) so it's still visible in the batch's progress.
+  await pool.query(
+    `update bulk_send_jobs set status = 'skipped', updated_at = now()
+     where status = 'pending'
+       and exists (select 1 from contacts ct where ct.wa_id = bulk_send_jobs.wa_id and ct.opted_out_at is not null)`,
+  );
+
   const res = await pool.query(
     `with due as (
        select id from bulk_send_jobs
@@ -754,6 +795,7 @@ export async function getConversationById(pool, id) {
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.deleted_at,
             c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
+            ct.opted_out_at,
             coalesce(ca.topic_id, c.last_topic_id) as topic_id,
             t.name as topic_name
      from conversations c

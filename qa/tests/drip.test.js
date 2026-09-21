@@ -111,6 +111,25 @@ test('a due follow up sends its template and is marked sent', async () => {
   assert.equal(status, 'sent');
 });
 
+test('a due follow up is never sent to a contact who has opted out', async () => {
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.OO1', body: 'hi' }), d);
+  const conv = await firstConversation();
+  await pool.query(
+    `insert into drip_jobs (conversation_id, step, template_name, run_at)
+     values ($1, 9, 'drip_day3', now() - interval '1 minute')`,
+    [conv],
+  );
+  await pool.query(
+    `update contacts set opted_out_at = now() where id = (select contact_id from conversations where id = $1)`,
+    [conv],
+  );
+
+  const processed = await runDueDrips({ pool, meta: d.meta, config: testConfig, log: silentLog });
+  assert.equal(processed, 0, 'nothing gets claimed for an opted-out contact');
+  assert.equal(d.meta.templates.length, 0);
+});
+
 test('a drip step with a media asset sends it as the template header', async () => {
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.M1', body: 'hi' }), d);
