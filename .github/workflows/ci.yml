@@ -47,11 +47,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Production dependencies only - the devDependencies here are Capacitor/
+      # Android build tooling (npm run apk) that never runs against untrusted
+      # input, so it's scanned separately from what actually serves traffic.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Run tests
         run: npm test
 
       - name: Install web dependencies
         run: npm ci
+        working-directory: web
+
+      - name: Audit web dependencies
+        run: npm audit --omit=dev --audit-level=high
         working-directory: web
 
       - name: Build console
