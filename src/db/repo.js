@@ -711,16 +711,17 @@ export async function purgeDeletedConversations(pool, olderThanDays = 30) {
 // key everything else (messages, drips, the export) hangs off, so changing it
 // belongs to reconcileContactWaId's careful merge-avoidance logic, not a
 // free-text edit.
-export async function updateContactDetails(pool, conversationId, { name, email, business } = {}) {
+export async function updateContactDetails(pool, conversationId, { name, email, business, address } = {}) {
   const res = await pool.query(
     `update contacts set
        name = coalesce($2, name),
        email = coalesce($3, email),
        business = coalesce($4, business),
+       address = coalesce($5, address),
        last_seen_at = now()
      where id = (select contact_id from conversations where id = $1)
-     returning name, email, business`,
-    [conversationId, name, email, business],
+     returning name, email, business, address`,
+    [conversationId, name, email, business, address],
   );
   return res.rows[0] ?? null;
 }
@@ -752,7 +753,7 @@ export async function getConversationById(pool, id) {
   const res = await pool.query(
     `select c.id, c.state, c.assignee, c.window_expires_at, c.handoff_reason,
             c.pinned_at, c.archived_at, c.muted_until, c.blocked_at, c.deleted_at,
-            c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business,
+            c.campaign_id, ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
             coalesce(ca.topic_id, c.last_topic_id) as topic_id,
             t.name as topic_name
      from conversations c

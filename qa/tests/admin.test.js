@@ -251,6 +251,46 @@ test('media can be filtered to general (no topic) files only', async () => {
   await app.close();
 });
 
+test('payment links can be created, listed by topic, updated, and deleted', async () => {
+  const topic = await upsertTopic(pool, { slug: 'scientific_logo_design_pl', name: 'Scientific Logo Design' });
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const create = await app.inject({
+    method: 'POST', url: '/api/payment-links', headers: auth(t),
+    payload: { topicId: topic.id, label: 'Logo analysis fee', amountInr: 450, url: 'https://rzp.io/l/abc', description: 'For reviewing a previous logo' },
+  });
+  assert.equal(create.statusCode, 200);
+  const id = create.json().id;
+
+  const scoped = await app.inject({ method: 'GET', url: `/api/payment-links?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(scoped.json().paymentLinks.length, 1);
+  assert.equal(scoped.json().paymentLinks[0].label, 'Logo analysis fee');
+
+  const update = await app.inject({
+    method: 'PUT', url: `/api/payment-links/${id}`, headers: auth(t),
+    payload: { label: 'Logo analysis fee (updated)', url: 'https://rzp.io/l/abc', active: false },
+  });
+  assert.equal(update.statusCode, 200);
+  const afterUpdate = await app.inject({ method: 'GET', url: `/api/payment-links?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(afterUpdate.json().paymentLinks[0].label, 'Logo analysis fee (updated)');
+  assert.equal(afterUpdate.json().paymentLinks[0].active, false);
+
+  const del = await app.inject({ method: 'DELETE', url: `/api/payment-links/${id}`, headers: auth(t) });
+  assert.equal(del.statusCode, 200);
+  const afterDelete = await app.inject({ method: 'GET', url: `/api/payment-links?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(afterDelete.json().paymentLinks.length, 0);
+  await app.close();
+});
+
+test('a payment link needs a label and a url', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'POST', url: '/api/payment-links', headers: auth(t), payload: { label: 'Deposit' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
 test('branding is public and editable', async () => {
   const app = await buildApp(new FakeMeta());
   const pub = await app.inject({ method: 'GET', url: '/api/branding' });

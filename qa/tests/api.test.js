@@ -297,10 +297,10 @@ test('PUT /api/conversations/:id/contact saves lead details, and clearing a fiel
 
   const save = await app.inject({
     method: 'PUT', url: `/api/conversations/${id}/contact`, headers: h,
-    payload: { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes' },
+    payload: { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes', address: '221B Baker Street' },
   });
   assert.equal(save.statusCode, 200);
-  assert.deepEqual(save.json().contact, { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes' });
+  assert.deepEqual(save.json().contact, { name: 'Priya', email: 'priya@example.com', business: 'Priya Bakes', address: '221B Baker Street' });
 
   // Only touching one field must not wipe the others.
   const partial = await app.inject({

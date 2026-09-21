@@ -1414,9 +1414,11 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
     onChanged();
   };
 
-  const isBot     = c.state === 'bot';
-  const isPending = c.state === 'pending';
-  const isHuman   = c.state === 'human';
+  const isBot      = c.state === 'bot';
+  const isPending  = c.state === 'pending';
+  const isHuman    = c.state === 'human';
+  const isRejected = c.state === 'rejected';
+  const details    = c.lead_details || {};
 
   return (
     <aside
@@ -1456,14 +1458,17 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
         <ContextRow label="Started"><span className="text-sm font-medium text-gray-700">{daysSince(c.created_at)}</span></ContextRow>
         {c.handoff_reason && (
           <div className="flex flex-col gap-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-            <span className="text-xs font-semibold text-gray-600">Reason flagged</span>
+            <span className="text-xs font-semibold text-gray-600">{isRejected ? 'Reason it was flagged' : 'Reason flagged'}</span>
             <span className="text-xs text-gray-700 italic">"{c.handoff_reason}"</span>
           </div>
         )}
       </div>
 
       {/* Lead details - saved to the contact, shared with the whole team,
-          and what the Excel export reads from. */}
+          and what the Excel export reads from. Address/requirement/budget/
+          timeline only show up once the AI (or an agent) has actually
+          learned them - an empty qualification funnel should look empty,
+          not like a form with blank required fields. */}
       <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 flex flex-col gap-3">
         <div className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Lead details</div>
         <div className="flex flex-col gap-0.5">
@@ -1485,6 +1490,29 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
           <EditableContactField label="Business" value={c.business} placeholder="Not saved yet"
             onSave={(v) => saveContactField('business', v)} />
         </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-gray-400">Address</span>
+          <EditableContactField label="Address" value={c.address} placeholder="Not saved yet"
+            onSave={(v) => saveContactField('address', v)} />
+        </div>
+        {details.requirement && (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-400">What they want</span>
+            <span className="text-sm font-medium text-gray-700">{details.requirement}</span>
+          </div>
+        )}
+        {details.budget && (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-400">Budget</span>
+            <span className="text-sm font-medium text-gray-700">{details.budget}</span>
+          </div>
+        )}
+        {details.timeline && (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-400">Timeline</span>
+            <span className="text-sm font-medium text-gray-700">{details.timeline}</span>
+          </div>
+        )}
       </div>
 
       {/* Mobile Actions (Hidden on desktop since they are in the header) */}
@@ -1534,8 +1562,20 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
               Accept conversation
             </Button>
             <Button variant="secondary" size="lg" className="w-full justify-center"
-              onClick={() => act(() => api.rejectHandoff(c.id), 'Rejected, AI taking over')}>
+              onClick={() => act(() => api.rejectHandoff(c.id), 'Rejected - AI stays quiet until resumed')}>
               Reject
+            </Button>
+          </>
+        )}
+        {isRejected && (
+          <>
+            <Button variant="primary" size="lg" className="w-full justify-center"
+              onClick={() => act(() => api.handback(c.id), 'Bot resumed')}>
+              Resume bot
+            </Button>
+            <Button variant="secondary" size="lg" className="w-full justify-center"
+              onClick={() => act(() => takeoverWithConfirm(c.id), 'You have taken over this conversation')}>
+              Take over instead
             </Button>
           </>
         )}
@@ -1981,10 +2021,11 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
     return !m.reacted_to_wamid || !messageByWamid.has(m.reacted_to_wamid);
   });
   const groups    = groupByDay(visibleMessages);
-  const isPending = conversation.state === 'pending';
-  const isHuman   = conversation.state === 'human';
-  const isBot     = conversation.state === 'bot';
-  const win       = windowLabel(conversation);
+  const isPending  = conversation.state === 'pending';
+  const isHuman    = conversation.state === 'human';
+  const isBot      = conversation.state === 'bot';
+  const isRejected = conversation.state === 'rejected';
+  const win        = windowLabel(conversation);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -2041,6 +2082,13 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
               onClick={() => act(() => api.handback(conversation.id), 'Returned to AI')}>
               <span className="hidden sm:inline">Give back to AI</span>
               <Bot size={16} className="sm:hidden" aria-label="Give back to AI" />
+            </Button>
+          )}
+          {isRejected && (
+            <Button variant="primary" size="sm" className="md:!h-10 md:!px-4 md:!text-base"
+              onClick={() => act(() => api.handback(conversation.id), 'Bot resumed')}>
+              <span className="hidden sm:inline">Resume bot</span>
+              <Bot size={16} className="sm:hidden" aria-label="Resume bot" />
             </Button>
           )}
           {isPending && (
@@ -2127,8 +2175,33 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                 Accept
               </Button>
               <Button variant="secondary" size="sm"
-                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected, AI taking over')}>
+                onClick={() => act(() => api.rejectHandoff(conversation.id), 'Rejected - AI stays quiet until resumed')}>
                 Reject
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejected banner - the bot stays quiet here until someone explicitly
+          resumes it, so this needs to be at least as visible as the pending
+          banner above, not just a badge in the sidebar. */}
+      {isRejected && (
+        <div className="flex items-start gap-3 px-3 md:px-5 py-3 md:py-4 bg-red-50 border-b border-red-200 flex-shrink-0">
+          <ShieldBan size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-red-800">Rejected - the AI will not reply here</div>
+            {conversation.handoff_reason && (
+              <div className="text-xs text-red-700 mt-0.5 break-words">{conversation.handoff_reason}</div>
+            )}
+            <div className="flex gap-2 mt-3">
+              <Button variant="primary" size="sm"
+                onClick={() => act(() => api.handback(conversation.id), 'Bot resumed')}>
+                Resume bot
+              </Button>
+              <Button variant="secondary" size="sm"
+                onClick={() => act(() => takeoverWithConfirm(conversation.id), 'You have taken over this conversation')}>
+                Take over instead
               </Button>
             </div>
           </div>

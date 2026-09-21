@@ -57,6 +57,10 @@ import {
   listMediaAssets,
   getMediaAsset,
   deleteMediaAsset,
+  addPaymentLink,
+  listPaymentLinks,
+  updatePaymentLink,
+  deletePaymentLink,
   addAudit,
   listAudit,
   getMessageRaw,
@@ -494,6 +498,7 @@ export function registerApi(app, deps) {
           name: { type: 'string', maxLength: 120 },
           email: { type: 'string', maxLength: 254 },
           business: { type: 'string', maxLength: 120 },
+          address: { type: 'string', maxLength: 200 },
         },
         additionalProperties: false,
       },
@@ -505,6 +510,7 @@ export function registerApi(app, deps) {
       name: 'name' in req.body ? req.body.name.trim() : null,
       email: 'email' in req.body ? req.body.email.trim() : null,
       business: 'business' in req.body ? req.body.business.trim() : null,
+      address: 'address' in req.body ? req.body.address.trim() : null,
     };
     const contact = await updateContactDetails(pool, req.params.id, fields);
     await audit(req, 'lead details updated', `conversation ${req.params.id}`, Object.keys(req.body).join(', '));
@@ -1328,6 +1334,50 @@ export function registerApi(app, deps) {
   app.delete('/api/media/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     await deleteMediaAsset(pool, req.params.id);
     await audit(req, 'media removed', `asset ${req.params.id}`);
+    return { ok: true };
+  });
+
+  // Payment links. Same shape as media: tagged to a topic with a description
+  // so the AI can pick the right one by meaning, but a plain url instead of
+  // an uploaded file, so no meta upload step.
+  app.get('/api/payment-links', { preHandler: auth }, async (req) => {
+    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    return { paymentLinks: await listPaymentLinks(pool, { topicId }) };
+  });
+
+  app.post('/api/payment-links', { preHandler: adminAuth }, async (req, reply) => {
+    const label = (req.body?.label ?? '').trim();
+    const url = (req.body?.url ?? '').trim();
+    if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    const id = await addPaymentLink(pool, {
+      topicId: req.body?.topicId ? Number(req.body.topicId) : null,
+      label,
+      amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,
+      url,
+      description: (req.body?.description ?? '').trim() || null,
+    });
+    await audit(req, 'payment link added', `link ${id}`, label);
+    return { id };
+  });
+
+  app.put('/api/payment-links/:id', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
+    const label = (req.body?.label ?? '').trim();
+    const url = (req.body?.url ?? '').trim();
+    if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    await updatePaymentLink(pool, req.params.id, {
+      label,
+      amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,
+      url,
+      description: (req.body?.description ?? '').trim() || null,
+      active: req.body?.active !== false,
+    });
+    await audit(req, 'payment link updated', `link ${req.params.id}`);
+    return { ok: true };
+  });
+
+  app.delete('/api/payment-links/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
+    await deletePaymentLink(pool, req.params.id);
+    await audit(req, 'payment link removed', `link ${req.params.id}`);
     return { ok: true };
   });
 
