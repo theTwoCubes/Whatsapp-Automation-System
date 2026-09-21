@@ -230,6 +230,31 @@ test('the ai naming a media id sends the file alongside the reply', async () => 
   assert.equal(d.meta.media[0].opts.filename, 'prices.pdf');
 });
 
+test('the ai naming a payment link sends it as a follow up text after the reply', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, amount_inr, url, description) values ('Logo analysis fee', 450, 'https://rzp.io/l/abc', 'For reviewing a previous logo') returning id",
+    )
+  ).rows[0].id;
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Here is the link for that.', send_payment_link_id: Number(linkId) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAY1', body: 'can you review my old logo?' }), d);
+
+  assert.equal(d.meta.sends.length, 2, 'the reply and the payment link both went out');
+  assert.equal(d.meta.sends[0].body, 'Here is the link for that.');
+  assert.match(d.meta.sends[1].body, /Logo analysis fee/);
+  assert.match(d.meta.sends[1].body, /https:\/\/rzp\.io\/l\/abc/);
+});
+
+test('a send_payment_link_id with no matching link sends nothing extra, only the reply', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sure thing.', send_payment_link_id: 999999 }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAY2', body: 'ok' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'no invented link gets sent');
+});
+
 test('a send_media_id with no matching asset sends nothing extra, only the reply', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Monday to Saturday.', send_media_id: 999999 }));
   const d = deps({ ai });
@@ -345,4 +370,20 @@ test('the first successful ai reply marks the chat introduced, and a lead detail
   assert.ok(row.rows[0].introduced_at, 'the chat is marked introduced after a real ai reply');
   assert.equal(row.rows[0].business, 'Priya Bakes');
   assert.equal(row.rows[0].email, 'priya@example.com');
+});
+
+test('address, requirement, budget, and timeline learned by the ai are saved to the contact end to end', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Got it, thanks!', reply_language: 'English',
+    lead_address: '221B Baker Street, Ahmedabad', lead_requirement: 'A new logo for a bakery',
+    lead_budget: '10-15k', lead_timeline: 'next month',
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.DETAILS1', body: 'I run a bakery and want a new logo, budget 10-15k, need it next month' }), d);
+
+  const row = await pool.query(
+    `select ct.address, ct.lead_details from conversations c join contacts ct on ct.id = c.contact_id limit 1`,
+  );
+  assert.equal(row.rows[0].address, '221B Baker Street, Ahmedabad');
+  assert.deepEqual(row.rows[0].lead_details, { requirement: 'A new logo for a bakery', budget: '10-15k', timeline: 'next month' });
 });
