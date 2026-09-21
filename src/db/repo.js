@@ -1388,7 +1388,41 @@ export async function opsStats(pool) {
      group by reason_category
      order by count desc`,
   );
-  return { ...r.rows[0], handoff_breakdown: handoffBreakdown.rows };
+
+  // First response time: how long from a lead's first message to the first
+  // reply they got (bot or human, whichever answered first). Time to
+  // qualification: how long from a conversation starting to the first time
+  // it was actually handed off - the number the whole qualification-gated
+  // handoff redesign is meant to move. Both restricted to the last 30 days
+  // so a stat from months ago doesn't drag on what "normal" looks like now.
+  const funnel = await pool.query(
+    `with first_inbound as (
+       select conversation_id, min(coalesce(sent_at, created_at)) as t
+       from messages where direction = 'inbound'
+       group by conversation_id
+     ),
+     first_outbound as (
+       select conversation_id, min(coalesce(sent_at, created_at)) as t
+       from messages where direction = 'outbound'
+       group by conversation_id
+     ),
+     first_handoff as (
+       select conversation_id, min(created_at) as t
+       from handoff_events
+       group by conversation_id
+     )
+     select
+       (select round(avg(extract(epoch from (fo.t - fi.t))))
+        from first_inbound fi join first_outbound fo using (conversation_id)
+        where fo.t > fi.t and fi.t > now() - interval '30 days') as avg_first_response_seconds,
+       (select round(avg(extract(epoch from (fh.t - c.created_at))))
+        from first_handoff fh join conversations c on c.id = fh.conversation_id
+        where fh.t > now() - interval '30 days') as avg_time_to_qualification_seconds,
+       (select count(*) from first_handoff fh join conversations c on c.id = fh.conversation_id
+        where fh.t > now() - interval '30 days') as qualified_30d`,
+  );
+
+  return { ...r.rows[0], ...funnel.rows[0], handoff_breakdown: handoffBreakdown.rows };
 }
 
 // Stalled chats to hand back to the bot: either an agent has gone quiet on a

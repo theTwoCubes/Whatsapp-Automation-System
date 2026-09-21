@@ -1,6 +1,19 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
-import { RefreshCw, AlertTriangle, CheckCircle, Clock, Zap, Database, Wifi } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CheckCircle, Clock, Zap, Database, Wifi, Timer } from 'lucide-react';
+
+// Seconds from a query into "2m", "3h 12m" - Stat already handles null as a
+// dash, this only needs to handle a real number.
+function formatDuration(seconds) {
+  if (seconds == null) return null;
+  const s = Number(seconds);
+  if (s < 60) return `${Math.round(s)}s`;
+  const minutes = Math.round(s / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
+}
 
 function Stat({ label, value, unit = '', warn = false, ok = false }) {
   const valueColor = warn ? 'text-red-600' : ok ? 'text-green-600' : 'text-gray-900';
@@ -137,6 +150,17 @@ export default function Ops() {
           <Stat label="Handoffs" value={db.handoffs_24h} />
           <Stat label="AI latency avg" value={db.ai_ms_p50_1h} unit="ms" warn={latencyWarn} />
           <Stat label="Meta latency avg" value={db.meta_ms_p50_1h} unit="ms" />
+        </div>
+      </div>
+
+      <div className="mb-5">
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
+          <Timer size={12} /> Lead funnel (30 days)
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <Stat label="Avg first response" value={formatDuration(db.avg_first_response_seconds)} />
+          <Stat label="Avg time to qualified" value={formatDuration(db.avg_time_to_qualification_seconds)} />
+          <Stat label="Qualified leads" value={db.qualified_30d} />
         </div>
       </div>
 

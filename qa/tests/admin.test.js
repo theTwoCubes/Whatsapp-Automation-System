@@ -6,7 +6,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyMultipart from '@fastify/multipart';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, addMediaAsset } from '../../src/db/repo.js';
+import { createAgent, addMediaAsset, recordHandoff } from '../../src/db/repo.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
@@ -91,6 +91,33 @@ test('overview returns counts', async () => {
   const res = await app.inject({ method: 'GET', url: '/api/overview', headers: auth(t) });
   assert.equal(res.statusCode, 200);
   assert.ok('leads' in res.json().overview);
+  await app.close();
+});
+
+test('ops reports lead funnel timing: first response and time to qualification', async () => {
+  const convId = await makeConversation();
+  // Pin known timestamps so the averages are exact, not dependent on how
+  // fast this test happens to run.
+  await pool.query("update conversations set created_at = now() - interval '10 minutes' where id = $1", [convId]);
+  await pool.query(
+    "update messages set created_at = now() - interval '10 minutes', sent_at = now() - interval '10 minutes' where conversation_id = $1 and direction = 'inbound'",
+    [convId],
+  );
+  await pool.query(
+    "update messages set created_at = now() - interval '8 minutes', sent_at = now() - interval '8 minutes' where conversation_id = $1 and direction = 'outbound'",
+    [convId],
+  );
+  await recordHandoff(pool, { conversationId: convId, source: 'ai', reason: 'test' });
+  await pool.query("update handoff_events set created_at = now() - interval '5 minutes' where conversation_id = $1", [convId]);
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: '/api/admin/ops', headers: auth(t) });
+  assert.equal(res.statusCode, 200);
+  const db = res.json().db;
+  assert.ok(Math.abs(db.avg_first_response_seconds - 120) < 5, `expected ~120s, got ${db.avg_first_response_seconds}`);
+  assert.ok(Math.abs(db.avg_time_to_qualification_seconds - 300) < 5, `expected ~300s, got ${db.avg_time_to_qualification_seconds}`);
+  assert.equal(Number(db.qualified_30d), 1);
   await app.close();
 });
 
