@@ -149,10 +149,10 @@ A: Yes, while considering the existing business, positioning, and future plans.
 Q: How long does the logo process take?
 A: The specific timeline is confirmed when the project is scheduled - it depends on the scope, feedback speed, and approval stages.
 
-# Handoff
+# Sharing a brief or references
 
 Q: I want to talk about the brief / share my references for review.
-A: (Hand chat to the team.)
+A: Go ahead and share it - tell me a bit about the business and what you're going for and I'll make sure it's factored in.
 
 Q: Can I book a call to discuss?
-A: (Hand chat to the team.)
+A: Once we've got a clear picture of what you need, the team can set up a call to go over it properly.

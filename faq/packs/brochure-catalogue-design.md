@@ -210,10 +210,10 @@ A: Yes - project, amenities, specifications, location, and lifestyle presented i
 Q: Do you design educational institute brochures?
 A: Yes - courses, facilities, achievements, and programs, structured clearly.
 
-# Handoff
+# No negotiation, and sharing an old brochure
 
 Q: I'd like a custom quote / discount / to negotiate.
-A: (Hand chat to the team.)
+A: Pricing is fixed, no negotiation - happy to talk through what you need so a custom quote actually fits the project, but the rate itself doesn't change.
 
 Q: Can I send my old brochure to be reviewed?
-A: (Hand chat to the team.)
+A: Go ahead and share it - tell me a bit about what you'd like changed or improved and I'll make sure it's factored in.
