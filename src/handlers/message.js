@@ -24,6 +24,7 @@ import {
   saveAttachmentContext,
   optOutContact,
   isContactOptedOut,
+  recordPaymentClaimed,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
@@ -51,7 +52,9 @@ export async function pushHandoff(pool, conversationId, reason, log, opts = {}) 
     const label = row?.name || row?.wa_id;
     const title = opts.kind === 'inbound'
       ? `${label} sent a message`
-      : `${label} needs a person`;
+      : opts.kind === 'payment_claimed'
+        ? `${label} says they paid`
+        : `${label} needs a person`;
     await notifyAgentsOfHandoff(pool, {
       conversationId,
       name: row?.name,
@@ -448,6 +451,11 @@ async function respondToLead(deps, conversationId, items) {
   }
   if (sent && decision?.sendPaymentLinkId) {
     await maybeSendPaymentLink(deps, conversationId, to, decision.sendPaymentLinkId);
+  }
+
+  if (sent && decision?.paymentClaimed) {
+    await recordPaymentClaimed(pool, conversationId);
+    await pushHandoff(pool, conversationId, 'Says they have completed a payment.', log, { kind: 'payment_claimed' });
   }
 
   if (sent && !(await isContactOptedOut(pool, conversationId))) {

@@ -384,6 +384,19 @@ export async function optOutContact(pool, conversationId) {
   await cancelDrips(pool, conversationId);
 }
 
+// Logs that the lead said they paid, so it shows up in the sidebar and the
+// team was pinged - see notifyAgentsOfHandoff's 'payment_claimed' kind. Only
+// the first claim in a conversation is timestamped; a lead repeating "I paid"
+// on a later turn does not need a second note.
+export async function recordPaymentClaimed(pool, conversationId) {
+  await pool.query(
+    `update contacts set lead_details = jsonb_set(lead_details, '{payment_claimed_at}', to_jsonb(now()::text), true)
+     where id = (select contact_id from conversations where id = $1)
+       and lead_details->>'payment_claimed_at' is null`,
+    [conversationId],
+  );
+}
+
 export async function isContactOptedOut(pool, conversationId) {
   const res = await pool.query(
     `select ct.opted_out_at from conversations c join contacts ct on ct.id = c.contact_id where c.id = $1`,

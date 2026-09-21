@@ -268,6 +268,27 @@ test('the ai naming a media id sends the file alongside the reply', async () => 
   assert.equal(d.meta.media[0].opts.filename, 'prices.pdf');
 });
 
+test('a claimed payment is logged on the contact and notifies agents, without a handoff', async () => {
+  await pool.query(
+    `insert into push_subscriptions (agent_email, transport, endpoint) values ('a@b.com', 'web', 'https://push.example/1')`,
+  );
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: "Great, thank you! We'll be in touch.", payment_claimed: true,
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAID1', body: "I've just paid the deposit" }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'a payment claim alone does not force a handoff');
+
+  const contact = await pool.query("select lead_details->>'payment_claimed_at' as claimed from contacts limit 1");
+  assert.ok(contact.rows[0].claimed, 'the claim is timestamped on the contact');
+
+  const notif = await pool.query("select kind, title from notifications where kind = 'payment_claimed'");
+  assert.equal(notif.rows.length, 1);
+  assert.match(notif.rows[0].title, /says they paid/i);
+});
+
 test('the ai naming a payment link sends it as a follow up text after the reply', async () => {
   const linkId = (
     await pool.query(

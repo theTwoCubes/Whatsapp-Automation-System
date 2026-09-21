@@ -9,6 +9,7 @@ import {
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
   ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter, Plus,
+  IndianRupee,
 } from 'lucide-react';
 
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
@@ -1463,6 +1464,12 @@ function ContextPanel({ thread, onChanged, onCloseContext }) {
           <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             <BellOff size={12} className="flex-shrink-0" />
             Opted out of follow ups - drips and bulk sends skip this contact. They still get normal replies.
+          </div>
+        )}
+        {details.payment_claimed_at && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <IndianRupee size={12} className="flex-shrink-0" />
+            Says they paid, {daysSince(details.payment_claimed_at)}
           </div>
         )}
       </div>

@@ -113,12 +113,13 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
   // that has any subscription, so the drawer keeps showing this even if the
   // browser push failed. Silent if the agent has no push at all — nothing to
   // read in the inbox they never opened.
+  const notifKind = kind === 'inbound' ? 'inbound_in_takeover' : kind === 'payment_claimed' ? 'payment_claimed' : 'handoff';
   const agentEmails = [...new Set(rows.map((r) => r.agent_email).filter(Boolean))];
   for (const agentEmail of agentEmails) {
     await pool.query(
       `insert into notifications (agent_email, kind, conversation_id, title, body)
        values ($1, $2, $3, $4, $5)`,
-      [agentEmail, kind === 'inbound' ? 'inbound_in_takeover' : 'handoff', conversationId, notifTitle, notifBody],
+      [agentEmail, notifKind, conversationId, notifTitle, notifBody],
     ).catch((err) => log?.warn({ err }, 'failed to write in-app notification'));
   }
 
@@ -130,7 +131,7 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     title: notifTitle,
     body: notifBody,
     conversationId,
-    tag: `${kind === 'inbound' ? 'msg' : 'handoff'}-${conversationId}`,
+    tag: `${kind === 'inbound' ? 'msg' : kind === 'payment_claimed' ? 'payment' : 'handoff'}-${conversationId}`,
   });
 
   await Promise.all(rows.map(async (row) => {

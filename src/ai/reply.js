@@ -111,6 +111,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     warn: parsed.warn || false,
     block: parsed.block || false,
     optOut: parsed.optOut || false,
+    paymentClaimed: parsed.paymentClaimed || false,
     reason: parsed.reason,
     requestedPackIds: parsed.requestedPackIds,
     sendMediaId,
@@ -194,7 +195,11 @@ function parseDecision(raw, catalog) {
     // complete response - only truly empty output with nothing to react to
     // falls back to a handoff.
     if (!reply && !reactEmoji) return { ...empty, reason: 'the assistant answered with an empty message' };
-    return { reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, reactEmoji, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
+    return {
+      reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, reactEmoji, replyLanguage,
+      leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false,
+      paymentClaimed: Boolean(obj?.payment_claimed),
+    };
   }
 
   if (obj?.action === 'warn') {
@@ -278,6 +283,7 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
       'To reply to the customer:',
       '{"action": "answer", "reply": "your message", "send_media_id": null, "send_payment_link_id": null, "react_emoji": null, "reply_language": "English"}',
       '- Add "lead_name", "lead_business", "lead_email", "lead_address", "lead_requirement", "lead_budget", and/or "lead_timeline" to that same object, only on the turn you actually learn one of them, e.g. {"action": "answer", "reply": "...", "reply_language": "English", "lead_name": "Priya"}. Omit them entirely otherwise - do not repeat a value already known back every turn.',
+      '- Add "payment_claimed": true on the one turn a customer states they have completed a payment (any payment, not just one you sent a link for). Omit it (or leave it false) every other turn, including later ones about the same payment - this is a one-time flag for the team to notice, not a running state.',
       '',
       `To just react to their last message instead of typing a reply - only for a short "thanks", "ok", "great" or similar where a real person would tap an emoji rather than type something back. Use one of these exactly: ${REACTION_EMOJIS.join(' ')}. Leave "reply" empty when you do this:`,
       `{"action": "answer", "reply": "", "react_emoji": "${REACTION_EMOJIS[0]}", "reply_language": "English"}`,
@@ -350,7 +356,7 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
       ...linkTrim.lines,
       '- Put the id in send_payment_link_id only when the approved answers say this exact payment applies to what the customer just asked for. Only ever name an id from this list, never type out or invent a link yourself.',
       '- Leave send_payment_link_id null in every other case.',
-      '- Sending the link is not the end of the conversation - keep talking naturally. If they say they have paid, thank them, tell them (in your own words, matching what the approved answers say for this service) that the team will personally reach out to them next, and carry on the conversation as normal. Do not treat "I paid" alone as something you need to verify - take it at face value.',
+      '- Sending the link is not the end of the conversation - keep talking naturally. If they say they have paid, thank them, tell them (in your own words, matching what the approved answers say for this service) that the team will personally reach out to them next, carry on the conversation as normal, and set "payment_claimed": true on that reply so the team is notified. Do not treat "I paid" alone as something you need to verify - take it at face value.',
     );
     return lines.join('\n');
   })();

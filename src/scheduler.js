@@ -4,6 +4,7 @@ import {
   setLeadProfile, markIntroduced, reconcileContactWaId,
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
   optOutContact,
+  recordPaymentClaimed,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -267,6 +268,10 @@ export async function runAutoResume(deps) {
         await reconcileContactWaId(pool, row.id, waId);
         if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
         if (decision?.sendPaymentLinkId) await maybeSendPaymentLink(deps, row.id, row.wa_id, decision.sendPaymentLinkId);
+        if (decision?.paymentClaimed) {
+          await recordPaymentClaimed(pool, row.id);
+          await pushHandoff(pool, row.id, 'Says they have completed a payment.', log, { kind: 'payment_claimed' });
+        }
         realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
       }
     } catch (err) {
