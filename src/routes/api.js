@@ -51,6 +51,7 @@ import {
   deleteAgent,
   setAgentRole,
   overview,
+  listLeads,
   campaignStats,
   linkCampaignTopic,
   addMediaAsset,
@@ -743,6 +744,10 @@ export function registerApi(app, deps) {
 
   // Overview stats.
   app.get('/api/overview', { preHandler: auth }, async () => ({ overview: await overview(pool) }));
+
+  // Full detail behind the dashboard's lead count, so "17 leads" is never a
+  // number with nowhere to click through to.
+  app.get('/api/leads', { preHandler: auth }, async () => ({ leads: await listLeads(pool) }));
 
   // Where leads actually came from: one row per ad campaign plus an organic
   // bucket for everyone who arrived with no click to whatsapp referral.

@@ -894,7 +894,7 @@ export async function listAudit(pool, limit = 100) {
 export async function metrics(pool) {
   const r = await pool.query(
     `select
-       (select count(*) from contacts) as leads,
+       (select count(*) from contacts where name is not null) as leads,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
        (select count(*) from conversations where state = 'pending') as pending_chats,
@@ -948,9 +948,13 @@ export async function linkCampaignTopic(pool, campaignId, topicId) {
 }
 
 export async function overview(pool) {
+  // "Leads" only counts a contact once something is actually known about
+  // them (at minimum a name) - a raw wa_id nobody ever got a name for is not
+  // something the client can act on, so it should not inflate the count they
+  // see on the dashboard either.
   const r = await pool.query(
     `select
-       (select count(*) from contacts) as leads,
+       (select count(*) from contacts where name is not null) as leads,
        (select count(*) from campaigns) as campaigns,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
@@ -962,7 +966,7 @@ export async function overview(pool) {
   const leadsHistory = await pool.query(
     `select to_char(first_seen_at, 'YYYY-MM-DD') as date, count(*)::int as count
      from contacts
-     where first_seen_at >= now() - interval '30 days'
+     where first_seen_at >= now() - interval '30 days' and name is not null
      group by date
      order by date asc`
   );
@@ -971,6 +975,26 @@ export async function overview(pool) {
     ...r.rows[0],
     leads_per_day: leadsHistory.rows,
   };
+}
+
+// The full detail behind the dashboard's "Total leads" number - every field
+// saved so far for a contact with at least a name on file, plus their most
+// recent conversation state. This must stay consistent with overview()'s
+// leads count and criteria (name is not null), or the two numbers on the
+// dashboard would silently disagree.
+export async function listLeads(pool) {
+  const res = await pool.query(
+    `select ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
+            c.state, t.name as topic_name
+     from contacts ct
+     left join conversations c on c.contact_id = ct.id
+     left join campaigns ca on ca.id = c.campaign_id
+     left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
+     where ct.name is not null
+     order by ct.first_seen_at desc
+     limit 2000`,
+  );
+  return res.rows;
 }
 
 export async function addMediaAsset(pool, a) {

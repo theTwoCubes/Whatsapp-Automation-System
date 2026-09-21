@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api } from '../../api.js';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
+import { StateBadge } from '../../components/ui/Badge.jsx';
 
 // Shared admin layout primitives
 export function AdminPage({ title, subtitle, actions, children }) {
@@ -136,6 +137,81 @@ function SkeletonStat() {
   );
 }
 
+// The full detail behind "Total leads" - every contact counted there, with
+// everything saved about them. A lead with no expandable details just has no
+// "Details" link, rather than an empty panel that looks broken.
+function LeadsTable() {
+  const [leads, setLeads] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    api.leads().then((d) => setLeads(d.leads || [])).catch(() => setLeads([]));
+  }, []);
+
+  if (!leads) return <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>;
+  if (leads.length === 0) return <EmptyState message="No leads with saved details yet." />;
+
+  return (
+    <Card>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
+              <th className="px-4 py-2 font-semibold">Name</th>
+              <th className="px-4 py-2 font-semibold">Phone</th>
+              <th className="px-4 py-2 font-semibold">Business</th>
+              <th className="px-4 py-2 font-semibold">Service</th>
+              <th className="px-4 py-2 font-semibold">Status</th>
+              <th className="px-4 py-2 font-semibold" />
+            </tr>
+          </thead>
+          <tbody>
+            {leads.map((l) => {
+              const details = l.lead_details || {};
+              const hasMore = Boolean(l.email || l.address || details.requirement || details.budget || details.timeline);
+              const isOpen = expanded === l.wa_id;
+              return (
+                <React.Fragment key={l.wa_id}>
+                  <tr className="border-b border-gray-50">
+                    <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{l.name}</td>
+                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{l.wa_id}</td>
+                    <td className="px-4 py-2.5 text-gray-500">{l.business || '—'}</td>
+                    <td className="px-4 py-2.5 text-gray-500">{l.topic_name || '—'}</td>
+                    <td className="px-4 py-2.5">{l.state ? <StateBadge state={l.state} /> : '—'}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {hasMore && (
+                        <button
+                          className="text-xs font-medium text-[var(--accent-text)] hover:underline"
+                          onClick={() => setExpanded(isOpen ? null : l.wa_id)}
+                        >
+                          {isOpen ? 'Hide' : 'Details'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-700">
+                          {l.email && <div><span className="text-gray-400 block">Email</span>{l.email}</div>}
+                          {l.address && <div><span className="text-gray-400 block">Address</span>{l.address}</div>}
+                          {details.requirement && <div><span className="text-gray-400 block">What they want</span>{details.requirement}</div>}
+                          {details.budget && <div><span className="text-gray-400 block">Budget</span>{details.budget}</div>}
+                          {details.timeline && <div><span className="text-gray-400 block">Timeline</span>{details.timeline}</div>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 // Dashboard
 export default function Dashboard() {
   const [overview, setOverview]  = useState(null);
@@ -175,6 +251,13 @@ export default function Dashboard() {
               </>
           }
         </div>
+      </Section>
+
+      {/* Every lead behind the "Total leads" count above, with everything
+          saved about them so far. A contact with no name is never counted or
+          listed here - it isn't a lead yet, just a phone number. */}
+      <Section title="All leads" subtitle="Everyone counted in Total leads above, with the details the AI or your team have saved for them.">
+        <LeadsTable />
       </Section>
 
       {/* Message volume — always 2-col on mobile */}

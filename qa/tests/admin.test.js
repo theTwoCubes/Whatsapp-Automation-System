@@ -94,6 +94,40 @@ test('overview returns counts', async () => {
   await app.close();
 });
 
+test('a contact with no name saved does not count or show up as a lead', async () => {
+  await makeConversation();
+  await pool.query(
+    "insert into contacts (wa_id) values ('918800000000')",
+  );
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const overview = await app.inject({ method: 'GET', url: '/api/overview', headers: auth(t) });
+  assert.equal(Number(overview.json().overview.leads), 1, 'the nameless contact is not counted');
+
+  const leads = await app.inject({ method: 'GET', url: '/api/leads', headers: auth(t) });
+  assert.equal(leads.json().leads.length, 1);
+  assert.equal(leads.json().leads[0].wa_id, '918766226219');
+  await app.close();
+});
+
+test('the leads endpoint surfaces address and lead_details for the console dashboard', async () => {
+  const id = await makeConversation();
+  await pool.query(
+    "update contacts set address = $2, lead_details = $3 where id = (select contact_id from conversations where id = $1)",
+    [id, '221B Baker Street', JSON.stringify({ requirement: 'A new logo', budget: '10k' })],
+  );
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: '/api/leads', headers: auth(t) });
+  const lead = res.json().leads[0];
+  assert.equal(lead.address, '221B Baker Street');
+  assert.equal(lead.lead_details.requirement, 'A new logo');
+  await app.close();
+});
+
 test('answers can be added, listed and deleted through the api', async () => {
   const app = await buildApp(new FakeMeta());
   const t = await token(app);
