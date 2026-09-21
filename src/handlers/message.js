@@ -20,8 +20,11 @@ import {
   isConversationBlocked,
   setConversationBlocked,
   deadLetterWebhook,
+  countRecentAttachments,
+  saveAttachmentContext,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
+import { describeAttachment } from '../ai/vision.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { getTopic } from '../knowledge/topics.js';
@@ -158,15 +161,15 @@ function describeInboundBody(message, quickReplyText) {
 }
 
 async function handleMessage(value, message, deps) {
-  const { pool, config, realtime, log } = deps;
+  const { pool, meta, config, realtime, log } = deps;
   const contactName = value.contacts?.[0]?.profile?.name;
 
   // A tapped quick-reply button (on a template, or an interactive button/list
   // message) is a structured answer the lead chose, not an attachment - it
   // gets treated as if they had typed it, going straight to the AI pipeline
-  // below instead of an automatic human handoff.
+  // below instead of being handled as a file.
   const quickReplyText = extractQuickReplyText(message);
-  const effectiveText = message.text?.body || quickReplyText || null;
+  let effectiveText = message.text?.body || quickReplyText || null;
 
   let result;
   try {
@@ -239,23 +242,36 @@ async function handleMessage(value, message, deps) {
   }
 
   // Anything the lead sends that is not plain text or a quick-reply tap
-  // (image, document, voice note, location, and so on) needs a person, not a
-  // silent drop. Handing off immediately means it does not get lost waiting
-  // on the debounce window.
+  // (image, document, voice note, location, and so on) is no longer an
+  // automatic handoff - only a qualified lead gets passed to a person, and a
+  // file on its own says nothing about that either way. It goes through the
+  // exact same AI pipeline as a text message, just with a generic label
+  // instead of a body, and - for an image or PDF, within a rate limit - a
+  // short factual note on what it actually shows.
   if (!effectiveText) {
-    const settings = await getSettings(pool, config);
-    await handToPending(pool, result.conversationId, `Lead sent a ${message.type}`);
-    await recordHandoff(pool, {
-      conversationId: result.conversationId,
-      source: 'attachment',
-      reason: `Lead sent a ${message.type}`,
-      topicId: result.topicId ?? null,
-    });
-    await cancelDrips(pool, result.conversationId);
-    log.info({ conversationId: result.conversationId, type: message.type }, 'lead sent an attachment, queued for a human');
-    await sendAndRecord(deps, message.from, result.conversationId, settings.attachmentMessage);
-    await pushHandoff(pool, result.conversationId, `Lead sent a ${message.type}`, log);
-    return;
+    effectiveText = `Sent a ${message.type}`;
+
+    if (message.type === 'image' || message.type === 'document') {
+      const recentCount = await countRecentAttachments(pool, result.conversationId, 60);
+      if (recentCount > config.mediaAnalysisMaxPerHour) {
+        log.info({ conversationId: result.conversationId, recentCount }, 'attachment analysis rate limit hit, skipping vision');
+      } else {
+        try {
+          const mediaId = message[message.type]?.id;
+          if (mediaId) {
+            const url = await meta.getMediaUrl(mediaId);
+            const { buffer, contentType } = await meta.downloadMedia(url);
+            const note = await describeAttachment(config, buffer, contentType);
+            if (note) {
+              await saveAttachmentContext(pool, result.messageId, note);
+              effectiveText = `${effectiveText} — ${note}`;
+            }
+          }
+        } catch (err) {
+          log.warn({ err, conversationId: result.conversationId }, 'attachment analysis failed, continuing without it');
+        }
+      }
+    }
   }
 
   const items = await getBatcher(config).enqueueMessage(result.conversationId, {

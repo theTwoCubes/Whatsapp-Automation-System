@@ -254,16 +254,16 @@ test('the same attachment is not sent twice inside the cooldown window', async (
   assert.equal(d.meta.media?.length, 1, 'a repeat within the cooldown is silently skipped, no duplicate goes out');
 });
 
-test('non text messages are stored and hand off to a human instead of being dropped', async () => {
+test('an image is handled by the ai like a text message, never handed off just for being a file', async () => {
   const d = deps();
   await processWebhook(inboundImage({ id: 'wamid.I1' }), d);
 
-  assert.equal(await count('messages'), 2, 'image stored plus the handoff reply');
-  assert.equal(d.meta.sends.length, 1, 'a handoff message is sent instead of silence');
-  assert.equal(d.meta.sends[0].body, testConfig.attachmentMessage);
+  assert.equal(await count('messages'), 2, 'image stored plus the bot reply');
+  assert.equal(d.meta.sends.length, 1, 'the bot replies instead of going silent');
+  assert.equal(d.meta.sends[0].body, 'Here is a helpful answer.');
 
   const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'pending', 'conversation queued for a human');
+  assert.equal(conv.rows[0].state, 'bot', 'an attachment alone never hands the conversation off');
 });
 
 test('a lead reacting to a message is stored but never hands off, replies, or interrupts drips', async () => {
@@ -310,14 +310,13 @@ test('a tapped interactive list option also reaches the ai instead of handing of
   assert.equal(conv.rows[0].state, 'bot');
 });
 
-test('a location share still hands off to a person, with a readable body instead of blank', async () => {
+test('a location share is handled by the ai too, with a readable body instead of blank', async () => {
   const d = deps();
   await processWebhook(inboundLocation({ id: 'wamid.LOC1' }), d);
 
-  assert.equal(d.meta.sends.length, 1, 'a handoff message is sent');
-  assert.equal(d.meta.sends[0].body, testConfig.attachmentMessage);
+  assert.equal(d.meta.sends.length, 1, 'the bot replies instead of going silent');
   const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'pending');
+  assert.equal(conv.rows[0].state, 'bot');
 
   const stored = await pool.query("select body from messages where type = 'location'");
   assert.equal(stored.rows[0].body, 'Location shared: Ahmedabad');

@@ -207,9 +207,9 @@ function AIBehaviour() {
               helper="Sent right before a real teammate takes over."
               placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
               {...bind('handoff_message')} />
-            <InputField label="When a customer sends a file" textarea
-              helper="Photos, documents and voice notes always go to a person."
-              placeholder="Thanks for sending that over! Someone will take a look and reply soon."
+            <InputField label="When a customer sends a file (currently unused)" textarea
+              helper="The AI now looks at photos and documents itself and replies naturally, so this line is not sent anymore. Left here in case that ever needs to change."
+              placeholder="Thanks for sending that over! Could you tell me a bit more about it in words too?"
               {...bind('attachment_message')} />
           </FormStack>
           </CardBody>

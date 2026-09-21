@@ -82,6 +82,12 @@ export function loadConfig() {
     // genuinely asks for it once more is not hard blocked from it either.
     mediaResendCooldownMinutes: Number(process.env.MEDIA_RESEND_COOLDOWN_MINUTES || 180),
 
+    // How many images/documents from the same lead get looked at with vision
+    // per rolling hour, before the bot just stores the rest without analysing
+    // them. Guards against someone running up the vision API bill (or trying
+    // to smuggle a prompt injection through a wall of images).
+    mediaAnalysisMaxPerHour: Number(process.env.MEDIA_ANALYSIS_MAX_PER_HOUR || 6),
+
     // Message batching. Rapid fire messages from the same lead are coalesced
     // into a single AI call instead of replying to each one separately.
     messageBatchDebounceMs: Number(process.env.MESSAGE_BATCH_DEBOUNCE_MS || 2500),

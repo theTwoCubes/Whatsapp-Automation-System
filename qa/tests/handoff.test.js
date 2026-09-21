@@ -59,7 +59,7 @@ async function pendingConversation() {
   return (await pool.query('select id from conversations limit 1')).rows[0].id;
 }
 
-test('a lead sending an attachment queues a pending handoff with a reason', async () => {
+test('an attachment alone does not queue a pending handoff', async () => {
   await processWebhook(inboundImage({ id: 'wamid.att1' }), {
     meta: new FakeMeta(),
     ai: new FakeAi(),
@@ -67,9 +67,24 @@ test('a lead sending an attachment queues a pending handoff with a reason', asyn
     config: testConfig,
     log: silentLog,
   });
+  const row = (await pool.query('select state from conversations limit 1')).rows[0];
+  assert.equal(row.state, 'bot');
+});
+
+test('the ai can still hand off after an attachment, once it judges the lead is qualified', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'handoff', reply: 'Connecting you now.', reason: 'qualified: paid the analysis fee for a logo review',
+  }));
+  await processWebhook(inboundImage({ id: 'wamid.att2' }), {
+    meta: new FakeMeta(),
+    ai,
+    pool,
+    config: testConfig,
+    log: silentLog,
+  });
   const row = (await pool.query('select state, handoff_reason from conversations limit 1')).rows[0];
   assert.equal(row.state, 'pending');
-  assert.match(row.handoff_reason, /image/i);
+  assert.match(row.handoff_reason, /qualified/i);
 });
 
 test('accepting a pending handoff claims it for the agent', async () => {
