@@ -682,7 +682,7 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
         <div className="min-w-0">
           <div className="mb-3 text-sm text-gray-400">{rows.length} answer{rows.length !== 1 ? 's' : ''}</div>
           {rows.length === 0 && !addOpen && !importOpen && (
-            <EmptyState message="No answers in this pack yet. Add one on the left or import a document." />
+            <EmptyState message="No answers in this pack yet. Add one or import a document." />
           )}
           {rows.length > 0 && (
             <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
@@ -867,7 +867,7 @@ function MediaPane({ topics }) {
           {!data ? (
             <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
           ) : rows.length === 0 ? (
-            <EmptyState message="No files uploaded yet. Upload one on the left." />
+            <EmptyState message="No files uploaded yet." />
           ) : (
             <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
               {rows.map((m) => (
@@ -1040,7 +1040,7 @@ function PaymentLinksPane({ topics }) {
           {!data ? (
             <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
           ) : rows.length === 0 ? (
-            <EmptyState message="No payment links yet. Add one on the left once you have it from Razorpay (or wherever it's hosted)." />
+            <EmptyState message="No payment links yet. Add one once you have it from Razorpay (or wherever it's hosted)." />
           ) : (
             <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
               {rows.map((p) => (
