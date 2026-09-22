@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   UserPlus, Shield, Palette, History, Trash2, Check,
-  Users, KeyRound,
+  Users, KeyRound, Sparkles, Bot,
 } from 'lucide-react';
 import { api } from '../../api.js';
 import Button from '../../components/ui/Button.jsx';
@@ -407,6 +407,69 @@ function Branding() {
   );
 }
 
+// One provider's card: icon, configured/primary status, key + model fields.
+// Clicking the card when it's not primary makes it primary - no separate
+// picker needed above.
+function ProviderCard({
+  icon: Icon, name, isPrimary, onMakePrimary, configured, keyHint,
+  keyLabel, keyPlaceholder, apiKey, onApiKeyChange, model, onModelChange, modelPlaceholder,
+}) {
+  return (
+    <div
+      className={`rounded-2xl border-2 p-4 md:p-5 flex flex-col gap-4 transition-colors ${
+        isPrimary ? 'border-[var(--accent)]' : 'border-gray-200'
+      }`}
+      style={isPrimary ? { background: 'var(--accent-dim)' } : undefined}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-white border border-gray-200"
+          >
+            <Icon size={18} className="text-gray-700" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-gray-900 truncate">{name}</div>
+            <div className={`text-xs font-medium ${configured ? 'text-green-600' : 'text-gray-400'}`}>
+              {configured ? 'Configured' : 'Not configured'}
+            </div>
+          </div>
+        </div>
+        {isPrimary ? (
+          <span
+            className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          >
+            <Check size={12} /> Primary
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onMakePrimary}
+            className="text-xs font-medium text-gray-500 hover:text-gray-800 px-2.5 py-1 rounded-full border border-gray-200 hover:bg-gray-50 flex-shrink-0 transition-colors"
+          >
+            Make primary
+          </button>
+        )}
+      </div>
+
+      <InputField
+        label={keyLabel}
+        helper={keyHint}
+        placeholder={keyPlaceholder}
+        value={apiKey}
+        onChange={onApiKeyChange}
+      />
+      <InputField
+        label="Model"
+        placeholder={modelPlaceholder}
+        value={model}
+        onChange={onModelChange}
+      />
+    </div>
+  );
+}
+
 // AI provider and keys. Admin only - the whole Team & Access page already is,
 // and every route this talks to is separately gated on the backend too.
 function AiProvider() {
@@ -450,63 +513,43 @@ function AiProvider() {
         <PanelHeader
           icon={KeyRound}
           title="AI provider & keys"
-          subtitle="Model and API keys. Admins only."
+          subtitle="The primary answers your leads; the other is a backup if it fails."
         />
-        <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <div className="text-base font-medium text-gray-800">Primary provider</div>
-            <p className="text-xs text-gray-500">If the primary fails, the other one (when configured) is used automatically as a backup.</p>
-            <div className="flex gap-2">
-              {['gemini', 'openai'].map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setForm({ ...form, aiProvider: p })}
-                  className={`flex-1 text-left px-4 py-3 rounded-xl border transition-colors capitalize ${
-                    form.aiProvider === p ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-sm font-semibold text-gray-900">{p === 'gemini' ? 'Google Gemini' : 'OpenAI'}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-4 pt-2 border-t border-gray-100">
-            <div className="text-base font-medium text-gray-800">Google Gemini</div>
-            <InputField
-              label="API key"
-              helper={data.geminiConfigured ? `A key is saved: ${data.geminiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
-              placeholder="AIza…"
-              value={form.geminiApiKey || ''}
-              onChange={(e) => setForm({ ...form, geminiApiKey: e.target.value })}
+        <div className="px-4 md:px-6 py-5 md:py-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ProviderCard
+              icon={Sparkles}
+              name="Google Gemini"
+              isPrimary={form.aiProvider === 'gemini'}
+              onMakePrimary={() => setForm({ ...form, aiProvider: 'gemini' })}
+              configured={data.geminiConfigured}
+              keyLabel="API key"
+              keyHint={data.geminiConfigured ? `Saved: ${data.geminiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
+              keyPlaceholder="AIza…"
+              apiKey={form.geminiApiKey || ''}
+              onApiKeyChange={(e) => setForm({ ...form, geminiApiKey: e.target.value })}
+              model={form.geminiModel || ''}
+              onModelChange={(e) => setForm({ ...form, geminiModel: e.target.value })}
+              modelPlaceholder="gemini-2.5-flash"
             />
-            <InputField
-              label="Model"
-              placeholder="gemini-2.5-flash"
-              value={form.geminiModel || ''}
-              onChange={(e) => setForm({ ...form, geminiModel: e.target.value })}
+            <ProviderCard
+              icon={Bot}
+              name="OpenAI"
+              isPrimary={form.aiProvider === 'openai'}
+              onMakePrimary={() => setForm({ ...form, aiProvider: 'openai' })}
+              configured={data.openaiConfigured}
+              keyLabel="API key"
+              keyHint={data.openaiConfigured ? `Saved: ${data.openaiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
+              keyPlaceholder="sk-…"
+              apiKey={form.openaiApiKey || ''}
+              onApiKeyChange={(e) => setForm({ ...form, openaiApiKey: e.target.value })}
+              model={form.openaiModel || ''}
+              onModelChange={(e) => setForm({ ...form, openaiModel: e.target.value })}
+              modelPlaceholder="gpt-4o-mini"
             />
           </div>
 
-          <div className="flex flex-col gap-4 pt-2 border-t border-gray-100">
-            <div className="text-base font-medium text-gray-800">OpenAI</div>
-            <InputField
-              label="API key"
-              helper={data.openaiConfigured ? `A key is saved: ${data.openaiKeyHint}. Leave blank to keep it.` : 'No key saved yet.'}
-              placeholder="sk-…"
-              value={form.openaiApiKey || ''}
-              onChange={(e) => setForm({ ...form, openaiApiKey: e.target.value })}
-            />
-            <InputField
-              label="Model"
-              placeholder="gpt-4o-mini"
-              value={form.openaiModel || ''}
-              onChange={(e) => setForm({ ...form, openaiModel: e.target.value })}
-            />
-          </div>
-
-          <div className="flex items-center justify-end pt-1">
+          <div className="flex items-center justify-end pt-5">
             <Button variant="primary" size="sm" onClick={save} disabled={saving}>
               {saving ? 'Saving…' : 'Save AI settings'}
             </Button>

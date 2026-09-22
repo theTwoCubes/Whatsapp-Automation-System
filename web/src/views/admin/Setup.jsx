@@ -137,82 +137,85 @@ function AIBehaviour() {
   });
 
   return (
-    <div className="flex flex-col gap-8">
-      <Section title="How the AI describes your business">
-        <Card>
-          <CardBody>
-          <FormStack>
-            <InputField label="Business name"
-              placeholder="Acme Studio"
-              {...bind('business_name')} />
-            <InputField label="AI's name"
-              placeholder="Adi"
-              {...bind('bot_name')} />
-            <InputField label="About the business" textarea
-              placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."
-              {...bind('business_about')} />
-            <InputField label="Tone of voice"
-              placeholder="Friendly and professional. Warm but concise. No slang."
-              {...bind('business_tone')} />
-          </FormStack>
+    <div className="flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <Section title="How the AI describes your business">
+          <Card>
+            <CardBody>
+            <FormStack>
+              <InputField label="Business name"
+                placeholder="Acme Studio"
+                {...bind('business_name')} />
+              <InputField label="AI's name"
+                placeholder="Adi"
+                {...bind('bot_name')} />
+              <InputField label="About the business" textarea
+                placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."
+                {...bind('business_about')} />
+              <InputField label="Tone of voice"
+                placeholder="Friendly and professional. Warm but concise. No slang."
+                {...bind('business_tone')} />
+            </FormStack>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="Contact details the AI can share">
+          <Card>
+            <CardBody>
+            <FormStack>
+              <InputField label="Website"
+                placeholder="https://yourbusiness.com"
+                {...bind('website_url')} />
+              <InputField label="Phone number"
+                placeholder="+91 98765 43210"
+                {...bind('contact_phone')} />
+              <InputField label="Email"
+                placeholder="hello@yourbusiness.com"
+                {...bind('support_email')} />
+              <InputField label="Instagram"
+                placeholder="https://instagram.com/yourbusiness"
+                {...bind('instagram_url')} />
+            </FormStack>
+            </CardBody>
+          </Card>
+        </Section>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
+        <Section title="What the AI says at key moments">
+          <Card>
+            <CardBody>
+            <FormStack>
+              <InputField label="When the AI is stuck" textarea
+                placeholder="That's a great question - let me check with the team and get right back to you."
+                {...bind('fallback_message')} />
+              <InputField label="When passing the chat to a person" textarea
+                placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
+                {...bind('handoff_message')} />
+              <InputField label="When a customer asks to stop getting messages" textarea
+                placeholder="Understood, you won't receive further messages from us. Reply anytime if you need help."
+                {...bind('opt_out_message')} />
+            </FormStack>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="When the AI takes back over">
+          <Card>
+            <CardBody>
+            <FormStack>
+              <InputField label="Hand the chat back to the AI after"
+                helper="Minutes of silence. 0 keeps it with the team."
+                type="number"
+                min={0}
+                placeholder="0"
+                {...bind('resume_minutes')} />
+            </FormStack>
           </CardBody>
         </Card>
-      </Section>
-
-      <Section title="Contact details the AI can share">
-        <Card>
-          <CardBody>
-          <FormStack>
-            <InputField label="Website"
-              placeholder="https://yourbusiness.com"
-              {...bind('website_url')} />
-            <InputField label="Phone number"
-              placeholder="+91 98765 43210"
-              {...bind('contact_phone')} />
-            <InputField label="Email"
-              placeholder="hello@yourbusiness.com"
-              {...bind('support_email')} />
-            <InputField label="Instagram"
-              placeholder="https://instagram.com/yourbusiness"
-              {...bind('instagram_url')} />
-          </FormStack>
-          </CardBody>
-        </Card>
-      </Section>
-
-      <Section title="What the AI says at key moments">
-        <Card>
-          <CardBody>
-          <FormStack>
-            <InputField label="When the AI is stuck" textarea
-              placeholder="That's a great question - let me check with the team and get right back to you."
-              {...bind('fallback_message')} />
-            <InputField label="When passing the chat to a person" textarea
-              placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
-              {...bind('handoff_message')} />
-            <InputField label="When a customer asks to stop getting messages" textarea
-              placeholder="Understood, you won't receive further messages from us. Reply anytime if you need help."
-              {...bind('opt_out_message')} />
-          </FormStack>
-          </CardBody>
-        </Card>
-      </Section>
-
-      <Section title="When the AI takes back over">
-        <Card>
-          <CardBody>
-          <FormStack>
-            <InputField label="Hand the chat back to the AI after"
-              helper="Minutes of silence. 0 keeps it with the team."
-              type="number"
-              min={0}
-              placeholder="0"
-              style={{ maxWidth: 200 }}
-              {...bind('resume_minutes')} />
-          </FormStack>
-        </CardBody>
-      </Card>
-      </Section>
+        </Section>
+      </div>
 
       <div className="flex items-center justify-end">
         <Button variant="primary" size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>

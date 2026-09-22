@@ -7,8 +7,8 @@ import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import { parseDripSteps } from '../../lib.js';
 import {
-  AdminPage, Section, Card, CardHeader, CardBody,
-  FormStack, FormActions, Divider, EmptyState,
+  AdminPage, Card, CardHeader, CardBody,
+  FormStack, FormActions, EmptyState,
 } from './Dashboard.jsx';
 
 // Approved messages. Authoring happens in WhatsApp Manager - this only pulls
@@ -34,13 +34,11 @@ function Templates() {
   const templates = data?.templates || [];
 
   return (
-    <Section
-      title="Approved messages"
-      subtitle="Templates you've created and had approved in Meta WhatsApp Manager."
-    >
-      <div className="flex items-center justify-end mb-3">
+    <div className="min-w-0">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-base md:text-xl font-semibold text-slate-800">Approved messages</div>
         <Button variant="secondary" size="sm" onClick={sync} disabled={syncing}>
-          <RefreshCw size={14} /> {syncing ? 'Syncing…' : 'Sync from Meta'}
+          <RefreshCw size={14} /> {syncing ? 'Syncing…' : 'Sync'}
         </Button>
       </div>
 
@@ -49,7 +47,7 @@ function Templates() {
       ) : templates.length === 0 ? (
         <EmptyState message="No approved templates yet. Create one in WhatsApp Manager, then sync." />
       ) : (
-        <Card>
+        <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
           {templates.map((t) => (
             <div key={t.name} className="flex items-start gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
               <div className="flex-1 min-w-0">
@@ -63,7 +61,7 @@ function Templates() {
           ))}
         </Card>
       )}
-    </Section>
+    </div>
   );
 }
 
@@ -222,10 +220,8 @@ function DripFollowups() {
   const current = audiences.find((a) => a.id === audience) || audiences[0];
 
   return (
-    <Section
-      title="Message Templates"
-      subtitle="When a lead goes silent, the system sends a follow-up from your approved templates."
-    >
+    <div className="min-w-0">
+      <div className="text-base md:text-xl font-semibold text-slate-800 mb-3">Follow-up schedule</div>
       <Card>
         <CardHeader title="Which leads is this for?" />
         <CardBody>
@@ -246,7 +242,7 @@ function DripFollowups() {
           </FormActions>
         </CardBody>
       </Card>
-    </Section>
+    </div>
   );
 }
 
@@ -257,9 +253,10 @@ export default function Followups() {
       title="Follow-ups"
       subtitle="Automatic messages whenever a lead goes silent."
     >
-      <Templates />
-      <Divider />
-      <DripFollowups />
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 items-start">
+        <DripFollowups />
+        <Templates />
+      </div>
     </AdminPage>
   );
 }
