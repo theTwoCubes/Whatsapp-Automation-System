@@ -1450,7 +1450,41 @@ export async function opsStats(pool) {
         where fh.t > now() - interval '30 days') as qualified_30d`,
   );
 
-  return { ...r.rows[0], ...funnel.rows[0], handoff_breakdown: handoffBreakdown.rows };
+  // Hourly message/handoff volume for the last 24h, zero-filled so the chart
+  // has no gaps for quiet hours - a real trend line, not just a snapshot.
+  const activity = await pool.query(
+    `with hours as (
+       select generate_series(
+         date_trunc('hour', now() - interval '23 hours'),
+         date_trunc('hour', now()),
+         interval '1 hour'
+       ) as hour
+     )
+     select
+       to_char(h.hour, 'HH24:00') as hour,
+       coalesce(m_in.c, 0)::int as inbound,
+       coalesce(m_out.c, 0)::int as outbound,
+       coalesce(ho.c, 0)::int as handoffs
+     from hours h
+     left join (
+       select date_trunc('hour', created_at) as hour, count(*) as c
+       from messages where direction = 'inbound' and created_at > now() - interval '24 hours'
+       group by 1
+     ) m_in on m_in.hour = h.hour
+     left join (
+       select date_trunc('hour', created_at) as hour, count(*) as c
+       from messages where direction = 'outbound' and created_at > now() - interval '24 hours'
+       group by 1
+     ) m_out on m_out.hour = h.hour
+     left join (
+       select date_trunc('hour', created_at) as hour, count(*) as c
+       from handoff_events where created_at > now() - interval '24 hours'
+       group by 1
+     ) ho on ho.hour = h.hour
+     order by h.hour asc`,
+  );
+
+  return { ...r.rows[0], ...funnel.rows[0], handoff_breakdown: handoffBreakdown.rows, activity_hourly: activity.rows };
 }
 
 // Stalled chats to hand back to the bot: either an agent has gone quiet on a
