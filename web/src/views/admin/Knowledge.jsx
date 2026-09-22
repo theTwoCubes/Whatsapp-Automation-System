@@ -487,7 +487,7 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   if (!topic) return null;
   return (
     <>
-      <Card className="mb-4">
+      <Card>
         <CardHeader title={`Pack settings - ${topic.name}`}>
           <button
             type="button"
@@ -501,19 +501,13 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
         <CardBody>
           <FormStack>
             <InputField label="Trigger words"
-              helper="If a customer's message contains any of these words, this pack is used automatically."
               placeholder="logo, branding, identity, redesign"
               value={form.keywords}
               onChange={(e) => setForm({ ...form, keywords: e.target.value })} />
             <InputField label="What this pack covers"
-              helper="One line, plain English. The AI reads this to know when the pack is relevant."
               placeholder="Logo and brand identity design services"
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <p className="text-sm text-gray-500">
-              Follow-up messages for this service are configured on the{' '}
-              <span className="font-medium text-gray-700">Follow-ups</span> page.
-            </p>
             <FormActions>
               <Button variant="primary" size="sm" onClick={save}>Save</Button>
             </FormActions>
@@ -623,19 +617,27 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
 
   return (
     <div>
-      {pack !== 'base' && (
-        <PackSettings topicId={pack} faqCount={faqCount} onDeleted={onDeleted} onChanged={onChange} />
-      )}
+      <div className="flex gap-2 flex-wrap mb-6">
+        <Button variant="secondary" size="sm" onClick={() => { setImportOpen((v) => !v); setAddOpen(false); }}>Import document</Button>
+        <Button variant="primary" size="sm" onClick={() => { setAddOpen((v) => !v); setImportOpen(false); }}>
+          <Plus size={14} /> Add answer
+        </Button>
+        <Button variant="ghost" size="sm" onClick={downloadPack} disabled={rows.length === 0}>
+          <Download size={14} /> Download pack
+        </Button>
+        {rows.length > 0 && (
+          <Button variant="danger-ghost" size="sm" onClick={() => setConfirmDeleteAll(true)}>
+            <Trash2 size={14} /> Delete all
+          </Button>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
-        {/* Compose column: add / import an answer */}
+        {/* Compose column: pack settings, add / import an answer */}
         <div className="flex flex-col gap-4 min-w-0">
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="secondary" size="sm" onClick={() => { setImportOpen((v) => !v); setAddOpen(false); }}>Import document</Button>
-            <Button variant="primary" size="sm" onClick={() => { setAddOpen((v) => !v); setImportOpen(false); }}>
-              <Plus size={14} /> Add answer
-            </Button>
-          </div>
+          {pack !== 'base' && (
+            <PackSettings topicId={pack} faqCount={faqCount} onDeleted={onDeleted} onChanged={onChange} />
+          )}
 
           {addOpen && (
             <Card className="p-4">
@@ -658,7 +660,7 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
             <Card className="p-4">
               <FormStack>
                 <p className="text-sm text-gray-500 leading-relaxed">
-                  Paste an FAQ document, price list, or raw notes. We'll split it into individual answers automatically. A question that already exists in this pack gets its answer updated instead of duplicated - so you can download this pack, edit a few lines, and paste the whole thing back in.
+                  Paste a document or Q/A pairs - we'll split it into answers automatically.
                 </p>
                 <textarea
                   className="field-textarea"
@@ -674,17 +676,6 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
               </FormStack>
             </Card>
           )}
-
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="ghost" size="sm" onClick={downloadPack} disabled={rows.length === 0}>
-              <Download size={14} /> Download pack
-            </Button>
-            {rows.length > 0 && (
-              <Button variant="danger-ghost" size="sm" onClick={() => setConfirmDeleteAll(true)}>
-                <Trash2 size={14} /> Delete all
-              </Button>
-            )}
-          </div>
         </div>
 
         {/* View column: every answer in this pack, scrollable once it's long */}
@@ -850,15 +841,14 @@ function MediaPane({ topics }) {
             <FormStack>
               <input type="file" className="text-sm text-gray-600" onChange={(e) => setFile(e.target.files?.[0] || null)} />
               <div className="flex flex-col gap-1">
-                <label className="text-base font-medium text-gray-800">Topic</label>
+                <label className="text-base font-medium text-gray-800">Service</label>
                 <select className="field-input" value={uploadTopicId} onChange={(e) => setUploadTopicId(e.target.value)}>
-                  <option value="">No topic</option>
+                  <option value="">No service</option>
                   {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <InputField label="Description" textarea
-                helper="This is the only thing the AI sees to decide whether this file is relevant - not the filename. Be specific: what it shows, and when it should be sent. A file with no description is never offered to the AI."
-                placeholder="e.g. Pricing sheet for logo design packages, updated 2024. Send when a lead asks for exact prices or a rate card."
+                placeholder="What it shows and when to send it"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -893,7 +883,7 @@ function MediaPane({ topics }) {
                     </button>
                     <div className="flex items-center gap-2 mt-0.5">
                       <Badge variant="neutral">{m.kind}</Badge>
-                      <span className="text-xs text-gray-400">{topics.find((t) => t.id === m.topic_id)?.name || 'No topic'}</span>
+                      <span className="text-xs text-gray-400">{topics.find((t) => t.id === m.topic_id)?.name || 'No service'}</span>
                       {m.description && <span className="text-xs text-gray-400 truncate">{m.description}</span>}
                     </div>
                   </div>
@@ -937,8 +927,7 @@ function PaymentLinkForm({ topics, value, onChange }) {
       <InputField label="Razorpay (or other) link" placeholder="https://rzp.io/l/…"
         value={value.url} onChange={(e) => onChange({ ...value, url: e.target.value })} />
       <InputField label="When the AI should send this" textarea
-        helper="This is the only thing the AI sees to decide whether this link applies - be specific about which request it's for."
-        placeholder="e.g. Send when a lead asks to have an existing/previous logo reviewed or analysed before starting a new one."
+        placeholder="Which request this link is for"
         value={value.description} onChange={(e) => onChange({ ...value, description: e.target.value })} />
     </FormStack>
   );
@@ -1149,11 +1138,9 @@ function AddPackModal({ onCancel, onCreate }) {
             <InputField label="Pack name" placeholder="e.g. Logo Design"
               value={name} onChange={(e) => setName(e.target.value)} required />
             <InputField label="Trigger words"
-              helper="If a customer mentions any of these words, this pack is used automatically."
               placeholder="logo, branding, identity"
               value={keywords} onChange={(e) => setKeywords(e.target.value)} />
             <InputField label="What this pack covers"
-              helper="One line, plain English. The AI reads this to know when the pack is relevant."
               placeholder="Logo and brand identity design services"
               value={description} onChange={(e) => setDescription(e.target.value)} />
           </FormStack>
@@ -1208,7 +1195,7 @@ export default function Knowledge() {
   return (
     <AdminPage
       title="Knowledge Base"
-      subtitle="The common pack is used in every chat. Service packs kick in when a lead came through a campaign or mentions matching keywords."
+      subtitle="Answers, files, and payment links the AI can use."
       actions={
         <Button variant="primary" size="sm" onClick={() => setSimOpen(true)}>
           <FlaskConical size={14} /> Test AI
