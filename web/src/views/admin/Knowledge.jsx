@@ -13,6 +13,7 @@ import {
 } from './Dashboard.jsx';
 
 import { isCapacitor } from '../../push.js';
+import { downloadBlob } from '../../lib.js';
 
 // Shared by the whole-store JSON export and the per-pack plain-text export:
 // native share sheet on the APK (blob downloads don't work there), a plain
@@ -217,7 +218,7 @@ function GapProposal({ proposal, onChanged }) {
   return (
     <div className="flex flex-col gap-3 px-4 py-4 border-b border-gray-100 last:border-0">
       <div>
-        <Badge variant="warning">Gap — question the AI couldn't answer</Badge>
+        <Badge variant="warning">Gap - question the AI couldn't answer</Badge>
         <div className="text-xs text-gray-500 mt-1">
           {proposal.topic_name || 'Base'}{proposal.reason ? ` · ${proposal.reason}` : ''}
           {proposal.sample_conversation_ids?.length > 0 && ` · seen in ${proposal.sample_conversation_ids.length} chat${proposal.sample_conversation_ids.length === 1 ? '' : 's'}`}
@@ -239,13 +240,13 @@ function ContradictionProposal({ proposal, onChanged }) {
   const toast = useToast();
   const dismiss = async () => {
     await api.dismissProposal(proposal.id);
-    toast.info('Dismissed — fix the conflicting answers in the list below');
+    toast.info('Dismissed - fix the conflicting answers in the list below');
     onChanged();
   };
   return (
     <div className="flex flex-col gap-3 px-4 py-4 border-b border-gray-100 last:border-0">
       <div>
-        <Badge variant="warning">Conflict — two answers disagree</Badge>
+        <Badge variant="warning">Conflict - two answers disagree</Badge>
         <div className="text-xs text-gray-500 mt-1">
           {proposal.topic_name || 'Base'}{proposal.reason ? ` · ${proposal.reason}` : ''}
         </div>
@@ -263,7 +264,7 @@ function ContradictionProposal({ proposal, onChanged }) {
         ))}
       </div>
       <FormActions>
-        <Button variant="secondary" size="sm" onClick={dismiss}>I've fixed it — dismiss</Button>
+        <Button variant="secondary" size="sm" onClick={dismiss}>I've fixed it - dismiss</Button>
       </FormActions>
     </div>
   );
@@ -271,7 +272,7 @@ function ContradictionProposal({ proposal, onChanged }) {
 
 // Mobile kebab for a FAQ row. Opens a small anchored menu with the same
 // actions the desktop shows inline. Closes on outside click or escape.
-function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDelete, onMove }) {
+function FaqRowMenu({ className = '', faq, onApprove, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const ref = useRef(null);
@@ -279,7 +280,7 @@ function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDel
 
   useEffect(() => {
     if (!open) return;
-    // Check if the button is in the lower 40% of the viewport — open upward if so
+    // Check if the button is in the lower 40% of the viewport - open upward if so
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
       setOpenUpward(rect.bottom > window.innerHeight * 0.65);
@@ -320,8 +321,6 @@ function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDel
             </button>
           )}
           <button className={item} onClick={() => { setOpen(false); onEdit(); }}>Edit</button>
-          <button className={item} disabled={first} onClick={() => { setOpen(false); onMove(-1); }}>Move up</button>
-          <button className={item} disabled={last} onClick={() => { setOpen(false); onMove(1); }}>Move down</button>
           <div className="border-t border-gray-100 my-1" />
           {!confirmDel ? (
             <button className={`${item} text-red-600`} onClick={() => setConfirmDel(true)}>Delete</button>
@@ -341,7 +340,7 @@ function FaqRowMenu({ className = '', faq, first, last, onApprove, onEdit, onDel
 }
 
 // FAQ Row
-function FaqRow({ faq, first, last, onMove, onChanged }) {
+function FaqRow({ faq, onChanged }) {
   const [editing, setEditing]           = useState(false);
   const [expanded, setExpanded]         = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -350,7 +349,6 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
     verbatim: faq.verbatim, pinned: faq.pinned,
     mediaAssetId: faq.media_asset_id,
   });
-  const [history, setHistory] = useState(null);
   const [media, setMedia]     = useState(null);
   const toast = useToast();
 
@@ -365,13 +363,6 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
   };
   const remove  = async () => { await api.deleteFaq(faq.id); toast.success('Answer removed'); onChanged(); };
   const approve = async () => { await api.updateFaq(faq.id, { active: true }); toast.success('Answer approved and now live'); onChanged(); };
-
-  const toggleHistory = async () => {
-    if (history) return setHistory(null);
-    const d = await api.faqVersions(faq.id);
-    setHistory(d.versions || []);
-  };
-  const restore = async (vId) => { await api.rollbackFaq(vId); setHistory(null); toast.success('Restored to previous version'); onChanged(); };
 
   if (editing) return (
     <div className="px-4 md:px-6 py-4 md:py-5 border-b border-gray-100 last:border-0 flex flex-col gap-4">
@@ -389,7 +380,7 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
         <label className="text-base font-medium text-gray-800">Attach a file (optional)</label>
         <select className="field-input h-10 px-3 text-sm" value={form.mediaAssetId ?? ''} onChange={(e) => setForm({ ...form, mediaAssetId: e.target.value ? Number(e.target.value) : null })}>
           <option value="">No file</option>
-          {(media || []).map((m) => <option key={m.id} value={m.id}>{m.filename}{m.description ? ` — ${m.description}` : ''}</option>)}
+          {(media || []).map((m) => <option key={m.id} value={m.id}>{m.filename}{m.description ? ` - ${m.description}` : ''}</option>)}
         </select>
         <p className="text-sm text-gray-400">The AI will send this file when it uses this answer and the customer asked about what it shows.</p>
       </div>
@@ -417,12 +408,10 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
           </div>
           {!expanded && <div className="text-sm text-gray-500 truncate">{faq.answer}</div>}
         </div>
-        {/* Actions — desktop shows the row inline, mobile collapses to a kebab */}
+        {/* Actions - desktop shows the row inline, mobile collapses to a kebab */}
         <div className="flex-shrink-0 mt-0.5" onClick={(e) => e.stopPropagation()}>
           {/* Desktop actions */}
           <div className="hidden md:flex items-center gap-2">
-            <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move up" disabled={first} onClick={() => onMove(-1)}>↑</button>
-            <button className="w-8 h-8 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 disabled:opacity-30 text-sm" title="Move down" disabled={last} onClick={() => onMove(1)}>↓</button>
             {!faq.active && <Button variant="primary" size="sm" onClick={approve}>Approve</Button>}
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>Edit</Button>
             {!deleteConfirm
@@ -440,41 +429,16 @@ function FaqRow({ faq, first, last, onMove, onChanged }) {
           <FaqRowMenu
             className="md:hidden"
             faq={faq}
-            first={first}
-            last={last}
             onApprove={approve}
             onEdit={() => setEditing(true)}
             onDelete={remove}
-            onMove={onMove}
           />
         </div>
       </div>
       {/* Expanded */}
       {expanded && (
         <div className="px-4 md:px-6 pb-4 text-sm text-gray-700 leading-relaxed bg-gray-50/50">
-          <p className="mb-3">{faq.answer}</p>
-          {history && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
-              {history.length === 0
-                ? <div className="p-4 text-sm text-gray-400">No previous versions.</div>
-                : history.map((v) => (
-                  <div key={v.id} className="flex items-start gap-4 px-5 py-4 border-b border-gray-100 last:border-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-gray-500">{new Date(v.created_at).toLocaleString()} by {v.actor || 'system'}</div>
-                      <div className="text-sm text-gray-700 mt-1">{v.answer}</div>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => restore(v.id)}>Restore</Button>
-                  </div>
-                ))
-              }
-            </div>
-          )}
-          <button
-            className="text-xs font-semibold text-[var(--accent-text)] hover:text-[var(--accent)] transition-colors"
-            onClick={toggleHistory}
-          >
-            {history ? 'Hide history' : 'View history'}
-          </button>
+          <p>{faq.answer}</p>
         </div>
       )}
     </div>
@@ -524,7 +488,7 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   return (
     <>
       <Card className="mb-4">
-        <CardHeader title={`Pack settings — ${topic.name}`}>
+        <CardHeader title={`Pack settings - ${topic.name}`}>
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
@@ -655,15 +619,6 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
     finally { setDeletingAll(false); }
   };
 
-  const move = async (index, delta) => {
-    const next   = [...rows];
-    const target = index + delta;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    await api.reorderFaqs(next.map((r) => r.id));
-    refresh();
-  };
-
   if (!data) return <div className="p-6"><Skeleton height={14} width="60%" /></div>;
 
   return (
@@ -672,74 +627,81 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
         <PackSettings topicId={pack} faqCount={faqCount} onDeleted={onDeleted} onChanged={onChange} />
       )}
 
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <span className="text-sm text-gray-400">{rows.length} answer{rows.length !== 1 ? 's' : ''}</span>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="ghost" size="sm" onClick={downloadPack} disabled={rows.length === 0}>
-            <Download size={14} /> Download
-          </Button>
-          {rows.length > 0 && (
-            <Button variant="danger-ghost" size="sm" onClick={() => setConfirmDeleteAll(true)}>
-              <Trash2 size={14} /> Delete all
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
+        {/* Compose column: add / import an answer */}
+        <div className="flex flex-col gap-4 min-w-0">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="secondary" size="sm" onClick={() => { setImportOpen((v) => !v); setAddOpen(false); }}>Import document</Button>
+            <Button variant="primary" size="sm" onClick={() => { setAddOpen((v) => !v); setImportOpen(false); }}>
+              <Plus size={14} /> Add answer
             </Button>
+          </div>
+
+          {addOpen && (
+            <Card className="p-4">
+              <FormStack>
+                <InputField label="Question" placeholder="e.g. What does a logo design cost?" value={question} onChange={(e) => setQuestion(e.target.value)} required />
+                <InputField label="Answer" textarea placeholder="The answer, written the way you want it said" value={answer} onChange={(e) => setAnswer(e.target.value)} required />
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input type="checkbox" className="rounded" checked={verbatim} onChange={(e) => setVerbatim(e.target.checked)} />
+                  Quote word-for-word (use for prices, timelines, and anything an approximation would get wrong)
+                </label>
+                <FormActions>
+                  <Button variant="primary" size="sm" onClick={add} disabled={!question.trim() || !answer.trim()}>Add answer</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
+                </FormActions>
+              </FormStack>
+            </Card>
           )}
-          <Button variant="secondary" size="sm" onClick={() => { setImportOpen((v) => !v); setAddOpen(false); }}>Import document</Button>
-          <Button variant="primary" size="sm" onClick={() => { setAddOpen((v) => !v); setImportOpen(false); }}>
-            <Plus size={14} /> Add answer
-          </Button>
+
+          {importOpen && (
+            <Card className="p-4">
+              <FormStack>
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  Paste an FAQ document, price list, or raw notes. We'll split it into individual answers automatically. A question that already exists in this pack gets its answer updated instead of duplicated - so you can download this pack, edit a few lines, and paste the whole thing back in.
+                </p>
+                <textarea
+                  className="field-textarea"
+                  placeholder="Paste Q: A: pairs or paragraphs…"
+                  value={raw}
+                  onChange={(e) => setRaw(e.target.value)}
+                  rows={10}
+                />
+                <FormActions>
+                  <Button variant="primary" size="sm" onClick={importText} disabled={!raw.trim()}>Split and add</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setImportOpen(false)}>Cancel</Button>
+                </FormActions>
+              </FormStack>
+            </Card>
+          )}
+
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="ghost" size="sm" onClick={downloadPack} disabled={rows.length === 0}>
+              <Download size={14} /> Download pack
+            </Button>
+            {rows.length > 0 && (
+              <Button variant="danger-ghost" size="sm" onClick={() => setConfirmDeleteAll(true)}>
+                <Trash2 size={14} /> Delete all
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* View column: every answer in this pack, scrollable once it's long */}
+        <div className="min-w-0">
+          <div className="mb-3 text-sm text-gray-400">{rows.length} answer{rows.length !== 1 ? 's' : ''}</div>
+          {rows.length === 0 && !addOpen && !importOpen && (
+            <EmptyState message="No answers in this pack yet. Add one on the left or import a document." />
+          )}
+          {rows.length > 0 && (
+            <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
+              {rows.map((f) => (
+                <FaqRow key={f.id} faq={f} onChanged={refresh} />
+              ))}
+            </Card>
+          )}
         </div>
       </div>
-
-      {addOpen && (
-        <Card className="mb-4 p-4">
-          <FormStack>
-            <InputField label="Question" placeholder="e.g. What does a logo design cost?" value={question} onChange={(e) => setQuestion(e.target.value)} required />
-            <InputField label="Answer" textarea placeholder="The answer, written the way you want it said" value={answer} onChange={(e) => setAnswer(e.target.value)} required />
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input type="checkbox" className="rounded" checked={verbatim} onChange={(e) => setVerbatim(e.target.checked)} />
-              Quote word-for-word (use for prices, timelines, and anything an approximation would get wrong)
-            </label>
-            <FormActions>
-              <Button variant="primary" size="sm" onClick={add} disabled={!question.trim() || !answer.trim()}>Add answer</Button>
-              <Button variant="ghost" size="sm" onClick={() => setAddOpen(false)}>Cancel</Button>
-            </FormActions>
-          </FormStack>
-        </Card>
-      )}
-
-      {importOpen && (
-        <Card className="mb-4 p-4">
-          <FormStack>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              Paste an FAQ document, price list, or raw notes. We'll split it into individual answers automatically. A question that already exists in this pack gets its answer updated instead of duplicated — so you can download this pack, edit a few lines, and paste the whole thing back in.
-            </p>
-            <textarea
-              className="field-textarea"
-              placeholder="Paste Q: A: pairs or paragraphs…"
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-              rows={10}
-            />
-            <FormActions>
-              <Button variant="primary" size="sm" onClick={importText} disabled={!raw.trim()}>Split and add</Button>
-              <Button variant="ghost" size="sm" onClick={() => setImportOpen(false)}>Cancel</Button>
-            </FormActions>
-          </FormStack>
-        </Card>
-      )}
-
-      {rows.length === 0 && !addOpen && !importOpen && (
-        <EmptyState message="No answers in this pack yet. Add one above or import a document." />
-      )}
-
-      {rows.length > 0 && (
-        <Card>
-          {rows.map((f, i) => (
-            <FaqRow key={f.id} faq={f} first={i === 0} last={i === rows.length - 1}
-              onMove={(delta) => move(i, delta)} onChanged={refresh} />
-          ))}
-        </Card>
-      )}
 
       {confirmDeleteAll && (
         <div
@@ -753,7 +715,7 @@ function FaqPane({ pack, packName, faqCount, onDeleted, onChange }) {
               <div className="text-base font-semibold text-gray-900">Delete all {rows.length} answer{rows.length === 1 ? '' : 's'}?</div>
             </div>
             <div className="px-5 py-5 text-sm text-gray-600 leading-relaxed">
-              This removes every answer in this pack. Download a copy first if you want to keep a record — this can't be undone from here.
+              This removes every answer in this pack. Download a copy first if you want to keep a record - this can't be undone from here.
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/70">
               <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteAll(false)} disabled={deletingAll}>Cancel</Button>
@@ -791,9 +753,8 @@ function FaqSearchResults({ query, onChange }) {
       </p>
       {rows.length > 0 && (
         <Card>
-          {rows.map((f, i) => (
-            <FaqRow key={f.id} faq={f} first={i === 0} last={i === rows.length - 1}
-              onMove={() => {}} onChanged={() => { api.searchFaqs(query).then(setData).catch(() => {}); onChange?.(); }} />
+          {rows.map((f) => (
+            <FaqRow key={f.id} faq={f} onChanged={() => { api.searchFaqs(query).then(setData).catch(() => {}); onChange?.(); }} />
           ))}
         </Card>
       )}
@@ -814,6 +775,12 @@ function MediaPane({ topics }) {
 
   const reload = useCallback(() => { api.media(topicId).then(setData).catch(() => {}); }, [topicId]);
   useEffect(() => { reload(); }, [reload]);
+
+  // Same as the payment link form - default the upload's Service field to
+  // whichever tab is selected instead of always starting blank.
+  useEffect(() => {
+    setUploadTopicId(topicId != null && topicId !== 'general' ? String(topicId) : '');
+  }, [topicId]);
 
   const upload = async () => {
     if (!file) return;
@@ -839,11 +806,18 @@ function MediaPane({ topics }) {
     }
   };
 
+  const download = async (m) => {
+    try {
+      const blob = await api.downloadMedia(m.id);
+      await downloadBlob(m.filename || 'file', blob);
+    } catch (e) { toast.error(e.message); }
+  };
+
   const rows = data?.media || [];
 
   return (
     <div>
-      {/* Topic filter — scrolls horizontally on mobile */}
+      {/* Topic filter - scrolls horizontally on mobile */}
       <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg overflow-x-auto flex-nowrap">
         <button
           onClick={() => setTopicId(null)}
@@ -868,70 +842,78 @@ function MediaPane({ topics }) {
         ))}
       </div>
 
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-gray-400">{!data ? '' : `${rows.length} file${rows.length !== 1 ? 's' : ''}`}</span>
-      </div>
-
-      {/* Upload */}
-      <Card className="mb-5">
-        <CardHeader title="Upload a file" />
-        <CardBody>
-          <FormStack>
-            <input type="file" className="text-sm text-gray-600" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-            <div className="flex flex-col gap-1">
-              <label className="text-base font-medium text-gray-800">Topic</label>
-              <select className="field-input" value={uploadTopicId} onChange={(e) => setUploadTopicId(e.target.value)}>
-                <option value="">No topic</option>
-                {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <InputField label="Description" textarea
-              helper="This is the only thing the AI sees to decide whether this file is relevant - not the filename. Be specific: what it shows, and when it should be sent. A file with no description is never offered to the AI."
-              placeholder="e.g. Pricing sheet for logo design packages, updated 2024. Send when a lead asks for exact prices or a rate card."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <FormActions>
-              <Button variant="primary" size="sm" onClick={upload} disabled={!file || uploading}>
-                {uploading ? 'Uploading…' : 'Upload'}
-              </Button>
-            </FormActions>
-          </FormStack>
-        </CardBody>
-      </Card>
-
-      {/* File list */}
-      {!data ? (
-        <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
-      ) : rows.length === 0 ? (
-        <EmptyState message="No files uploaded yet. Upload one above." />
-      ) : (
-        <Card>
-          {rows.map((m) => (
-            <div key={m.id} className="flex items-center gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-gray-800 truncate">{m.filename}</div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <Badge variant="neutral">{m.kind}</Badge>
-                  <span className="text-xs text-gray-400">{topics.find((t) => t.id === m.topic_id)?.name || 'No topic'}</span>
-                  {m.description && <span className="text-xs text-gray-400 truncate">{m.description}</span>}
-                </div>
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
+        {/* Upload */}
+        <Card className="min-w-0">
+          <CardHeader title="Upload a file" />
+          <CardBody>
+            <FormStack>
+              <input type="file" className="text-sm text-gray-600" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <div className="flex flex-col gap-1">
+                <label className="text-base font-medium text-gray-800">Topic</label>
+                <select className="field-input" value={uploadTopicId} onChange={(e) => setUploadTopicId(e.target.value)}>
+                  <option value="">No topic</option>
+                  {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {deleteId === m.id ? (
-                  <span className="flex items-center gap-1 text-xs text-gray-500">
-                    Delete?
-                    <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteId(null)}>No</Button>
-                  </span>
-                ) : (
-                  <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(m.id)}>Delete</Button>
-                )}
-              </div>
-            </div>
-          ))}
+              <InputField label="Description" textarea
+                helper="This is the only thing the AI sees to decide whether this file is relevant - not the filename. Be specific: what it shows, and when it should be sent. A file with no description is never offered to the AI."
+                placeholder="e.g. Pricing sheet for logo design packages, updated 2024. Send when a lead asks for exact prices or a rate card."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+              <FormActions>
+                <Button variant="primary" size="sm" onClick={upload} disabled={!file || uploading}>
+                  {uploading ? 'Uploading…' : 'Upload'}
+                </Button>
+              </FormActions>
+            </FormStack>
+          </CardBody>
         </Card>
-      )}
+
+        {/* File list */}
+        <div className="min-w-0">
+          <div className="mb-3 text-sm text-gray-400">{!data ? '' : `${rows.length} file${rows.length !== 1 ? 's' : ''}`}</div>
+          {!data ? (
+            <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
+          ) : rows.length === 0 ? (
+            <EmptyState message="No files uploaded yet. Upload one on the left." />
+          ) : (
+            <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
+              {rows.map((m) => (
+                <div key={m.id} className="flex items-center gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => download(m)}
+                      className="text-sm font-semibold text-gray-800 truncate hover:text-[var(--accent-text)] hover:underline text-left"
+                      title="Download this file"
+                    >
+                      {m.filename}
+                    </button>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="neutral">{m.kind}</Badge>
+                      <span className="text-xs text-gray-400">{topics.find((t) => t.id === m.topic_id)?.name || 'No topic'}</span>
+                      {m.description && <span className="text-xs text-gray-400 truncate">{m.description}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {deleteId === m.id ? (
+                      <span className="flex items-center gap-1 text-xs text-gray-500">
+                        Delete?
+                        <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setDeleteId(null)}>No</Button>
+                      </span>
+                    ) : (
+                      <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(m.id)}>Delete</Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -962,14 +944,14 @@ function PaymentLinkForm({ topics, value, onChange }) {
   );
 }
 
-function emptyPaymentLink() {
-  return { topicId: '', label: '', amountInr: '', url: '', description: '' };
+function emptyPaymentLink(topicId = '') {
+  return { topicId: topicId ?? '', label: '', amountInr: '', url: '', description: '' };
 }
 
 function PaymentLinksPane({ topics }) {
   const [topicId, setTopicId] = useState(null);
   const [data, setData]       = useState(null);
-  const [form, setForm]       = useState(emptyPaymentLink());
+  const [form, setForm]       = useState(() => emptyPaymentLink(topicId));
   const [saving, setSaving]   = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm]   = useState(null);
@@ -978,6 +960,11 @@ function PaymentLinksPane({ topics }) {
 
   const reload = useCallback(() => { api.paymentLinks(topicId).then(setData).catch(() => {}); }, [topicId]);
   useEffect(() => { reload(); }, [reload]);
+
+  // The add form's Service field should match whichever tab is selected -
+  // otherwise picking a service up top and then getting asked for it again
+  // in the form below feels broken.
+  useEffect(() => { setForm(emptyPaymentLink(topicId)); }, [topicId]);
 
   const add = async () => {
     if (!form.label.trim() || !form.url.trim()) { toast.error('Label and link are required'); return; }
@@ -990,7 +977,7 @@ function PaymentLinksPane({ topics }) {
         url: form.url.trim(),
         description: form.description.trim(),
       });
-      setForm(emptyPaymentLink());
+      setForm(emptyPaymentLink(topicId));
       toast.success('Payment link added');
       reload();
     } catch (e) { toast.error(e.message); }
@@ -1047,76 +1034,80 @@ function PaymentLinksPane({ topics }) {
         ))}
       </div>
 
-      <Card className="mb-5">
-        <CardHeader title="Add a payment link" />
-        <CardBody>
-          <PaymentLinkForm topics={topics} value={form} onChange={setForm} />
-          <FormActions>
-            <Button variant="primary" size="sm" onClick={add} disabled={saving}>
-              {saving ? 'Adding…' : 'Add link'}
-            </Button>
-          </FormActions>
-        </CardBody>
-      </Card>
-
-      {!data ? (
-        <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
-      ) : rows.length === 0 ? (
-        <EmptyState message="No payment links yet. Add one above once you have it from Razorpay (or wherever it's hosted)." />
-      ) : (
-        <Card>
-          {rows.map((p) => (
-            <div key={p.id} className="px-4 py-3 border-b border-gray-100 last:border-0">
-              {editingId === p.id ? (
-                <div className="flex flex-col gap-3">
-                  <PaymentLinkForm topics={topics} value={editForm} onChange={setEditForm} />
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={editForm.active}
-                      onChange={(e) => setEditForm({ ...editForm, active: e.target.checked })} />
-                    Active (the AI can offer this link)
-                  </label>
-                  <FormActions>
-                    <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                    <Button variant="primary" size="sm" onClick={saveEdit}>Save</Button>
-                  </FormActions>
-                </div>
-              ) : (
-                <div className="flex items-center gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-800 truncate">{p.label}</span>
-                      {p.amount_inr ? <Badge variant="neutral">₹{p.amount_inr}</Badge> : null}
-                      {!p.active && <Badge variant="warning">Inactive</Badge>}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-gray-400">{topics.find((t) => t.id === p.topic_id)?.name || 'Any service'}</span>
-                      {p.description && <span className="text-xs text-gray-400 truncate">{p.description}</span>}
-                    </div>
-                    <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-text)] truncate block mt-0.5">{p.url}</a>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {deleteId === p.id ? (
-                      <span className="flex items-center gap-1 text-xs text-gray-500">
-                        Delete?
-                        <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDeleteId(null)}>No</Button>
-                      </span>
-                    ) : (
-                      <>
-                        <Button variant="secondary" size="sm" onClick={() => {
-                          setEditingId(p.id);
-                          setEditForm({ label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', active: p.active });
-                        }}>Edit</Button>
-                        <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
+        <Card className="min-w-0">
+          <CardHeader title="Add a payment link" />
+          <CardBody>
+            <PaymentLinkForm topics={topics} value={form} onChange={setForm} />
+            <FormActions>
+              <Button variant="primary" size="sm" onClick={add} disabled={saving}>
+                {saving ? 'Adding…' : 'Add link'}
+              </Button>
+            </FormActions>
+          </CardBody>
         </Card>
-      )}
+
+        <div className="min-w-0">
+          {!data ? (
+            <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
+          ) : rows.length === 0 ? (
+            <EmptyState message="No payment links yet. Add one on the left once you have it from Razorpay (or wherever it's hosted)." />
+          ) : (
+            <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
+              {rows.map((p) => (
+                <div key={p.id} className="px-4 py-3 border-b border-gray-100 last:border-0">
+                  {editingId === p.id ? (
+                    <div className="flex flex-col gap-3">
+                      <PaymentLinkForm topics={topics} value={editForm} onChange={setEditForm} />
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={editForm.active}
+                          onChange={(e) => setEditForm({ ...editForm, active: e.target.checked })} />
+                        Active (the AI can offer this link)
+                      </label>
+                      <FormActions>
+                        <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button variant="primary" size="sm" onClick={saveEdit}>Save</Button>
+                      </FormActions>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-800 truncate">{p.label}</span>
+                          {p.amount_inr ? <Badge variant="neutral">₹{p.amount_inr}</Badge> : null}
+                          {!p.active && <Badge variant="warning">Inactive</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-400">{topics.find((t) => t.id === p.topic_id)?.name || 'Any service'}</span>
+                          {p.description && <span className="text-xs text-gray-400 truncate">{p.description}</span>}
+                        </div>
+                        <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-text)] truncate block mt-0.5">{p.url}</a>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {deleteId === p.id ? (
+                          <span className="flex items-center gap-1 text-xs text-gray-500">
+                            Delete?
+                            <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteId(null)}>No</Button>
+                          </span>
+                        ) : (
+                          <>
+                            <Button variant="secondary" size="sm" onClick={() => {
+                              setEditingId(p.id);
+                              setEditForm({ label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', active: p.active });
+                            }}>Edit</Button>
+                            <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

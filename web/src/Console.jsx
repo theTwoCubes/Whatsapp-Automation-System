@@ -47,32 +47,6 @@ async function haptic(style = 'Light') {
   } catch { /* plugin not installed or unavailable */ }
 }
 
-// Saves a downloaded file (the xlsx export) to disk. A plain <a download>
-// click does not work inside the APK's WebView, so on native this writes to
-// the cache dir via Filesystem and opens the share sheet instead; on the web
-// it is a normal browser download.
-async function downloadBlob(filename, blob) {
-  if (window.Capacitor?.isNativePlatform?.()) {
-    const { Filesystem, Directory } = await import(/* @vite-ignore */ '@capacitor/filesystem');
-    const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    const { uri } = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
-    await Share.share({ title: filename, url: uri, dialogTitle: `Save ${filename}` });
-    return;
-  }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 // Module-scoped so the value persists across Console mount/unmount cycles
 // (e.g. when the agent navigates to Admin and back).
 let savedListScroll = 0;
@@ -484,7 +458,7 @@ function BulkSendModal({ onClose, onQueued, activeBatchId, onBatchChange }) {
                       >
                         <span className="min-w-0 flex-1">
                           <span className="block font-medium text-gray-800 truncate">
-                            {b.topic_name || 'No specific service'} — {b.template_name}
+                            {b.topic_name || 'No specific service'} - {b.template_name}
                           </span>
                           <span className="block text-gray-400">{relativeTime(b.started_at)}</span>
                         </span>
@@ -588,7 +562,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const [query, setQuery]                 = useState('');
   const [filter, setFilter]               = useState('all');
   const [serviceFilter, setServiceFilter] = useState(null);
-  const [originFilter, setOriginFilter]   = useState(null); // null | 'lead' | 'business' — who started the conversation
+  const [originFilter, setOriginFilter]   = useState(null); // null | 'lead' | 'business' - who started the conversation
   const [tagFilter, setTagFilter]         = useState(null); // null | tag id
   const [showServiceMenu, setShowServiceMenu] = useState(false);
   const serviceBtnRef                     = useRef(null);
@@ -628,7 +602,6 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
-  const [exportBusy, setExportBusy]       = useState(false);
   const [loading, setLoading]             = useState(true);
   const [showContext, setShowContext]     = useState(false);
   const [ptrDist, setPtrDist]             = useState(0);
@@ -787,7 +760,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
     onThreadOpen?.(Boolean(selected));
   }, [selected, onThreadOpen]);
 
-  // Android hardware back button — intercept via history
+  // Android hardware back button - intercept via history
   useEffect(() => {
     selectedRef.current = selected;
     // Let the service worker know which chat is open so it can suppress
@@ -879,7 +852,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   const filtered = useMemo(() => {
     let list = conversations;
     // 'archived' pulls its own list from the server, so the state filter does
-    // not apply to it — everything the server returned should show.
+    // not apply to it - everything the server returned should show.
     if (filter !== 'all' && filter !== 'archived') list = list.filter((c) => c.state === filter);
     if (serviceFilter != null) list = list.filter((c) => c.topic_id === serviceFilter);
     if (originFilter != null) list = list.filter((c) => (c.origin || 'lead') === originFilter);
@@ -918,19 +891,6 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
 
   const activeService = serviceFilter != null ? serviceOptions.find((s) => s.id === serviceFilter) : null;
 
-  const exportLeads = useCallback(async () => {
-    setExportBusy(true);
-    try {
-      const blob = await api.exportContacts(serviceFilter);
-      const suffix = activeService ? `-${activeService.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
-      await downloadBlob(`leads${suffix}-${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
-    } catch (e) {
-      toast.error('Export failed: ' + e.message);
-    } finally {
-      setExportBusy(false);
-    }
-  }, [serviceFilter, activeService, toast]);
-
   const counts = useMemo(() => ({
     all:     conversations.length,
     pending: conversations.filter((c) => c.state === 'pending').length,
@@ -968,7 +928,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
   ];
 
   // Scroll restoration for mobile list. Position lives in a module-
-  // scoped mutable so it outlives Console remounts — switching to Admin and
+  // scoped mutable so it outlives Console remounts - switching to Admin and
   // back preserves the scroll where the agent left it.
   const listScrollRef = useRef(null);
   const listPosRef    = { get current() { return savedListScroll; }, set current(v) { savedListScroll = v; } };
@@ -1017,16 +977,6 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
               {(serviceFilter != null || originFilter != null) && (
                 <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
               )}
-            </button>
-            <button
-              type="button"
-              onClick={exportLeads}
-              disabled={exportBusy}
-              className="flex-shrink-0 text-gray-400 hover:text-gray-600 disabled:opacity-40"
-              title={activeService ? `Export ${activeService.name} leads` : 'Export all leads'}
-              aria-label="Export leads to Excel"
-            >
-              <Download size={16} />
             </button>
           </div>
           {showServiceMenu && (
@@ -1226,7 +1176,7 @@ export default function Console({ onConversationsChange, onThreadOpen, onOpenCon
         }
       </div>
 
-      {/* Context Panel — on mobile it slides in on top, offset below the thread header */}
+      {/* Context Panel - on mobile it slides in on top, offset below the thread header */}
       <div
         className={`transition-[width,border] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex-shrink-0 bg-white overflow-hidden ${
           showContext && thread ? 'w-full md:w-[360px] border-l border-gray-200 fixed md:relative inset-0 md:inset-y-0 z-40' : 'w-0 border-l-0 border-transparent hidden md:block'
@@ -1310,7 +1260,7 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
   );
 }
 
-// Inline nickname editor. Frontend only — never touches the backend. Clicking
+// Inline nickname editor. Frontend only - never touches the backend. Clicking
 // the pencil turns the name into an input; Enter or blur commits, Escape or
 // clearing the field wipes the alias.
 function EditableName({ waId, fallback, className }) {
@@ -1812,8 +1762,8 @@ function ContextRow({ label, children }) {
   );
 }
 
-// Overflow menu for per-chat actions (pin, mute, archive, and — added in
-// phase 2 — block and delete). Works the same on mobile and desktop, which is
+// Overflow menu for per-chat actions (pin, mute, archive, and - added in
+// phase 2 - block and delete). Works the same on mobile and desktop, which is
 // what makes unpin/unmute/unarchive reachable on a phone. Renders through a
 // portal positioned off the trigger so no ancestor can clip it.
 // Portaled to <body> and positioned from the anchor button's own bounding
@@ -2562,7 +2512,7 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
           />
         )}
 
-        {/* Reply preview — the message being quoted, with a cancel button */}
+        {/* Reply preview - the message being quoted, with a cancel button */}
         {replyTo && (
           <div className="flex items-center gap-2 px-3 md:px-5 py-2 border-t border-gray-100 bg-gray-50">
             <div className="w-1 self-stretch rounded-full bg-[var(--accent)] flex-shrink-0" />

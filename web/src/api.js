@@ -116,7 +116,15 @@ export const api = {
     req(`/conversations/${id}/template`, { method: 'POST', body: JSON.stringify({ name, params }) }),
 
   overview: () => req('/overview'),
-  leads: () => req('/leads'),
+  leads: ({ topicId = null, state = null, search = null } = {}) => {
+    const params = new URLSearchParams();
+    if (topicId != null) params.set('topicId', topicId);
+    if (state) params.set('state', state);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    return req(`/leads${qs ? `?${qs}` : ''}`);
+  },
+  dismissLead: (contactId) => req(`/leads/${contactId}/dismiss`, { method: 'POST' }),
   campaigns: () => req('/campaigns'),
   linkCampaignTopic: (id, topicId) => req(`/campaigns/${id}`, { method: 'PUT', body: JSON.stringify({ topicId }) }),
   getSettings: () => req('/settings'),
@@ -152,6 +160,22 @@ export const api = {
   saveAiSettings: (body) => req('/ai-settings', { method: 'PUT', body: JSON.stringify(body) }),
   media: (topicId = null) => req(`/media${topicId ? `?topicId=${topicId}` : ''}`),
   deleteMedia: (id) => req(`/media/${id}`, { method: 'DELETE' }),
+  downloadMedia: async (id) => {
+    const token = getToken();
+    const res = await fetch(`/api/media/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.status === 401) {
+      clearToken();
+      throw new Error('unauthorized');
+    }
+    if (!res.ok) {
+      let msg = 'Download failed';
+      try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* body was not JSON */ }
+      throw new Error(msg);
+    }
+    return res.blob();
+  },
   sendMedia: (id, assetId, caption) =>
     req(`/conversations/${id}/media`, { method: 'POST', body: JSON.stringify({ assetId, caption }) }),
   paymentLinks: (topicId = null) => req(`/payment-links${topicId ? `?topicId=${topicId}` : ''}`),
@@ -190,10 +214,14 @@ export const api = {
     const blob = await res.blob();
     return { url: URL.createObjectURL(blob), size: blob.size, contentType: blob.type };
   },
-  exportContacts: async (topicId = null) => {
+  exportContacts: async ({ topicId = null, state = null, search = null } = {}) => {
     const token = getToken();
-    const qs = topicId != null ? `?topicId=${encodeURIComponent(topicId)}` : '';
-    const res = await fetch(`/api/contacts/export${qs}`, {
+    const params = new URLSearchParams();
+    if (topicId != null) params.set('topicId', topicId);
+    if (state) params.set('state', state);
+    if (search) params.set('search', search);
+    const qs = params.toString();
+    const res = await fetch(`/api/contacts/export${qs ? `?${qs}` : ''}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (res.status === 401) {

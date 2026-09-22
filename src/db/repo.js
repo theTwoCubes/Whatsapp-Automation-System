@@ -659,26 +659,22 @@ export async function listConversations(pool, { includeArchived = false } = {}) 
   return res.rows;
 }
 
-// Everything the client's export needs, one row per lead: name, phone, email
-// and business if we ever learned them, which service they're associated
-// with, and where the chat currently stands. Not paginated - this is a
-// download, not a list view - but capped so a runaway contact base cannot
-// build an unbounded workbook in memory.
-export async function listContactsForExport(pool, { topicId = null } = {}) {
-  const params = [];
-  let topicClause = '';
-  if (topicId != null) {
-    params.push(topicId);
-    topicClause = `and coalesce(ca.topic_id, c.last_topic_id) = $${params.length}`;
-  }
+// Everything the client's export needs, one row per lead: every field we've
+// saved plus which service they're associated with and where the chat
+// currently stands. Not paginated - this is a download, not a list view -
+// but capped so a runaway contact base cannot build an unbounded workbook in
+// memory. Filters are the same ones the dashboard's lead table uses, so the
+// download always matches whatever is on screen when it's clicked.
+export async function listContactsForExport(pool, filters = {}) {
+  const { where, params } = leadFilterClauses(filters);
   const res = await pool.query(
-    `select ct.name, ct.wa_id, ct.email, ct.business, c.state,
+    `select ct.name, ct.wa_id, ct.email, ct.business, ct.address, ct.lead_details, c.state,
             t.name as topic_name
-     from conversations c
-     join contacts ct on ct.id = c.contact_id
+     from contacts ct
+     left join conversations c on c.contact_id = ct.id
      left join campaigns ca on ca.id = c.campaign_id
      left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
-     where c.deleted_at is null ${topicClause}
+     where ${where} and (c.id is null or c.deleted_at is null)
      order by ct.name nulls last, ct.wa_id
      limit 5000`,
     params,
@@ -1053,7 +1049,7 @@ export async function pickNextAgentRoundRobin(pool) {
 export async function metrics(pool) {
   const r = await pool.query(
     `select
-       (select count(*) from contacts where name is not null) as leads,
+       (select count(*) from contacts where name is not null and dismissed_as_lead_at is null) as leads,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
        (select count(*) from conversations where state = 'pending') as pending_chats,
@@ -1113,7 +1109,7 @@ export async function overview(pool) {
   // see on the dashboard either.
   const r = await pool.query(
     `select
-       (select count(*) from contacts where name is not null) as leads,
+       (select count(*) from contacts where name is not null and dismissed_as_lead_at is null) as leads,
        (select count(*) from campaigns) as campaigns,
        (select count(*) from conversations where state = 'bot') as bot_chats,
        (select count(*) from conversations where state = 'human') as human_chats,
@@ -1125,7 +1121,7 @@ export async function overview(pool) {
   const leadsHistory = await pool.query(
     `select to_char(first_seen_at, 'YYYY-MM-DD') as date, count(*)::int as count
      from contacts
-     where first_seen_at >= now() - interval '30 days' and name is not null
+     where first_seen_at >= now() - interval '30 days' and name is not null and dismissed_as_lead_at is null
      group by date
      order by date asc`
   );
@@ -1139,21 +1135,53 @@ export async function overview(pool) {
 // The full detail behind the dashboard's "Total leads" number - every field
 // saved so far for a contact with at least a name on file, plus their most
 // recent conversation state. This must stay consistent with overview()'s
-// leads count and criteria (name is not null), or the two numbers on the
-// dashboard would silently disagree.
-export async function listLeads(pool) {
+// leads count and criteria (name is not null, not dismissed), or the two
+// numbers on the dashboard would silently disagree. Filters mirror what the
+// dashboard lets you narrow down by, and listContactsForExport below reuses
+// the exact same clauses so the download always matches what's on screen.
+function leadFilterClauses({ topicId = null, state = null, search = null } = {}) {
+  const clauses = ['ct.name is not null', 'ct.dismissed_as_lead_at is null'];
+  const params = [];
+  if (topicId != null) {
+    params.push(topicId);
+    clauses.push(`coalesce(ca.topic_id, c.last_topic_id) = $${params.length}`);
+  }
+  if (state) {
+    params.push(state);
+    clauses.push(`c.state = $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    clauses.push(`(ct.name ilike $${params.length} or ct.wa_id ilike $${params.length} or ct.business ilike $${params.length})`);
+  }
+  return { where: clauses.join(' and '), params };
+}
+
+export async function listLeads(pool, filters = {}) {
+  const { where, params } = leadFilterClauses(filters);
   const res = await pool.query(
-    `select ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
+    `select ct.id as contact_id, c.id as conversation_id,
+            ct.wa_id, ct.name, ct.email, ct.business, ct.address, ct.lead_details,
             c.state, t.name as topic_name
      from contacts ct
      left join conversations c on c.contact_id = ct.id
      left join campaigns ca on ca.id = c.campaign_id
      left join topics t on t.id = coalesce(ca.topic_id, c.last_topic_id)
-     where ct.name is not null
+     where ${where}
      order by ct.first_seen_at desc
      limit 2000`,
+    params,
   );
   return res.rows;
+}
+
+// Removes a contact from the leads list/count/export without touching their
+// conversation or messages - for ad noise and wrong numbers that picked up a
+// name but were never really a lead. Reversible only by hand in the database
+// for now, on purpose: this is meant for "get this off my leads list", not a
+// frequent action that needs its own undo UI.
+export async function dismissLead(pool, contactId) {
+  await pool.query('update contacts set dismissed_as_lead_at = now() where id = $1', [contactId]);
 }
 
 export async function addMediaAsset(pool, a) {

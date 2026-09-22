@@ -105,6 +105,32 @@ export function groupByDay(messages) {
   return groups;
 }
 
+// Saves a downloaded file (an xlsx export, a knowledge-base attachment) to
+// disk. A plain <a download> click does not work inside the APK's WebView,
+// so on native this writes to the cache dir via Filesystem and opens the
+// share sheet instead; on the web it is a normal browser download.
+export async function downloadBlob(filename, blob) {
+  if (window.Capacitor?.isNativePlatform?.()) {
+    const { Filesystem, Directory } = await import(/* @vite-ignore */ '@capacitor/filesystem');
+    const { Share } = await import(/* @vite-ignore */ '@capacitor/share');
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const { uri } = await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+    await Share.share({ title: filename, url: uri, dialogTitle: `Save ${filename}` });
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Parses the raw drip_steps setting string (e.g. "template1:3,template2:7" or
 // "template1:3:42" when a media asset id is attached to that step) into an
 // array of { step, template, days, mediaAssetId } objects for the UI.

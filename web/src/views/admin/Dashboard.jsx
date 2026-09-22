@@ -1,8 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { Download } from 'lucide-react';
 import { api } from '../../api.js';
 import { Skeleton } from '../../components/ui/Skeleton.jsx';
 import { StateBadge } from '../../components/ui/Badge.jsx';
+import Button from '../../components/ui/Button.jsx';
+import { useToast } from '../../components/ui/Toast.jsx';
+import { downloadBlob } from '../../lib.js';
 
 // Shared admin layout primitives
 export function AdminPage({ title, subtitle, actions, children }) {
@@ -113,12 +117,12 @@ export function EmptyState({ message }) {
   );
 }
 
-// StatCard — compact on mobile, roomy on desktop
+// StatCard - compact on mobile, roomy on desktop
 function StatCard({ num, label, sub }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-5 flex md:block items-center gap-3">
       <div className="text-2xl md:text-4xl font-extrabold text-gray-900 tracking-tight leading-none md:mb-1.5">
-        {num ?? '—'}
+        {num ?? '-'}
       </div>
       <div className="min-w-0">
         <div className="text-xs md:text-base font-medium text-gray-700 leading-tight">{label}</div>
@@ -141,74 +145,163 @@ function SkeletonStat() {
 // everything saved about them. A lead with no expandable details just has no
 // "Details" link, rather than an empty panel that looks broken.
 function LeadsTable() {
-  const [leads, setLeads] = useState(null);
+  const [topics, setTopics]     = useState([]);
+  const [topicId, setTopicId]   = useState('');
+  const [state, setState]       = useState('');
+  const [search, setSearch]     = useState('');
+  const [leads, setLeads]       = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [dismissId, setDismissId] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const toast = useToast();
 
+  useEffect(() => { api.topics().then((d) => setTopics(d.topics || [])).catch(() => {}); }, []);
+
+  const filters = { topicId: topicId || null, state: state || null, search: search.trim() || null };
+  const filtersKey = JSON.stringify(filters);
+
+  const reload = useCallback(() => {
+    api.leads(filters).then((d) => setLeads(d.leads || [])).catch(() => setLeads([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey]);
+
+  // Debounced so typing in search does not fire one request per keystroke.
   useEffect(() => {
-    api.leads().then((d) => setLeads(d.leads || [])).catch(() => setLeads([]));
-  }, []);
+    const timer = setTimeout(reload, 250);
+    return () => clearTimeout(timer);
+  }, [reload]);
 
-  if (!leads) return <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>;
-  if (leads.length === 0) return <EmptyState message="No leads with saved details yet." />;
+  const dismiss = async (contactId) => {
+    try {
+      await api.dismissLead(contactId);
+      setDismissId(null);
+      toast.success('Removed from leads');
+      reload();
+    } catch (e) {
+      setDismissId(null);
+      toast.error('Failed to remove: ' + e.message);
+    }
+  };
+
+  const exportLeads = async () => {
+    setExporting(true);
+    try {
+      const blob = await api.exportContacts(filters);
+      const service = topics.find((t) => String(t.id) === String(topicId));
+      const suffix = service ? `-${service.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
+      await downloadBlob(`leads${suffix}-${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
+    } catch (e) {
+      toast.error('Export failed: ' + e.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const hasFilters = Boolean(topicId || state || search.trim());
 
   return (
-    <Card>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
-              <th className="px-4 py-2 font-semibold">Name</th>
-              <th className="px-4 py-2 font-semibold">Phone</th>
-              <th className="px-4 py-2 font-semibold">Business</th>
-              <th className="px-4 py-2 font-semibold">Service</th>
-              <th className="px-4 py-2 font-semibold">Status</th>
-              <th className="px-4 py-2 font-semibold" />
-            </tr>
-          </thead>
-          <tbody>
-            {leads.map((l) => {
-              const details = l.lead_details || {};
-              const hasMore = Boolean(l.email || l.address || details.requirement || details.budget || details.timeline);
-              const isOpen = expanded === l.wa_id;
-              return (
-                <React.Fragment key={l.wa_id}>
-                  <tr className="border-b border-gray-50">
-                    <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{l.name}</td>
-                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{l.wa_id}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{l.business || '—'}</td>
-                    <td className="px-4 py-2.5 text-gray-500">{l.topic_name || '—'}</td>
-                    <td className="px-4 py-2.5">{l.state ? <StateBadge state={l.state} /> : '—'}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      {hasMore && (
-                        <button
-                          className="text-xs font-medium text-[var(--accent-text)] hover:underline"
-                          onClick={() => setExpanded(isOpen ? null : l.wa_id)}
-                        >
-                          {isOpen ? 'Hide' : 'Details'}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <td colSpan={6} className="px-4 py-3">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-700">
-                          {l.email && <div><span className="text-gray-400 block">Email</span>{l.email}</div>}
-                          {l.address && <div><span className="text-gray-400 block">Address</span>{l.address}</div>}
-                          {details.requirement && <div><span className="text-gray-400 block">What they want</span>{details.requirement}</div>}
-                          {details.budget && <div><span className="text-gray-400 block">Budget</span>{details.budget}</div>}
-                          {details.timeline && <div><span className="text-gray-400 block">Timeline</span>{details.timeline}</div>}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+    <div>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <select className="field-input h-9 px-3 text-sm w-auto" value={topicId} onChange={(e) => setTopicId(e.target.value)}>
+          <option value="">All services</option>
+          {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <select className="field-input h-9 px-3 text-sm w-auto" value={state} onChange={(e) => setState(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="bot">Bot</option>
+          <option value="pending">Pending</option>
+          <option value="human">Human</option>
+        </select>
+        <input
+          className="field-input h-9 px-3 text-sm flex-1 min-w-[180px]"
+          placeholder="Search name, phone, or business…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Button variant="secondary" size="sm" onClick={exportLeads} disabled={exporting || !leads?.length}>
+          <Download size={14} /> {exporting ? 'Exporting…' : 'Export'}
+        </Button>
       </div>
-    </Card>
+
+      {!leads ? (
+        <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
+      ) : leads.length === 0 ? (
+        <EmptyState message={hasFilters ? 'No leads match these filters.' : 'No leads with saved details yet.'} />
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                  <th className="px-4 py-2 font-semibold">Name</th>
+                  <th className="px-4 py-2 font-semibold">Phone</th>
+                  <th className="px-4 py-2 font-semibold">Business</th>
+                  <th className="px-4 py-2 font-semibold">Service</th>
+                  <th className="px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2 font-semibold" />
+                </tr>
+              </thead>
+              <tbody>
+                {leads.map((l) => {
+                  const details = l.lead_details || {};
+                  const hasMore = Boolean(l.email || l.address || details.requirement || details.budget || details.timeline);
+                  const isOpen = expanded === l.wa_id;
+                  return (
+                    <React.Fragment key={l.wa_id}>
+                      <tr className="border-b border-gray-50">
+                        <td className="px-4 py-2.5 font-medium text-gray-800 whitespace-nowrap">{l.name}</td>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{l.wa_id}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{l.business || '-'}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{l.topic_name || '-'}</td>
+                        <td className="px-4 py-2.5">{l.state ? <StateBadge state={l.state} /> : '-'}</td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          {hasMore && (
+                            <button
+                              className="text-xs font-medium text-[var(--accent-text)] hover:underline mr-3"
+                              onClick={() => setExpanded(isOpen ? null : l.wa_id)}
+                            >
+                              {isOpen ? 'Hide' : 'Details'}
+                            </button>
+                          )}
+                          {dismissId === l.contact_id ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                              Remove?
+                              <Button variant="danger" size="sm" onClick={() => dismiss(l.contact_id)}>Yes</Button>
+                              <Button variant="ghost" size="sm" onClick={() => setDismissId(null)}>No</Button>
+                            </span>
+                          ) : (
+                            <button
+                              className="text-xs font-medium text-gray-400 hover:text-red-600"
+                              title="Not a real lead - remove from this list"
+                              onClick={() => setDismissId(l.contact_id)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-gray-700">
+                              {l.email && <div><span className="text-gray-400 block">Email</span>{l.email}</div>}
+                              {l.address && <div><span className="text-gray-400 block">Address</span>{l.address}</div>}
+                              {details.requirement && <div><span className="text-gray-400 block">What they want</span>{details.requirement}</div>}
+                              {details.budget && <div><span className="text-gray-400 block">Budget</span>{details.budget}</div>}
+                              {details.timeline && <div><span className="text-gray-400 block">Timeline</span>{details.timeline}</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -238,7 +331,7 @@ export default function Dashboard() {
         <p className="text-sm text-red-500 mb-4">{error}</p>
       )}
 
-      {/* Conversation stats — always 2-col on mobile, 4-col on lg */}
+      {/* Conversation stats - always 2-col on mobile, 4-col on lg */}
       <Section title="Conversations">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
           {!o
@@ -260,7 +353,7 @@ export default function Dashboard() {
         <LeadsTable />
       </Section>
 
-      {/* Message volume — always 2-col on mobile */}
+      {/* Message volume - always 2-col on mobile */}
       <Section title="Message volume">
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
           {!o

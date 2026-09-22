@@ -52,6 +52,7 @@ import {
   setAgentRole,
   overview,
   listLeads,
+  dismissLead,
   campaignStats,
   linkCampaignTopic,
   addMediaAsset,
@@ -199,7 +200,7 @@ export function registerApi(app, deps) {
   };
 
   // Only lets a caller through when the JWT says role=admin. Used to gate
-  // Settings, Team, Knowledge, Templates and Audit — anything an ordinary
+  // Settings, Team, Knowledge, Templates and Audit - anything an ordinary
   // agent should not be able to change.
   const requireAdmin = async (req, reply) => {
     if (req.user?.role !== 'admin') {
@@ -312,13 +313,15 @@ export function registerApi(app, deps) {
     }),
   }));
 
-  // Downloadable lead list for the client's own CRM/spreadsheet use - name,
-  // phone, email and business where we've learned them, filtered to one
-  // service or every lead depending on which service tab the export was
-  // triggered from.
+  // Downloadable lead list for the client's own CRM/spreadsheet use - every
+  // field we've saved, filtered the same way the dashboard's lead table is
+  // (service, status, search) so the download matches what's on screen.
   app.get('/api/contacts/export', { preHandler: auth }, async (req, reply) => {
-    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
-    const contacts = await listContactsForExport(pool, { topicId });
+    const contacts = await listContactsForExport(pool, {
+      topicId: req.query?.topicId ? Number(req.query.topicId) : null,
+      state: req.query?.state || null,
+      search: req.query?.search?.trim() || null,
+    });
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Leads');
@@ -327,18 +330,27 @@ export function registerApi(app, deps) {
       { header: 'Phone', key: 'phone', width: 18 },
       { header: 'Email', key: 'email', width: 28 },
       { header: 'Business', key: 'business', width: 24 },
+      { header: 'Address', key: 'address', width: 28 },
       { header: 'Service', key: 'service', width: 22 },
       { header: 'Status', key: 'status', width: 14 },
+      { header: 'Requirement', key: 'requirement', width: 30 },
+      { header: 'Budget', key: 'budget', width: 18 },
+      { header: 'Timeline', key: 'timeline', width: 18 },
     ];
     sheet.getRow(1).font = { bold: true };
     for (const c of contacts) {
+      const details = c.lead_details || {};
       sheet.addRow({
         name: c.name || '',
         phone: c.wa_id,
         email: c.email || '',
         business: c.business || '',
+        address: c.address || '',
         service: c.topic_name || '',
         status: c.state,
+        requirement: details.requirement || '',
+        budget: details.budget || '',
+        timeline: details.timeline || '',
       });
     }
 
@@ -848,7 +860,21 @@ export function registerApi(app, deps) {
 
   // Full detail behind the dashboard's lead count, so "17 leads" is never a
   // number with nowhere to click through to.
-  app.get('/api/leads', { preHandler: auth }, async () => ({ leads: await listLeads(pool) }));
+  app.get('/api/leads', { preHandler: auth }, async (req) => ({
+    leads: await listLeads(pool, {
+      topicId: req.query?.topicId ? Number(req.query.topicId) : null,
+      state: req.query?.state || null,
+      search: req.query?.search?.trim() || null,
+    }),
+  }));
+
+  // Removes ad noise / wrong numbers from the leads list without touching
+  // their chat - see dismissLead's comment for why this isn't a hard delete.
+  app.post('/api/leads/:id/dismiss', { preHandler: adminAuth, schema: idParams }, async (req) => {
+    await dismissLead(pool, req.params.id);
+    await audit(req, 'lead dismissed', `contact ${req.params.id}`);
+    return { ok: true };
+  });
 
   // Where leads actually came from: one row per ad campaign plus an organic
   // bucket for everyone who arrived with no click to whatsapp referral.
@@ -1441,6 +1467,25 @@ export function registerApi(app, deps) {
     await deleteMediaAsset(pool, req.params.id);
     await audit(req, 'media removed', `asset ${req.params.id}`);
     return { ok: true };
+  });
+
+  // Lets an admin open/download a library file from the knowledge base. This
+  // asset was uploaded by an admin (not a lead), so unlike the lead-media
+  // route its declared mime type is trusted rather than sanitized down to
+  // application/octet-stream.
+  app.get('/api/media/:id/download', { preHandler: auth, schema: idParams }, async (req, reply) => {
+    const asset = await getMediaAsset(pool, req.params.id);
+    if (!asset || !asset.meta_media_id) return reply.code(404).send({ error: 'file not found' });
+    try {
+      const url = await meta.getMediaUrl(asset.meta_media_id);
+      const { buffer, contentType } = await meta.downloadMedia(url);
+      reply.header('Content-Type', asset.mime_type || contentType || 'application/octet-stream');
+      reply.header('Content-Disposition', `attachment; filename="${(asset.filename || 'file').replace(/"/g, '')}"`);
+      reply.header('Cache-Control', 'private, max-age=300');
+      return reply.send(buffer);
+    } catch (err) {
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
+    }
   });
 
   // Payment links. Same shape as media: tagged to a topic with a description
