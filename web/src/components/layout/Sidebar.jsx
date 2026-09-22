@@ -12,7 +12,7 @@ const NAV = [
   { key: 'conversations', label: 'Conversations', icon: MessageSquare },
   { section: 'Admin' },
   { key: 'dashboard', label: 'Dashboard',    icon: LayoutDashboard },
-  { key: 'knowledge',  label: 'AI Knowledge', icon: Brain },
+  { key: 'knowledge',  label: 'Knowledge', icon: Brain },
   { key: 'followups',  label: 'Follow-ups',   icon: Mail },
   { key: 'ops',        label: 'Ops',          icon: Activity },
   { key: 'setup',      label: 'Setup',        icon: Settings },
@@ -29,8 +29,8 @@ export function PushPill({ pushState, onTest, onEnablePush, onDeniedInfo, compac
     return (
       <button
         onClick={onTest}
-        title="Notifications on — tap to send a test"
-        aria-label="Notifications on — send test"
+        title="Notifications on - tap to send a test"
+        aria-label="Notifications on - send test"
         className={`${base} ${sizing} bg-green-100 text-green-700 hover:bg-green-200`}
       >
         <Bell size={iconSize} />
@@ -186,11 +186,6 @@ export default function Sidebar({
           <div className="text-sm font-semibold text-gray-700 truncate">
             {agentEmail || 'Agent'}
           </div>
-          {typeof __BUILD_INFO__ !== 'undefined' && (
-            <div className="text-[10px] text-gray-400 truncate">
-              v{__BUILD_INFO__.version} · {__BUILD_INFO__.gitSha}
-            </div>
-          )}
         </div>
         {/* In-app notification inbox and push status pill */}
         <NotificationBell onOpenConversation={onOpenConversation} />
