@@ -488,14 +488,14 @@ function PackSettings({ topicId, faqCount = 0, onDeleted, onChanged }) {
   return (
     <>
       <Card>
-        <CardHeader title={`Pack settings - ${topic.name}`}>
+        <CardHeader title={`${topic.name}`}>
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded"
             title="Delete this pack"
           >
-            <Trash2 size={14} /> Delete pack
+            <Trash2 size={14} /> Delete
           </button>
         </CardHeader>
         <CardBody>
