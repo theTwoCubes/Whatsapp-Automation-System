@@ -139,7 +139,7 @@ function AIBehaviour() {
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <Section title="How the AI describes your business">
+        <Section title="Business Details">
           <Card>
             <CardBody>
             <FormStack>
@@ -160,7 +160,7 @@ function AIBehaviour() {
           </Card>
         </Section>
 
-        <Section title="Contact details the AI can share">
+        <Section title="Contact Details">
           <Card>
             <CardBody>
             <FormStack>
@@ -183,7 +183,7 @@ function AIBehaviour() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
-        <Section title="What the AI says at key moments">
+        <Section title="AI Message Templates">
           <Card>
             <CardBody>
             <FormStack>
@@ -201,7 +201,7 @@ function AIBehaviour() {
           </Card>
         </Section>
 
-        <Section title="When the AI takes back over">
+        <Section title="AI Takeback Settings">
           <Card>
             <CardBody>
             <FormStack>

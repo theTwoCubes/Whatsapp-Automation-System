@@ -13,7 +13,7 @@ const NAV = [
   { section: 'Admin' },
   { key: 'dashboard', label: 'Dashboard',    icon: LayoutDashboard },
   { key: 'knowledge',  label: 'Knowledge', icon: Brain },
-  { key: 'followups',  label: 'Follow-ups',   icon: Mail },
+  { key: 'followups',  label: 'Follow-Up',   icon: Mail },
   { key: 'ops',        label: 'Ops',          icon: Activity },
   { key: 'setup',      label: 'Setup',        icon: Settings },
   { key: 'team',       label: 'Team & Access', icon: Users },
