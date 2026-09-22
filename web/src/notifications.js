@@ -1,6 +1,6 @@
 // Tab-open signals for handoffs: a chime, a red dot on the favicon, and a
 // count prefix on the browser tab. Everything degrades quietly if the browser
-// or the user says no — the console still works, they just miss the nudge.
+// or the user says no - the console still works, they just miss the nudge.
 
 const originalTitle = typeof document !== 'undefined' ? document.title : '';
 let currentBadge = 0;

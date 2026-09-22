@@ -1,4 +1,4 @@
-// Pure-function unit tests. No database, no network — these run instantly.
+// Pure-function unit tests. No database, no network - these run instantly.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 

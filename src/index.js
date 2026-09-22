@@ -53,7 +53,7 @@ async function main() {
   const meta = app.metaClient;
   const ai = app.aiClient;
 
-  // Push notification sanity checks — noisy so a stale deploy is obvious.
+  // Push notification sanity checks - noisy so a stale deploy is obvious.
   if (!pushConfigured()) {
     app.log.warn('VAPID keys are not set. Web push will silently no-op. Run: node scripts/generate-vapid.js >> .env');
   }
@@ -64,7 +64,7 @@ async function main() {
     if (fcmRows > 0 && !process.env.FCM_SERVICE_ACCOUNT_JSON) {
       app.log.warn({ fcmRows }, 'FCM_SERVICE_ACCOUNT_JSON is not set but FCM subscriptions exist. APK pushes will not be delivered.');
     }
-  } catch { /* table may not exist on the very first migrate — ignore */ }
+  } catch { /* table may not exist on the very first migrate - ignore */ }
 
   // Pick up any AI provider or key saved from the console on a previous run.
   ai.reconfigure(await getSettings(pool, config));

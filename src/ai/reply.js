@@ -89,7 +89,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     // A vision note from an image/PDF rides alongside the generic body
     // ("Sent an image") so the model actually knows what it showed, without
     // the console's own display of that message changing at all.
-    const body = m.attachment_context ? `${m.body} — ${m.attachment_context}` : m.body;
+    const body = m.attachment_context ? `${m.body} - ${m.attachment_context}` : m.body;
     messages.push({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: capMessageLength(body) });
   }
   for (const t of extraTurns) {

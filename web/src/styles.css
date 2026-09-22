@@ -57,7 +57,7 @@
     outline-offset: 2px;
   }
 
-  /* Prevent iOS input zoom on focus — 16px minimum */
+  /* Prevent iOS input zoom on focus - 16px minimum */
   @media (max-width: 640px) {
     .field-input, .field-input-lg, .field-textarea { font-size: 16px; }
     input[type="text"], input[type="email"], input[type="password"],
@@ -67,7 +67,7 @@
 
 /* Custom component utilities */
 @layer utilities {
-  /* Skeleton shimmer — needs backgroundImage + animation together */
+  /* Skeleton shimmer - needs backgroundImage + animation together */
   .skeleton-shimmer {
     background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
     background-size: 600px 100%;

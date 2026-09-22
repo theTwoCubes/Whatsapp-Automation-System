@@ -1,7 +1,7 @@
 /* Core brand tokens */
 
 :root {
-  /* Brand accent — overridden at runtime by brand.js */
+  /* Brand accent - overridden at runtime by brand.js */
   --accent:           #00a884;
   --accent-hover:     #009070;
   --accent-dim:       rgba(0, 168, 132, 0.09);
@@ -38,19 +38,19 @@
   --border:       var(--gray-200);
   --border-strong: var(--gray-300);
 
-  /* Conversation state colors — fixed, not brand-dependent */
+  /* Conversation state colors - fixed, not brand-dependent */
   --state-bot:        #15803d;
   --state-bot-bg:     #f0fdf4;
   --state-bot-border: #bbf7d0;
   --state-bot-text:   #15803d;
 
-  /* Pending: warm stone — not amber/orange */
+  /* Pending: warm stone - not amber/orange */
   --state-pending:        #78716c;
   --state-pending-bg:     #fafaf9;
   --state-pending-border: #e7e5e3;
   --state-pending-text:   #44403c;
 
-  /* Human: neutral slate — not indigo */
+  /* Human: neutral slate - not indigo */
   --state-human:        #475569;
   --state-human-bg:     #f8fafc;
   --state-human-border: #e2e8f0;
@@ -99,7 +99,7 @@
   --radius-xl:   16px;
   --radius-full: 9999px;
 
-  /* Shadows — subtle, not decorative */
+  /* Shadows - subtle, not decorative */
   --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.04);
   --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.06);
   --shadow-md: 0 4px 8px -2px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);

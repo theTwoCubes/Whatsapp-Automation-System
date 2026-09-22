@@ -35,7 +35,7 @@ function configureFcm(log) {
     fcmConfigured = true;
     fcmInitError = null;
   } catch (err) {
-    // malformed env var — don't crash the server
+    // malformed env var - don't crash the server
     fcmInitError = err.message;
     log?.error({ err }, 'FCM init failed');
   }
@@ -92,7 +92,7 @@ export async function removeSubscription(pool, endpoint) {
 // Fan out one notification to every subscribed device. Deletes stale endpoints
 // on 404/410 so the table does not grow unbounded with expired browsers.
 // The service worker on each device decides whether to actually surface the
-// notification — if the agent already has that specific chat open, the SW
+// notification - if the agent already has that specific chat open, the SW
 // suppresses it so we don't nag them for a message they're already reading.
 export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, log }) {
   configure();
@@ -111,7 +111,7 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
 
   // Fan out to the in-app inbox as well as push. One row per distinct agent
   // that has any subscription, so the drawer keeps showing this even if the
-  // browser push failed. Silent if the agent has no push at all — nothing to
+  // browser push failed. Silent if the agent has no push at all - nothing to
   // read in the inbox they never opened.
   const notifKind = kind === 'inbound' ? 'inbound_in_takeover' : kind === 'payment_claimed' ? 'payment_claimed' : 'handoff';
   const agentEmails = [...new Set(rows.map((r) => r.agent_email).filter(Boolean))];
@@ -228,7 +228,7 @@ export async function sendTestPush(pool, agentEmail, log) {
       } catch (err) {
         if (err.statusCode === 404 || err.statusCode === 410) {
           await pool.query('delete from push_subscriptions where id = $1', [row.id]);
-          errors.push(`Endpoint expired (${err.statusCode}) — unsubscribed`);
+          errors.push(`Endpoint expired (${err.statusCode}) - unsubscribed`);
         } else {
           errors.push(err.message);
           log?.warn({ err }, 'test push failed');
@@ -251,7 +251,7 @@ export async function sendTestPush(pool, agentEmail, log) {
       } catch (err) {
         if (err.code === 'messaging/registration-token-not-registered') {
           await pool.query('delete from push_subscriptions where id = $1', [row.id]);
-          errors.push('FCM token expired — unsubscribed');
+          errors.push('FCM token expired - unsubscribed');
         } else {
           errors.push(err.message);
           log?.warn({ err }, 'test fcm push failed');

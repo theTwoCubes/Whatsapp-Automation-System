@@ -110,14 +110,14 @@ export default function App() {
     // Silently re-register FCM token on every Capacitor launch
     autoRegisterIfNative();
 
-    // Hardware back button support for Android —
+    // Hardware back button support for Android -
     // uses React state (not history) so it works correctly in a SPA:
     //   - thread open → close thread
     //   - on an admin sub-view → go back to conversations
     //   - already on conversations → exit app
     let backListener = null;
     if (isCapacitor()) {
-      // @vite-ignore is required — these paths must NOT be transformed by Rollup.
+      // @vite-ignore is required - these paths must NOT be transformed by Rollup.
       // The Capacitor WebView runtime resolves @capacitor/* imports natively.
       import(/* @vite-ignore */ '@capacitor/app').then(({ App: CapApp }) => {
         CapApp.addListener('backButton', ({ canGoBack }) => {
@@ -351,7 +351,7 @@ function AppInner({
 
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden bg-surface-page w-full relative">
 
-        {/* Mobile Top Bar — hidden when a thread is open (thread header replaces it) */}
+        {/* Mobile Top Bar - hidden when a thread is open (thread header replaces it) */}
         {!threadOpen && (
           <div
             className="md:hidden flex items-center gap-2 flex-shrink-0 z-20 border-b border-gray-200 bg-white"
@@ -381,7 +381,7 @@ function AppInner({
           </div>
         )}
 
-        {/* Notification banner — only on web, only when list is visible */}
+        {/* Notification banner - only on web, only when list is visible */}
         {showBanner && (
           <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 text-gray-700 flex-shrink-0">
             <span className="flex-1 min-w-0 text-xs truncate">

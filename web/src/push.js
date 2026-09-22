@@ -159,7 +159,7 @@ function _doNativeRegistration(PushNotifications) {
       resolve({ ok: false, reason: err?.error || 'registration-error' });
     });
 
-    // NOW call register — listeners are already wired
+    // NOW call register - listeners are already wired
     PushNotifications.register().catch((err) => {
       resolve({ ok: false, reason: err?.message || 'register-failed' });
     });

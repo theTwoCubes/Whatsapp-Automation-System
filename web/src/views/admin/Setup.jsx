@@ -39,7 +39,7 @@ function BusinessProfile() {
         ...form,
         websites: form.websites ? form.websites.split(',').map((s) => s.trim()).filter(Boolean) : [],
       });
-      toast.success('Business profile saved — changes go live on WhatsApp within a few minutes');
+      toast.success('Business profile saved - changes go live on WhatsApp within a few minutes');
     } catch (e) { toast.error(e.message); }
     finally { setSaving(false); }
   };
@@ -118,7 +118,7 @@ function AIBehaviour() {
         support_email:       form.support_email,
         instagram_url:       form.instagram_url,
       });
-      toast.success('Settings saved — the AI will use these in its next conversation');
+      toast.success('Settings saved - the AI will use these in its next conversation');
     } catch (e) { toast.error(e.message); }
     finally { setSaving(false); }
   };
@@ -202,7 +202,7 @@ function AIBehaviour() {
           <FormStack>
             <InputField label="When the AI is stuck" textarea
               helper="Used if the AI has nothing useful to say and is not handing off yet."
-              placeholder="That's a great question — let me check with the team and get right back to you."
+              placeholder="That's a great question - let me check with the team and get right back to you."
               {...bind('fallback_message')} />
             <InputField label="When passing the chat to a person" textarea
               helper="Sent right before a real teammate takes over."
