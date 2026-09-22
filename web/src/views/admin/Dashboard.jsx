@@ -349,7 +349,7 @@ export default function Dashboard() {
       {/* Every lead behind the "Total leads" count above, with everything
           saved about them so far. A contact with no name is never counted or
           listed here - it isn't a lead yet, just a phone number. */}
-      <Section title="All leads" subtitle="Everyone counted in Total leads above, with the details the AI or your team have saved for them.">
+      <Section title="All leads" subtitle="Everyone counted in Total leads above.">
         <LeadsTable />
       </Section>
 
@@ -370,7 +370,7 @@ export default function Dashboard() {
       {/* Lead sources */}
       <Section
         title="Lead sources & Growth"
-        subtitle="Each lead is tracked back to the ad that brought them in, or marked organic. Link a campaign to a knowledge topic so leads from that ad get answers tailored to that service."
+        subtitle="Where leads come from, and how many per day."
       >
         <div className="flex flex-col gap-6 mb-4">
           <Card className="flex flex-col">
@@ -428,7 +428,7 @@ export default function Dashboard() {
 
       <Section
         title="Campaign Performance"
-        subtitle="Detailed breakdown of how each ad campaign is performing in terms of leads and message volume."
+        subtitle="Leads and message volume per campaign."
       >
         <Card className="flex flex-col">
           {!campaigns ? (

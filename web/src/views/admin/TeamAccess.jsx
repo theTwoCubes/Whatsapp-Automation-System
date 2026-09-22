@@ -220,7 +220,7 @@ function Agents() {
           </div>
           <InputField
             label="Temporary password"
-            helper="Must be at least 6 characters. Share it with the agent so they can sign in."
+            helper="At least 6 characters."
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -332,7 +332,7 @@ function Branding() {
         <PanelHeader
           icon={Palette}
           title="White-label branding"
-          subtitle="Personalise the console for your business. Affects every agent."
+          subtitle="Personalise the console for your business."
         />
         <div className="px-4 md:px-6 py-4 md:py-5 flex flex-col gap-5">
           <InputField
@@ -450,7 +450,7 @@ function AiProvider() {
         <PanelHeader
           icon={KeyRound}
           title="AI provider & keys"
-          subtitle="Choose which AI answers your leads and set the keys it uses. Only admins can see this page."
+          subtitle="Model and API keys. Admins only."
         />
         <div className="px-4 md:px-6 py-5 md:py-6 flex flex-col gap-6">
           <div className="flex flex-col gap-2">
@@ -645,7 +645,7 @@ export default function TeamAccess() {
   return (
     <AdminPage
       title="Team & Access"
-      subtitle="Manage sign-in access, your brand look, and the record of what happened."
+      subtitle="Sign-in access, branding, and activity log."
     >
       <div className="flex flex-col md:flex-row items-start gap-4 md:gap-8">
         <aside className="w-full md:w-[260px] flex-shrink-0 md:sticky top-0">

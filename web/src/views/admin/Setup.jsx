@@ -58,16 +58,14 @@ function BusinessProfile() {
   return (
     <Section
       title="WhatsApp business profile"
-      subtitle="Customers see this when they open your business profile inside WhatsApp. Changes go straight to Meta."
+      subtitle="Shown on your WhatsApp business profile."
     >
       <Card>
         <CardBody>
         <FormStack>
-          <InputField label="About" helper="A short tagline shown under your business name."
-            placeholder="e.g. Helping brands stand out with great design."
+          <InputField label="About" placeholder="e.g. Helping brands stand out with great design."
             value={form.about} onChange={(e) => setForm({ ...form, about: e.target.value })} />
           <InputField label="Description" textarea
-            helper="A fuller description of what your business does."
             placeholder="We're a creative studio specialising in brand identity, logo design, and digital marketing."
             value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           <InputField label="Business email" placeholder="hello@yourbusiness.com"
@@ -75,7 +73,7 @@ function BusinessProfile() {
           <InputField label="Address" placeholder="123 Main St, City, Country"
             value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           <InputField label="Websites" textarea rows={2}
-            helper="Enter one or more URLs separated by commas."
+            helper="Comma separated."
             placeholder="https://yourbusiness.com, https://instagram.com/yourbusiness"
             value={form.websites} onChange={(e) => setForm({ ...form, websites: e.target.value })} />
           <FormActions>
@@ -110,7 +108,6 @@ function AIBehaviour() {
         bot_name:            form.bot_name,
         fallback_message:    form.fallback_message,
         handoff_message:     form.handoff_message,
-        attachment_message:  form.attachment_message,
         opt_out_message:     form.opt_out_message,
         resume_minutes:      form.resume_minutes,
         website_url:         form.website_url,
@@ -141,27 +138,20 @@ function AIBehaviour() {
 
   return (
     <div className="flex flex-col gap-8">
-      <Section
-        title="How the AI describes your business"
-        subtitle="The AI pulls from these when a lead asks who you are or what you do."
-      >
+      <Section title="How the AI describes your business">
         <Card>
           <CardBody>
           <FormStack>
             <InputField label="Business name"
-              helper="The name the AI uses when it refers to you in a chat."
               placeholder="Acme Studio"
               {...bind('business_name')} />
             <InputField label="AI's name"
-              helper="What the AI calls itself when it introduces itself to a new lead, once per chat."
               placeholder="Adi"
               {...bind('bot_name')} />
             <InputField label="About the business" textarea
-              helper="A short description the AI can lean on for general questions."
               placeholder="We're a full-service creative agency specialising in brand identity, logo design, and marketing."
               {...bind('business_about')} />
             <InputField label="Tone of voice"
-              helper="A line or two on how you want the AI to sound."
               placeholder="Friendly and professional. Warm but concise. No slang."
               {...bind('business_tone')} />
           </FormStack>
@@ -169,10 +159,7 @@ function AIBehaviour() {
         </Card>
       </Section>
 
-      <Section
-        title="Contact details the AI can share"
-        subtitle="Filled in here, so a lead asking for your website or a way to reach you gets a real answer instead of being sent to a person. Left blank, the AI simply won't offer it."
-      >
+      <Section title="Contact details the AI can share">
         <Card>
           <CardBody>
           <FormStack>
@@ -193,27 +180,17 @@ function AIBehaviour() {
         </Card>
       </Section>
 
-      <Section
-        title="What the AI says at key moments"
-        subtitle="Written for you in your voice, sent verbatim in these three situations. Edit the wording to match your brand."
-      >
+      <Section title="What the AI says at key moments">
         <Card>
           <CardBody>
           <FormStack>
             <InputField label="When the AI is stuck" textarea
-              helper="Used if the AI has nothing useful to say and is not handing off yet."
               placeholder="That's a great question - let me check with the team and get right back to you."
               {...bind('fallback_message')} />
             <InputField label="When passing the chat to a person" textarea
-              helper="Sent right before a real teammate takes over."
               placeholder="Someone from our team will be with you shortly. Thanks for your patience!"
               {...bind('handoff_message')} />
-            <InputField label="When a customer sends a file (currently unused)" textarea
-              helper="The AI now looks at photos and documents itself and replies naturally, so this line is not sent anymore. Left here in case that ever needs to change."
-              placeholder="Thanks for sending that over! Could you tell me a bit more about it in words too?"
-              {...bind('attachment_message')} />
             <InputField label="When a customer asks to stop getting messages" textarea
-              helper="Sent once, immediately, when a lead opts out. Follow ups stop for them right away - this just confirms it."
               placeholder="Understood, you won't receive further messages from us. Reply anytime if you need help."
               {...bind('opt_out_message')} />
           </FormStack>
@@ -221,18 +198,15 @@ function AIBehaviour() {
         </Card>
       </Section>
 
-      <Section
-        title="When the AI takes back over"
-        subtitle="If a teammate goes quiet on a chat, the AI can quietly resume so the lead is not left waiting."
-      >
+      <Section title="When the AI takes back over">
         <Card>
           <CardBody>
           <FormStack>
             <InputField label="Hand the chat back to the AI after"
-              helper="Minutes of silence from your teammate. Set 0 to keep it with the team until they hand it back themselves."
+              helper="Minutes of silence. 0 keeps it with the team."
               type="number"
               min={0}
-              placeholder="0 to keep it with the team"
+              placeholder="0"
               style={{ maxWidth: 200 }}
               {...bind('resume_minutes')} />
           </FormStack>
@@ -254,7 +228,7 @@ export default function Setup() {
   return (
     <AdminPage
       title="Setup"
-      subtitle="Configure the AI's rule, WhatsApp business profile, and when the AI should step in."
+      subtitle="AI voice, rules, and your WhatsApp business profile."
     >
       <TabPills
         tabs={[

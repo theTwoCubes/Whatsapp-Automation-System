@@ -77,9 +77,6 @@ export function loadConfig() {
     handoffMessage:
       process.env.HANDOFF_MESSAGE?.trim() ||
       "Sure, I'm connecting you with someone from our team. They'll reply here shortly.",
-    attachmentMessage:
-      process.env.ATTACHMENT_MESSAGE?.trim() ||
-      "Thanks for sending that over, I'm connecting you with someone from our team to take a look.",
     optOutMessage:
       process.env.OPT_OUT_MESSAGE?.trim() ||
       "Understood, you won't receive further messages from us. Reply anytime if you need help.",
