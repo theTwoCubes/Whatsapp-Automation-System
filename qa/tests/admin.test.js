@@ -6,7 +6,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import fastifyMultipart from '@fastify/multipart';
 
 import { registerApi } from '../../src/routes/api.js';
-import { createAgent, addMediaAsset, recordHandoff } from '../../src/db/repo.js';
+import { createAgent, addMediaAsset, recordHandoff, setLastTopicId, dismissLead } from '../../src/db/repo.js';
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
@@ -152,6 +152,85 @@ test('the leads endpoint surfaces address and lead_details for the console dashb
   const lead = res.json().leads[0];
   assert.equal(lead.address, '221B Baker Street');
   assert.equal(lead.lead_details.requirement, 'A new logo');
+  await app.close();
+});
+
+test('the leads endpoint can be filtered by service, status, and a text search', async () => {
+  const id = await makeConversation();
+  const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
+  await setLastTopicId(pool, id, topic.id);
+  await pool.query(
+    "update contacts set business = 'Acme Co' where id = (select contact_id from conversations where id = $1)",
+    [id],
+  );
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const byTopic = await app.inject({ method: 'GET', url: `/api/leads?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(byTopic.json().leads.length, 1);
+
+  const otherTopic = await upsertTopic(pool, { slug: 'branding', name: 'Branding' });
+  const wrongTopic = await app.inject({ method: 'GET', url: `/api/leads?topicId=${otherTopic.id}`, headers: auth(t) });
+  assert.equal(wrongTopic.json().leads.length, 0, 'a lead in another service pack is not returned');
+
+  const byState = await app.inject({ method: 'GET', url: '/api/leads?state=bot', headers: auth(t) });
+  assert.equal(byState.json().leads.length, 1);
+  const wrongState = await app.inject({ method: 'GET', url: '/api/leads?state=human', headers: auth(t) });
+  assert.equal(wrongState.json().leads.length, 0);
+
+  const bySearch = await app.inject({ method: 'GET', url: '/api/leads?search=acme', headers: auth(t) });
+  assert.equal(bySearch.json().leads.length, 1, 'search matches business name, case insensitive');
+  const noMatch = await app.inject({ method: 'GET', url: '/api/leads?search=nonexistent', headers: auth(t) });
+  assert.equal(noMatch.json().leads.length, 0);
+  await app.close();
+});
+
+test('dismissing a lead removes it from the list and count without touching the chat', async () => {
+  const id = await makeConversation();
+  const contactId = (await pool.query('select contact_id from conversations where id = $1', [id])).rows[0].contact_id;
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const before = await app.inject({ method: 'GET', url: '/api/leads', headers: auth(t) });
+  assert.equal(before.json().leads.length, 1);
+
+  const res = await app.inject({ method: 'POST', url: `/api/leads/${contactId}/dismiss`, headers: auth(t) });
+  assert.equal(res.statusCode, 200);
+
+  const after = await app.inject({ method: 'GET', url: '/api/leads', headers: auth(t) });
+  assert.equal(after.json().leads.length, 0);
+
+  const overview = await app.inject({ method: 'GET', url: '/api/overview', headers: auth(t) });
+  assert.equal(Number(overview.json().overview.leads), 0);
+
+  const conv = await app.inject({ method: 'GET', url: '/api/conversations', headers: auth(t) });
+  assert.equal(conv.json().conversations.length, 1, 'dismissing a lead does not touch its conversation');
+  await app.close();
+});
+
+test('a media library file can be downloaded by an admin', async () => {
+  const assetId = await addMediaAsset(pool, {
+    metaMediaId: 'lib-media-dl', filename: 'ratecard.pdf', mimeType: 'application/pdf', kind: 'document',
+  });
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: `/api/media/${assetId}/download`, headers: auth(t) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['content-type'], 'application/pdf');
+  assert.match(res.headers['content-disposition'], /ratecard\.pdf/);
+  await app.close();
+});
+
+test('downloading a media asset that has no meta media id 404s instead of erroring', async () => {
+  const assetId = await addMediaAsset(pool, { filename: 'orphan.pdf', mimeType: 'application/pdf', kind: 'document' });
+
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'GET', url: `/api/media/${assetId}/download`, headers: auth(t) });
+  assert.equal(res.statusCode, 404);
   await app.close();
 });
 

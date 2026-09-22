@@ -217,7 +217,7 @@ test('the contacts export produces a real xlsx workbook, optionally filtered to 
   const row = sheet.getRow(2);
   assert.equal(row.getCell(3).value, 'lead@example.com');
   assert.equal(row.getCell(4).value, 'Acme Co');
-  assert.equal(row.getCell(5).value, 'Logo Design');
+  assert.equal(row.getCell(6).value, 'Logo Design');
 
   const otherTopic = await upsertTopic(pool, { slug: 'branding', name: 'Branding' });
   const filtered = await app.inject({ method: 'GET', url: `/api/contacts/export?topicId=${otherTopic.id}`, headers: { authorization: `Bearer ${token}` } });
