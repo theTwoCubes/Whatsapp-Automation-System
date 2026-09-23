@@ -122,7 +122,7 @@ export class FakeAi {
   async complete() {
     this.calls += 1;
     if (this.fail) throw new Error('ai unavailable');
-    return this.reply;
+    return { text: this.reply, provider: 'fake', failedProviders: [] };
   }
   reconfigure(config) {
     this.lastReconfigure = config;

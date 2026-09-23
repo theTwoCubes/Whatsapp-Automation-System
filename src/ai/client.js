@@ -21,6 +21,11 @@ export class AiClient {
     this.enabled = this.order.length > 0;
   }
 
+  // Returns { text, provider, failedProviders } - provider is whichever one
+  // actually answered, and failedProviders lists any that were tried and
+  // errored first (empty when the primary just worked). Callers that only
+  // need the text can destructure { text }; the simulator surfaces the rest
+  // so a silent failover isn't invisible to whoever is looking at it.
   async complete(messages, options = {}) {
     if (!this.enabled) {
       throw new Error('AI disabled: no provider key configured');
@@ -33,18 +38,20 @@ export class AiClient {
     const providers = this.providers;
     const order = this.order;
     const timeoutMs = options.timeoutMs ?? 25000;
+    const failedProviders = [];
     let lastError;
     for (const name of order) {
       try {
-        const result = await Promise.race([
+        const text = await Promise.race([
           providers[name].complete(messages, options),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error(`ai timeout after ${timeoutMs}ms`)), timeoutMs),
           ),
         ]);
-        return result;
+        return { text, provider: name, failedProviders };
       } catch (err) {
         lastError = err;
+        failedProviders.push({ provider: name, error: err.message });
         this.log.warn({ provider: name, err: err.message }, 'ai provider failed, trying the next one');
       }
     }

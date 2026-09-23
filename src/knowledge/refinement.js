@@ -103,7 +103,7 @@ async function extractGapClusters(ai, samples) {
     .map((s) => `- Conversation ${s.conversation_id}: "${s.lead_message}" (bot said: ${s.reason || 'no reason given'})`)
     .join('\n');
   try {
-    const raw = await ai.complete(
+    const { text: raw } = await ai.complete(
       [
         {
           role: 'system',
@@ -166,7 +166,7 @@ async function runContradictionPass(pool, ai) {
 async function extractContradictions(ai, rows) {
   const packText = rows.map((r) => `[id ${r.id}] Q: ${r.question}\nA: ${r.answer}`).join('\n\n');
   try {
-    const raw = await ai.complete(
+    const { text: raw } = await ai.complete(
       [
         {
           role: 'system',

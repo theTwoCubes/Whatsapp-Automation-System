@@ -80,7 +80,7 @@ function normalise(text) {
 async function extractCandidates(ai, text) {
   if (ai?.enabled) {
     try {
-      const raw = await ai.complete(
+      const { text: raw } = await ai.complete(
         [
           {
             role: 'system',

@@ -209,7 +209,7 @@ test('the model asking for another pack pulls it in and answers on the second ca
     JSON.stringify({ action: 'need_packs', pack_ids: [Number(poster.id)] }),
     JSON.stringify({ action: 'answer', reply: 'Posters start from 3000 rupees.' }),
   ];
-  const ai = { enabled: true, calls: 0, async complete() { const r = replies[this.calls]; this.calls += 1; return r; } };
+  const ai = { enabled: true, calls: 0, async complete() { const r = replies[this.calls]; this.calls += 1; return { text: r, provider: 'fake', failedProviders: [] }; } };
 
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.PKR1', body: 'hi, do you also do print stuff' }), d);
@@ -245,7 +245,7 @@ test('a pack pulled in once stays for the next turn without being renegotiated',
   const d = deps();
   await processWebhook(inboundText({ id: 'wamid.S1', body: 'what does a poster cost?' }), d);
   // The next inbound has no keyword hit, but the sticky pack should still be in.
-  const spy = { enabled: true, calls: 0, async complete(msgs) { this.lastSystem = msgs[0].content; this.calls += 1; return JSON.stringify({ action: 'answer', reply: 'ok' }); } };
+  const spy = { enabled: true, calls: 0, async complete(msgs) { this.lastSystem = msgs[0].content; this.calls += 1; return { text: JSON.stringify({ action: 'answer', reply: 'ok' }), provider: 'fake', failedProviders: [] }; } };
   const d2 = deps({ ai: spy });
   await processWebhook(inboundText({ id: 'wamid.S2', body: 'and how long does that take?' }), d2);
 

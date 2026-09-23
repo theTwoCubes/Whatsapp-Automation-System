@@ -52,6 +52,16 @@ test('an answer action produces a reply and no handoff', async () => {
   assert.equal(decision.reply, 'A logo is 20000 rupees plus GST.');
 });
 
+test('the decision reports which ai provider actually answered', async () => {
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.' });
+  const id = await conversation();
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 20000 rupees plus GST.' }));
+
+  const decision = await buildReply(pool, ai, testConfig, id, {});
+  assert.equal(decision.aiProvider, 'fake', 'so a silent failover to the backup provider is visible, not hidden');
+  assert.deepEqual(decision.aiProviderFallback, []);
+});
+
 test('a handoff action carries its reason through for the team', async () => {
   const id = await conversation();
   const ai = new SpyAi(JSON.stringify({ action: 'handoff', reply: 'Let me get a colleague.', reason: 'wants a discount' }));

@@ -19,15 +19,22 @@ test('the primary provider is used first', async () => {
   const openai = provider('openai', 'from openai');
   const gemini = provider('gemini', 'from gemini');
   const ai = new AiClient({ aiProvider: 'openai' }, silentLog, { openai, gemini });
-  assert.equal(await ai.complete([]), 'from openai');
+  const result = await ai.complete([]);
+  assert.equal(result.text, 'from openai');
+  assert.equal(result.provider, 'openai', 'reports which provider actually answered');
+  assert.deepEqual(result.failedProviders, [], 'nothing failed when the primary works');
   assert.equal(gemini.calls, 0, 'fallback not touched when primary works');
 });
 
-test('it fails over to the other provider when the primary errors', async () => {
+test('it fails over to the other provider when the primary errors, and says so', async () => {
   const openai = provider('openai', new Error('openai down'));
   const gemini = provider('gemini', 'from gemini');
   const ai = new AiClient({ aiProvider: 'openai' }, silentLog, { openai, gemini });
-  assert.equal(await ai.complete([]), 'from gemini');
+  const result = await ai.complete([]);
+  assert.equal(result.text, 'from gemini');
+  assert.equal(result.provider, 'gemini', 'reports the provider that actually answered, not the configured primary');
+  assert.deepEqual(result.failedProviders, [{ provider: 'openai', error: 'openai down' }],
+    'the failed primary and its error are visible, not just silently swallowed');
   assert.equal(openai.calls, 1);
   assert.equal(gemini.calls, 1);
 });
@@ -36,7 +43,9 @@ test('AI_PROVIDER chooses which one is primary', async () => {
   const openai = provider('openai', 'from openai');
   const gemini = provider('gemini', 'from gemini');
   const ai = new AiClient({ aiProvider: 'gemini' }, silentLog, { openai, gemini });
-  assert.equal(await ai.complete([]), 'from gemini');
+  const result = await ai.complete([]);
+  assert.equal(result.text, 'from gemini');
+  assert.equal(result.provider, 'gemini');
 });
 
 test('when every provider errors, complete throws so the caller can fall back', async () => {

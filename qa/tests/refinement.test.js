@@ -51,7 +51,7 @@ class ScriptedAi {
     const system = messages[0]?.content || '';
     const handler = this.script.find((s) => system.includes(s.match));
     this.calls += 1;
-    return handler ? handler.reply : JSON.stringify({});
+    return { text: handler ? handler.reply : JSON.stringify({}), provider: 'fake', failedProviders: [] };
   }
 }
 

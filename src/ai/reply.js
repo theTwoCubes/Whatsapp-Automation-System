@@ -96,7 +96,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     messages.push({ role: t.direction === 'inbound' ? 'user' : 'assistant', content: capMessageLength(t.body) });
   }
 
-  const raw = await ai.complete(messages, { json: true });
+  const { text: raw, provider: aiProvider, failedProviders } = await ai.complete(messages, { json: true });
   const parsed = parseDecision(raw, catalog);
 
   const validMediaIdSet = new Set(media.map((m) => Number(m.id)));
@@ -122,6 +122,8 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     packs: faqs.packs,
     faqCount: faqs.faqCount,
     contextTokens: faqs.tokens,
+    aiProvider,
+    aiProviderFallback: failedProviders,
   };
 }
 

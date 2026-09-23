@@ -49,6 +49,8 @@ function faqsToText(faqs) {
 }
 
 
+const PROVIDER_NAMES = { openai: 'OpenAI', gemini: 'Google Gemini' };
+
 // Simulator Modal
 function SimulatorModal({ packs, onClose }) {
   const [text, setText]           = useState('');
@@ -122,6 +124,13 @@ function SimulatorModal({ packs, onClose }) {
             </div>
             {/* Answer */}
             <div className="px-4 py-4">
+              {result.decision?.aiProvider && (
+                <p className="text-xs text-gray-400 mb-2">
+                  Answered by {PROVIDER_NAMES[result.decision.aiProvider] || result.decision.aiProvider}
+                  {result.decision.aiProviderFallback?.length > 0 &&
+                    ` (${result.decision.aiProviderFallback.map((f) => PROVIDER_NAMES[f.provider] || f.provider).join(', ')} failed first: ${result.decision.aiProviderFallback[0].error})`}
+                </p>
+              )}
               {result.decision ? (
                 result.decision.handoff ? (
                   <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm">
