@@ -170,6 +170,26 @@ export default function Ops() {
         </div>
       </Section>
 
+      {db.runaway_threads?.length > 0 && (
+        <Section title="Runaway threads (last hour)" subtitle="Chats with an unusually high number of bot replies. Ones marked with a robot chip have been auto-detected as automated peers and silenced.">
+          <Card>
+            <div className="divide-y divide-gray-100">
+              {db.runaway_threads.map((t) => (
+                <div key={t.conversation_id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="font-medium text-gray-800 truncate">{t.name || t.wa_id}</span>
+                    {t.marked_bot && (
+                      <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">🤖 peer bot</span>
+                    )}
+                  </div>
+                  <span className="flex-shrink-0 text-xs font-mono text-gray-500">{t.reply_count} replies</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </Section>
+      )}
+
       {db.handoff_breakdown?.length > 0 && (
         <Section title="Handoff reasons (7 days)">
           <HandoffBar breakdown={db.handoff_breakdown} />

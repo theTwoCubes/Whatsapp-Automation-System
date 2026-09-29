@@ -53,7 +53,10 @@ export async function simulateReply(pool, ai, config, settings, { text, topicId 
   // client most needs to reason about when they change wording.
   const decision = await buildReply(pool, ai, settings, -1, {
     packs,
-    faqBudgetTokens: settings.faqBudgetTokens,
+    // faqBudgetTokens lives on the env config, not the DB settings object -
+    // passing settings.faqBudgetTokens fed an undefined budget into
+    // buildFaqContext, so the simulator's context was uncapped.
+    faqBudgetTokens: config.faqBudgetTokens,
     extraTurns: [{ direction: 'inbound', body: query }],
   });
   return { ...trace, decision };

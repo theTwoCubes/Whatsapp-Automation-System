@@ -94,7 +94,7 @@ export async function removeSubscription(pool, endpoint) {
 // The service worker on each device decides whether to actually surface the
 // notification - if the agent already has that specific chat open, the SW
 // suppresses it so we don't nag them for a message they're already reading.
-export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, log }) {
+export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, reason, title, kind, onlyAgentEmail, log }) {
   configure();
 
   // Muted chats do not fan out to push. They still write to the in-app inbox
@@ -104,17 +104,26 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
     [conversationId],
   )).rows[0]?.m === true;
 
-  const rows = (await pool.query('select * from push_subscriptions')).rows;
-
   const notifTitle = title || `${name || waId} needs a person`;
   const notifBody = reason || 'A lead is waiting on your team.';
-
-  // Fan out to the in-app inbox as well as push. One row per distinct agent
-  // that has any subscription, so the drawer keeps showing this even if the
-  // browser push failed. Silent if the agent has no push at all - nothing to
-  // read in the inbox they never opened.
   const notifKind = kind === 'inbound' ? 'inbound_in_takeover' : kind === 'payment_claimed' ? 'payment_claimed' : 'handoff';
-  const agentEmails = [...new Set(rows.map((r) => r.agent_email).filter(Boolean))];
+
+  // Inbox row: goes to every actual agent (not just ones with a push
+  // subscription), so an admin who never accepted the browser push prompt
+  // still sees the item in their notification drawer. onlyAgentEmail lets a
+  // caller narrow this to one owner - for 'inbound' pings on a chat someone
+  // is actively handling, only that agent needs to know.
+  // Also includes any push-subscription owner even if they aren't (yet) in
+  // the agents table, so a stale-but-still-subscribed device does not go
+  // silent while a config catches up.
+  const agentRows = onlyAgentEmail
+    ? [{ email: onlyAgentEmail }]
+    : (await pool.query(`
+        select email from agents
+        union
+        select agent_email as email from push_subscriptions where agent_email is not null
+      `)).rows;
+  const agentEmails = [...new Set(agentRows.map((r) => r.email).filter(Boolean))];
   for (const agentEmail of agentEmails) {
     await pool.query(
       `insert into notifications (agent_email, kind, conversation_id, title, body)
@@ -125,6 +134,11 @@ export async function notifyAgentsOfHandoff(pool, { conversationId, name, waId, 
 
   if (muted) return;
   if (!configured) return;
+
+  // Push subs: same narrowing when onlyAgentEmail is set.
+  const rows = onlyAgentEmail
+    ? (await pool.query('select * from push_subscriptions where agent_email = $1', [onlyAgentEmail])).rows
+    : (await pool.query('select * from push_subscriptions')).rows;
   if (rows.length === 0) return;
 
   const payload = JSON.stringify({
