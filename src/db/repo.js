@@ -735,6 +735,48 @@ export async function isConversationBlocked(pool, conversationId) {
   return res.rows[0]?.blocked_at != null;
 }
 
+// Marks a conversation as automatically talking to another bot on the other
+// side (a WhatsApp Business auto-reply, a menu tree, a broadcast system).
+// Reuses blocked_at so isConversationBlocked already stops replies - no new
+// column needed. The handoff_reason prefix "peer_bot:" lets the console
+// render a small robot chip and lets us tell "we blocked them" apart from
+// "we detected the peer is automated". Silent by design - no notification,
+// no push, no toast; the team does not need to be pinged about every
+// automated peer that sprays messages at the number.
+export async function markConversationAsPeerBot(pool, conversationId, reason) {
+  const detail = (reason || '').toString().trim().slice(0, 200);
+  await pool.query(
+    `update conversations
+       set blocked_at = coalesce(blocked_at, now()),
+           handoff_reason = $2,
+           updated_at = now()
+     where id = $1`,
+    [conversationId, `peer_bot: ${detail || 'other side appears automated'}`],
+  );
+}
+
+// Cheap defensive count for the runaway-loop safety net: how many outbound
+// messages have we sent in this conversation in the last N minutes, and does
+// the contact have any identifying details captured. If we have sent a lot
+// and know nothing about who we are talking to, the far side is very likely
+// a bot even if the AI itself has not flagged it yet.
+export async function recentOutboundStats(pool, conversationId, minutes = 15) {
+  const res = await pool.query(
+    `select
+       (select count(*) from messages
+         where conversation_id = $1
+           and direction = 'outbound'
+           and created_at > now() - make_interval(mins => $2))::int as recent_outbound,
+       (select (ct.name is not null or ct.business is not null or ct.email is not null or ct.address is not null)
+        from contacts ct join conversations c on c.contact_id = ct.id where c.id = $1) as has_lead_info`,
+    [conversationId, minutes],
+  );
+  return {
+    recentOutbound: res.rows[0]?.recent_outbound ?? 0,
+    hasLeadInfo: Boolean(res.rows[0]?.has_lead_info),
+  };
+}
+
 // Hard-deletes conversations soft-deleted more than the given days ago, and
 // everything hanging off them. Run from the scheduler. handoff_events and
 // notifications cascade; messages and drip_jobs do not, so clear them first.
@@ -1484,7 +1526,36 @@ export async function opsStats(pool) {
      order by h.hour asc`,
   );
 
-  return { ...r.rows[0], ...funnel.rows[0], handoff_breakdown: handoffBreakdown.rows, activity_hourly: activity.rows };
+  // Runaway threads: contacts we've sent an unusual number of bot replies to
+  // in the last hour. A real long conversation with an interested lead is
+  // fine; this specifically flags cases where the bot may be looping with
+  // another automated system without being noticed yet (peer-bot detection
+  // silences the pings for these, so an at-a-glance panel is what surfaces
+  // them). Capped at 20 rows so the widget stays lightweight.
+  const runaway = await pool.query(
+    `select c.id as conversation_id,
+            ct.wa_id,
+            ct.name,
+            count(m.id)::int as reply_count,
+            (c.blocked_at is not null and c.handoff_reason like 'peer_bot:%') as marked_bot
+     from messages m
+     join conversations c on c.id = m.conversation_id
+     join contacts ct on ct.id = c.contact_id
+     where m.direction = 'outbound'
+       and m.created_at > now() - interval '1 hour'
+     group by c.id, ct.wa_id, ct.name, c.blocked_at, c.handoff_reason
+     having count(m.id) >= 5
+     order by count(m.id) desc
+     limit 20`,
+  );
+
+  return {
+    ...r.rows[0],
+    ...funnel.rows[0],
+    handoff_breakdown: handoffBreakdown.rows,
+    activity_hourly: activity.rows,
+    runaway_threads: runaway.rows,
+  };
 }
 
 // Stalled chats to hand back to the bot: either an agent has gone quiet on a

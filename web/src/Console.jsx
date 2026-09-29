@@ -1220,7 +1220,9 @@ function ConversationRow({ conversation: c, isActive, onSelect }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-1">
           <span className="text-base md:text-lg font-bold text-gray-900 truncate flex items-center gap-1.5">
-            {c.blocked_at && <ShieldBan size={12} className="text-red-500 flex-shrink-0" aria-label="Blocked" />}
+            {c.blocked_at && (c.handoff_reason || '').startsWith('peer_bot:')
+              ? <Bot size={12} className="text-gray-400 flex-shrink-0" aria-label="Automated peer" />
+              : c.blocked_at && <ShieldBan size={12} className="text-red-500 flex-shrink-0" aria-label="Blocked" />}
             {c.pinned_at && <Pin size={12} className="text-gray-400 flex-shrink-0" aria-label="Pinned" />}
             <span className="truncate">{name}</span>
           </span>

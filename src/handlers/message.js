@@ -25,6 +25,8 @@ import {
   optOutContact,
   isContactOptedOut,
   recordPaymentClaimed,
+  markConversationAsPeerBot,
+  recentOutboundStats,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
@@ -36,15 +38,20 @@ import { handToPending } from '../handoff.js';
 import { notifyAgentsOfHandoff } from '../push.js';
 import { captureError } from '../monitoring.js';
 
-// Fires a push to every subscribed device. Fetches contact bits in a single
-// query so the caller does not need to pass them in from every handoff site.
-// opts.kind picks the title shown on the phone:
-//   'handoff' (default) → "<name> needs a person"
-//   'inbound'           → "<name> sent a message"
+// Fires a push notification. Fetches contact + assignee in a single query so
+// callers don't need to pass them in. opts.kind picks the title shown:
+//   'handoff' (default)  → "<name> needs a person" (fans out to all agents)
+//   'inbound'            → "<name> sent a message" (only to the assignee)
+//   'payment_claimed'    → "<name> says they paid" (fans out to all agents)
+//
+// The 'inbound' variant is the notification for a message landing in a chat
+// a human agent is already handling: only the owner of that chat needs to
+// know, everyone else on the team would just be pinged for a conversation
+// they aren't involved in.
 export async function pushHandoff(pool, conversationId, reason, log, opts = {}) {
   try {
     const res = await pool.query(
-      `select ct.name, ct.wa_id
+      `select ct.name, ct.wa_id, c.assignee
        from conversations c join contacts ct on ct.id = c.contact_id
        where c.id = $1`,
       [conversationId],
@@ -63,6 +70,7 @@ export async function pushHandoff(pool, conversationId, reason, log, opts = {}) 
       reason,
       title,
       kind: opts.kind || 'handoff',
+      onlyAgentEmail: opts.kind === 'inbound' ? row?.assignee : null,
       log,
     });
   } catch (err) {
@@ -303,7 +311,11 @@ async function handleMessage(value, message, deps) {
           if (mediaId) {
             const url = await meta.getMediaUrl(mediaId);
             const { buffer, contentType } = await meta.downloadMedia(url);
-            const note = await describeAttachment(config, buffer, contentType);
+            // Read the live Gemini key from settings, not the boot env config -
+            // otherwise an admin rotating the key from the console silently
+            // keeps using the old one for every inbound image/PDF.
+            const visionSettings = await getSettings(pool, config);
+            const note = await describeAttachment(visionSettings, buffer, contentType);
             if (note) {
               await saveAttachmentContext(pool, result.messageId, note);
               effectiveText = `${effectiveText} - ${note}`;
@@ -332,6 +344,24 @@ async function handleMessage(value, message, deps) {
   await respondToLead(deps, result.conversationId, items);
 }
 
+// Cheap defensive check before every AI call: if we've sent a lot of bot
+// replies to this contact in a short window and still know nothing about who
+// they are, the other side is almost certainly automated. Silently mark it
+// as a peer bot and skip the AI call entirely, so a stuck loop caps at
+// whatever the threshold is instead of eating the API bill.
+const PEER_BOT_LOOP_MAX_REPLIES = 6;
+const PEER_BOT_LOOP_WINDOW_MIN = 15;
+
+async function tripPeerBotSafetyNet(pool, conversationId, log) {
+  const { recentOutbound, hasLeadInfo } = await recentOutboundStats(pool, conversationId, PEER_BOT_LOOP_WINDOW_MIN);
+  if (recentOutbound < PEER_BOT_LOOP_MAX_REPLIES) return false;
+  if (hasLeadInfo) return false;
+  await markConversationAsPeerBot(pool, conversationId, `auto: ${recentOutbound} replies in ${PEER_BOT_LOOP_WINDOW_MIN}m, no lead info`);
+  await cancelDrips(pool, conversationId);
+  log.info({ conversationId, recentOutbound }, 'peer-bot safety net tripped, conversation blocked silently');
+  return true;
+}
+
 async function respondToLead(deps, conversationId, items) {
   const { pool, ai, config } = deps;
   const log = deps.log;
@@ -343,6 +373,11 @@ async function respondToLead(deps, conversationId, items) {
     log.info({ conversationId }, 'conversation moved to a human during batching, skipping bot reply');
     return;
   }
+
+  // Safety net: catch a peer-bot loop even if the AI itself has not flagged
+  // it yet. Runs before the AI call so a stuck loop never gets a chance to
+  // burn through another round of tokens.
+  if (await tripPeerBotSafetyNet(pool, conversationId, log)) return;
 
   const to = items[items.length - 1].to;
   const topicId = items[items.length - 1].topicId;
@@ -408,6 +443,17 @@ async function respondToLead(deps, conversationId, items) {
     await setLeadProfile(pool, conversationId, decision.leadProfile);
   }
 
+  // The AI decided the other side is another automated system, not a real
+  // customer. Silently mark the conversation as a peer bot and drop it. No
+  // reply, no drip, no notification, no push - the team does not need to be
+  // pinged about every auto-responder that sprays messages at the number.
+  if (decision?.markBot) {
+    await markConversationAsPeerBot(pool, conversationId, decision.reason);
+    await cancelDrips(pool, conversationId);
+    log.info({ conversationId, reason: decision.reason }, 'ai marked peer as automated, conversation blocked silently');
+    return;
+  }
+
   // The AI decided this needs a person.
   if (decision?.handoff) {
     const reason = decision.reason || 'The ai judged this needs a person';
@@ -417,7 +463,15 @@ async function respondToLead(deps, conversationId, items) {
     await cancelDrips(pool, conversationId);
     log.info({ conversationId, reason, reasonCategory }, 'ai queued conversation for a human');
     await sendAndRecord(deps, to, conversationId, decision.reply || settings.handoffMessage);
-    await pushHandoff(pool, conversationId, reason, log);
+    // Suppress the push when this is a synthetic handoff from an AI
+    // outage - otherwise a provider blip during a busy hour spams every
+    // subscribed device with one push per inbound message. The state
+    // change to pending still makes the chat visible in the console.
+    if (aiSucceeded) {
+      await pushHandoff(pool, conversationId, reason, log);
+    } else {
+      log.info({ conversationId }, 'handoff was synthesised from an ai outage, skipping push');
+    }
     return;
   }
 

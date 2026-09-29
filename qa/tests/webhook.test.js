@@ -446,3 +446,45 @@ test('address, requirement, budget, and timeline learned by the ai are saved to 
   assert.equal(row.rows[0].address, '221B Baker Street, Ahmedabad');
   assert.deepEqual(row.rows[0].lead_details, { requirement: 'A new logo for a bakery', budget: '10-15k', timeline: 'next month' });
 });
+
+test('a mark_as_bot decision silently blocks the conversation without pushing or replying', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'mark_as_bot', reason: 'peer sent identical menu options twice' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.MB1', body: 'Reply *1* for menu' }), d);
+
+  assert.equal(d.meta.sends.length, 0, 'no reply is sent when the peer is another bot');
+  const row = await pool.query('select blocked_at, handoff_reason from conversations limit 1');
+  assert.ok(row.rows[0].blocked_at, 'the conversation is blocked so future inbounds are ignored');
+  assert.match(row.rows[0].handoff_reason, /^peer_bot:/, 'handoff_reason carries the peer_bot prefix for the UI');
+});
+
+test('the safety net blocks a bot-loop even when the ai keeps replying past the threshold', async () => {
+  // Seed the conversation with 6 recent outbound messages to a nameless
+  // contact (matching the safety-net threshold: 6 replies inside 15 minutes
+  // without any lead info captured). Then send one more inbound - the safety
+  // net should trip before the AI is called. Real WhatsApp Business
+  // auto-replies (the primary bot-loop source) come in with no profile name
+  // at all, so nulling it out here matches production reality.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'this should not be sent' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.SN0', body: 'hi', name: null }), d);
+  const conv = await pool.query('select id from conversations limit 1');
+  const conversationId = conv.rows[0].id;
+  await pool.query(`update contacts set name = null, business = null, email = null, address = null`);
+  for (let i = 0; i < 6; i += 1) {
+    await pool.query(
+      `insert into messages (conversation_id, direction, type, body, wa_message_id)
+       values ($1, 'outbound', 'text', $2, $3)`,
+      [conversationId, `earlier reply ${i}`, `wamid.seed${i}`],
+    );
+  }
+  ai.calls = 0;
+  const beforeSends = d.meta.sends.length;
+  await processWebhook(inboundText({ id: 'wamid.TRIP', body: 'trigger the check', name: null }), d);
+
+  const row = await pool.query('select blocked_at, handoff_reason from conversations where id = $1', [conversationId]);
+  assert.ok(row.rows[0].blocked_at, 'the conversation got blocked before the loop could keep going');
+  assert.match(row.rows[0].handoff_reason, /^peer_bot: auto:/, 'the auto-trip carries a distinct reason');
+  assert.equal(ai.calls, 0, 'the AI is not called when the safety net trips');
+  assert.equal(d.meta.sends.length, beforeSends, 'no new reply is sent once the safety net trips');
+});
