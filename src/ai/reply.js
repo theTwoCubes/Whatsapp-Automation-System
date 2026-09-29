@@ -1,4 +1,4 @@
-import { getConversationHistory, getConversationContext, getMediaCatalog, getRecentMediaSends, getPaymentLinkCatalog } from '../db/repo.js';
+import { getConversationHistory, getConversationContext, getMediaCatalog, getRecentMediaSends, getPaymentLinkCatalog, getHostedLinkCatalog } from '../db/repo.js';
 import { buildFaqContext, estimateTokens } from '../knowledge/context.js';
 import { packCatalog } from '../knowledge/packs.js';
 import { humanize } from './sanitize.js';
@@ -71,18 +71,19 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [] } = opts;
 
   const topicIds = packs.filter((p) => p !== 'base');
-  const [faqs, catalog, media, paymentLinks, recentSends, history, context] = await Promise.all([
+  const [faqs, catalog, media, paymentLinks, hostedLinks, recentSends, history, context] = await Promise.all([
     buildFaqContext(pool, { packs, budgetTokens: faqBudgetTokens }),
     allowPackRequests ? packCatalog(pool, topicIds) : Promise.resolve([]),
     getMediaCatalog(pool, topicIds),
     getPaymentLinkCatalog(pool, topicIds),
+    getHostedLinkCatalog(pool, topicIds),
     getRecentMediaSends(pool, conversationId),
     getConversationHistory(pool, conversationId, HISTORY_MESSAGES),
     getConversationContext(pool, conversationId),
   ]);
 
   const messages = [
-    { role: 'system', content: instructions(config, faqs.text, catalog, media, paymentLinks, recentSends, allowPackRequests) },
+    { role: 'system', content: instructions(config, faqs.text, catalog, media, paymentLinks, hostedLinks, recentSends, allowPackRequests) },
     { role: 'system', content: leadContext(config, context) },
   ];
   for (const m of history) {
@@ -105,6 +106,9 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   const validPaymentLinkIdSet = new Set(paymentLinks.map((p) => Number(p.id)));
   const sendPaymentLinkId = validPaymentLinkIdSet.has(Number(parsed.sendPaymentLinkId)) ? Number(parsed.sendPaymentLinkId) : null;
 
+  const validHostedLinkIdSet = new Set(hostedLinks.map((l) => Number(l.id)));
+  const sendHostedLinkId = validHostedLinkIdSet.has(Number(parsed.sendHostedLinkId)) ? Number(parsed.sendHostedLinkId) : null;
+
   return {
     reply: parsed.reply ? humanize(parsed.reply) : '',
     handoff: parsed.handoff,
@@ -117,6 +121,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     requestedPackIds: parsed.requestedPackIds,
     sendMediaId,
     sendPaymentLinkId,
+    sendHostedLinkId,
     reactEmoji: parsed.reactEmoji,
     replyLanguage: parsed.replyLanguage,
     leadProfile: parsed.leadProfile,
@@ -155,7 +160,7 @@ function sanitizeLeadEmail(value) {
 }
 
 function parseDecision(raw, catalog) {
-  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false };
   if (!raw) return { ...empty, reason: 'the assistant returned nothing' };
 
   let obj;
@@ -169,6 +174,7 @@ function parseDecision(raw, catalog) {
   const reason = typeof obj?.reason === 'string' ? obj.reason.trim() : '';
   const sendMediaId = Number.isInteger(Number(obj?.send_media_id)) ? Number(obj.send_media_id) : null;
   const sendPaymentLinkId = Number.isInteger(Number(obj?.send_payment_link_id)) ? Number(obj.send_payment_link_id) : null;
+  const sendHostedLinkId = Number.isInteger(Number(obj?.send_hosted_link_id)) ? Number(obj.send_hosted_link_id) : null;
   const reactEmoji = REACTION_EMOJIS.includes(obj?.react_emoji) ? obj.react_emoji : null;
   const replyLanguage = sanitizeLanguage(obj?.reply_language);
   // requirement/budget/timeline are the "what do they actually want" facts a
@@ -199,7 +205,7 @@ function parseDecision(raw, catalog) {
     // falls back to a handoff.
     if (!reply && !reactEmoji) return { ...empty, reason: 'the assistant answered with an empty message' };
     return {
-      reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, reactEmoji, replyLanguage,
+      reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, sendHostedLinkId, reactEmoji, replyLanguage,
       leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false,
       paymentClaimed: Boolean(obj?.payment_claimed),
     };
@@ -210,11 +216,11 @@ function parseDecision(raw, catalog) {
     // message downstream - that would hand an abuse/injection attempt a
     // friendly canned reply instead of any warning at all.
     const warnReply = reply || 'This is a business chat and I can only help with questions about our services.';
-    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: true, block: false, optOut: false };
+    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, warn: true, block: false, optOut: false };
   }
 
   if (obj?.action === 'block') {
-    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: true, optOut: false };
+    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: true, optOut: false };
   }
 
   if (obj?.action === 'mark_as_bot') {
@@ -223,7 +229,7 @@ function parseDecision(raw, catalog) {
     // tree). Nothing gets sent back and the conversation is silently
     // parked so we never reply again. No notification, no push - the
     // team does not need to know about every automated peer that pings.
-    return { reply: '', handoff: false, reason: reason || 'peer looks automated', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false, optOut: false, markBot: true };
+    return { reply: '', handoff: false, reason: reason || 'peer looks automated', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false, optOut: false, markBot: true };
   }
 
   if (obj?.action === 'opt_out') {
@@ -231,7 +237,7 @@ function parseDecision(raw, catalog) {
     // in db/repo.js. They can still message in and get a normal reply later;
     // this only stops us reaching out to them first.
     const optOutReply = reply || "Understood, you won't receive further messages from us. Reply anytime if you need help.";
-    return { reply: optOutReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: false, optOut: true };
+    return { reply: optOutReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, warn: false, block: false, optOut: true };
   }
 
   if (obj?.action === 'need_packs') {
@@ -243,11 +249,11 @@ function parseDecision(raw, catalog) {
     if (valid.length === 0) {
       return { ...empty, reason: 'the assistant asked for a pack that does not exist' };
     }
-    return { reply: '', handoff: false, reason: '', requestedPackIds: valid, sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false, optOut: false };
+    return { reply: '', handoff: false, reason: '', requestedPackIds: valid, sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, warn: false, block: false, optOut: false };
   }
 
   if (obj?.action === 'handoff') {
-    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, reactEmoji: null, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
+    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
   }
   return { ...empty, reason: 'the assistant returned an unknown action' };
 }
@@ -280,7 +286,7 @@ function contactLines(config) {
   return lines;
 }
 
-function instructions(config, faqText, catalog, media, paymentLinks, recentSends, allowPackRequests) {
+function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks, recentSends, allowPackRequests) {
   const catalogTrim = trimToTokenBudget(
     catalog,
     CATALOG_BUDGET_TOKENS,
@@ -293,7 +299,7 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
       'Reply with JSON. Pick one action per reply.',
       '',
       'To reply to the customer:',
-      '{"action": "answer", "reply": "your message", "send_media_id": null, "send_payment_link_id": null, "react_emoji": null, "reply_language": "English"}',
+      '{"action": "answer", "reply": "your message", "send_media_id": null, "send_payment_link_id": null, "send_hosted_link_id": null, "react_emoji": null, "reply_language": "English"}',
       '- Add "lead_name", "lead_business", "lead_email", "lead_address", "lead_requirement", "lead_budget", and/or "lead_timeline" to that same object, only on the turn you actually learn one of them, e.g. {"action": "answer", "reply": "...", "reply_language": "English", "lead_name": "Priya"}. Omit them entirely otherwise - do not repeat a value already known back every turn.',
       '- Add "payment_claimed": true on the one turn a customer states they have completed a payment (any payment, not just one you sent a link for). Omit it (or leave it false) every other turn, including later ones about the same payment - this is a one-time flag for the team to notice, not a running state.',
       '',
@@ -358,6 +364,22 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
         ...recentSends.map((s) => `- ${s.filename}, sent ${describeAgo(s.created_at)}`),
       );
     }
+    return lines.join('\n');
+  })();
+
+  const hostedGuidance = (() => {
+    if (hostedLinks.length === 0) return '';
+    const lines = ['', 'Hosted links you can send with your reply (external URLs the team has curated - demo reels, portfolios, hosted decks, sample galleries). Send one when a customer asks for exactly what it describes:'];
+    const linkTrim = trimToTokenBudget(
+      hostedLinks,
+      CATALOG_BUDGET_TOKENS,
+      (l) => `- [id ${l.id}] ${l.label}${l.description ? ` - ${l.description}` : ''}`,
+    );
+    lines.push(
+      ...linkTrim.lines,
+      '- Put the id in send_hosted_link_id only when the description above genuinely matches what the customer just asked for. Only ever name an id from this list, never type out or invent a URL yourself.',
+      '- Leave send_hosted_link_id null in every other case.',
+    );
     return lines.join('\n');
   })();
 
@@ -462,6 +484,7 @@ function instructions(config, faqText, catalog, media, paymentLinks, recentSends
     actionsSection,
     packRequestGuidance,
     mediaGuidance,
+    hostedGuidance,
     paymentGuidance,
     '',
     'Approved answers (use these for specific facts, prices, timelines, and policies):',

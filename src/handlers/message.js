@@ -16,6 +16,7 @@ import {
   getMediaAsset,
   wasMediaSentRecently,
   getPaymentLink,
+  getHostedLink,
   markInboundRead,
   isConversationBlocked,
   setConversationBlocked,
@@ -508,6 +509,9 @@ async function respondToLead(deps, conversationId, items) {
   if (sent && decision?.sendPaymentLinkId) {
     await maybeSendPaymentLink(deps, conversationId, to, decision.sendPaymentLinkId);
   }
+  if (sent && decision?.sendHostedLinkId) {
+    await maybeSendHostedLink(deps, conversationId, to, decision.sendHostedLinkId);
+  }
 
   if (sent && decision?.paymentClaimed) {
     await recordPaymentClaimed(pool, conversationId);
@@ -619,6 +623,28 @@ export async function maybeSendPaymentLink(deps, conversationId, to, paymentLink
     }
   } catch (err) {
     log.warn({ conversationId, paymentLinkId, err }, 'failed to send payment link');
+  }
+}
+
+// Sends the hosted link the model chose (a demo reel URL, a portfolio page,
+// a rolling gallery hosted elsewhere) as a short follow up to the reply.
+// Same plain-text-send shape as payment links: WhatsApp renders the URL as a
+// tappable preview on the lead's phone, no upload step.
+export async function maybeSendHostedLink(deps, conversationId, to, hostedLinkId) {
+  const { pool, meta, realtime, log } = deps;
+  try {
+    const link = await getHostedLink(pool, hostedLinkId);
+    if (!link) return;
+
+    const body = `${link.label}\n${link.url}`;
+    const { wamid, waId } = await meta.sendText(to, body);
+    if (wamid) {
+      await recordOutbound(pool, { conversationId, waMessageId: wamid, body });
+      await reconcileContactWaId(pool, conversationId, waId);
+      realtime?.emit({ type: 'refresh', conversationId });
+    }
+  } catch (err) {
+    log.warn({ conversationId, hostedLinkId, err }, 'failed to send hosted link');
   }
 }
 

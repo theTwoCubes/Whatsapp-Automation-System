@@ -1110,6 +1110,192 @@ function PaymentLinksPane({ topics }) {
   );
 }
 
+// One hosted link's form fields (external URLs the AI can share when a
+// customer asks for something too big for WhatsApp's media cap - demo reels,
+// portfolios, hosted galleries).
+function HostedLinkForm({ topics, value, onChange }) {
+  return (
+    <FormStack>
+      <div className="flex flex-col gap-1">
+        <label className="text-base font-medium text-gray-800">Service</label>
+        <select className="field-input" value={value.topicId} onChange={(e) => onChange({ ...value, topicId: e.target.value })}>
+          <option value="">Any service</option>
+          {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </div>
+      <InputField label="Label" placeholder="e.g. Logo design demo reel"
+        value={value.label} onChange={(e) => onChange({ ...value, label: e.target.value })} />
+      <InputField label="Link" placeholder="https://drive.google.com/…"
+        value={value.url} onChange={(e) => onChange({ ...value, url: e.target.value })} />
+      <InputField label="When the AI should send this" textarea
+        placeholder="Which request this link matches - e.g. a customer asking for our showreel"
+        value={value.description} onChange={(e) => onChange({ ...value, description: e.target.value })} />
+    </FormStack>
+  );
+}
+
+function emptyHostedLink(topicId = '') {
+  return { topicId: topicId ?? '', label: '', url: '', description: '' };
+}
+
+function HostedLinksPane({ topics }) {
+  const [topicId, setTopicId] = useState(null);
+  const [data, setData]       = useState(null);
+  const [form, setForm]       = useState(() => emptyHostedLink(topicId));
+  const [saving, setSaving]   = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm]   = useState(null);
+  const [deleteId, setDeleteId]   = useState(null);
+  const toast = useToast();
+
+  const reload = useCallback(() => { api.hostedLinks(topicId).then(setData).catch(() => {}); }, [topicId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  useEffect(() => { setForm(emptyHostedLink(topicId)); }, [topicId]);
+
+  const add = async () => {
+    if (!form.label.trim() || !form.url.trim()) { toast.error('Label and link are required'); return; }
+    setSaving(true);
+    try {
+      await api.addHostedLink({
+        topicId: form.topicId || null,
+        label: form.label.trim(),
+        url: form.url.trim(),
+        description: form.description.trim(),
+      });
+      setForm(emptyHostedLink(topicId));
+      toast.success('Hosted link added');
+      reload();
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.label.trim() || !editForm.url.trim()) { toast.error('Label and link are required'); return; }
+    try {
+      await api.updateHostedLink(editingId, {
+        label: editForm.label.trim(),
+        url: editForm.url.trim(),
+        description: editForm.description.trim(),
+        active: editForm.active,
+      });
+      setEditingId(null);
+      toast.success('Hosted link updated');
+      reload();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const remove = async () => {
+    try {
+      await api.deleteHostedLink(deleteId);
+      setDeleteId(null);
+      toast.success('Hosted link deleted');
+      reload();
+    } catch (e) {
+      setDeleteId(null);
+      toast.error('Delete failed: ' + e.message);
+    }
+  };
+
+  const rows = data?.hostedLinks || [];
+
+  return (
+    <div>
+      <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-lg overflow-x-auto flex-nowrap">
+        <button
+          onClick={() => setTopicId(null)}
+          className={`flex-shrink-0 whitespace-nowrap px-3 py-1 rounded-md text-sm font-medium transition-colors ${topicId === null ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          All
+        </button>
+        {topics.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTopicId(t.id)}
+            className={`flex-shrink-0 whitespace-nowrap px-3 py-1 rounded-md text-sm font-medium transition-colors ${String(topicId) === String(t.id) ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 items-start">
+        <Card className="min-w-0">
+          <CardHeader title="Add a hosted link" subtitle="For assets too big for WhatsApp's 100 MB upload cap - demo reels, portfolio pages, hosted galleries." />
+          <CardBody>
+            <HostedLinkForm topics={topics} value={form} onChange={setForm} />
+            <FormActions>
+              <Button variant="primary" size="sm" onClick={add} disabled={saving}>
+                {saving ? 'Adding…' : 'Add link'}
+              </Button>
+            </FormActions>
+          </CardBody>
+        </Card>
+
+        <div className="min-w-0">
+          {!data ? (
+            <Card><div className="p-5"><Skeleton height={14} width="60%" /></div></Card>
+          ) : rows.length === 0 ? (
+            <EmptyState message="No hosted links yet. Add one for anything that lives outside WhatsApp - a demo reel on Drive, a portfolio page, a YouTube link." />
+          ) : (
+            <Card className="min-h-[420px] max-h-[70vh] overflow-y-auto">
+              {rows.map((p) => (
+                <div key={p.id} className="px-4 py-3 border-b border-gray-100 last:border-0">
+                  {editingId === p.id ? (
+                    <div className="flex flex-col gap-3">
+                      <HostedLinkForm topics={topics} value={editForm} onChange={setEditForm} />
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={editForm.active}
+                          onChange={(e) => setEditForm({ ...editForm, active: e.target.checked })} />
+                        Active (the AI can offer this link)
+                      </label>
+                      <FormActions>
+                        <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button variant="primary" size="sm" onClick={saveEdit}>Save</Button>
+                      </FormActions>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-800 truncate">{p.label}</span>
+                          {!p.active && <Badge variant="warning">Inactive</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-400">{topics.find((t) => t.id === p.topic_id)?.name || 'Any service'}</span>
+                          {p.description && <span className="text-xs text-gray-400 truncate">{p.description}</span>}
+                        </div>
+                        <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-[var(--accent-text)] truncate block mt-0.5">{p.url}</a>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {deleteId === p.id ? (
+                          <span className="flex items-center gap-1 text-xs text-gray-500">
+                            Delete?
+                            <Button variant="danger" size="sm" onClick={remove}>Yes</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteId(null)}>No</Button>
+                          </span>
+                        ) : (
+                          <>
+                            <Button variant="secondary" size="sm" onClick={() => {
+                              setEditingId(p.id);
+                              setEditForm({ label: p.label, url: p.url, description: p.description ?? '', active: p.active });
+                            }}>Edit</Button>
+                            <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // A small dialog that appears over the page so the "+ New pack" click has an
 // immediate, visible response instead of expanding a form far below the fold.
 function AddPackModal({ onCancel, onCreate }) {
@@ -1219,6 +1405,7 @@ export default function Knowledge() {
         tabs={[
           { key: 'answers', label: 'Answers' },
           { key: 'media',   label: 'Files & Media' },
+          { key: 'hosted',  label: 'Hosted Links' },
           { key: 'payments', label: 'Payment Links' },
         ]}
         active={tab}
@@ -1284,6 +1471,8 @@ export default function Knowledge() {
       )}
 
       {tab === 'media' && <MediaPane topics={topics} />}
+
+      {tab === 'hosted' && <HostedLinksPane topics={topics} />}
 
       {tab === 'payments' && <PaymentLinksPane topics={topics} />}
 

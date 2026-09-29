@@ -1414,6 +1414,72 @@ export async function getPaymentLink(pool, id) {
   ).rows[0] ?? null;
 }
 
+// Hosted links: an admin-curated catalog of external URLs (Drive/S3/YouTube/
+// portfolio pages) the AI can share when a customer asks for something too
+// large for WhatsApp's 100 MB media cap, or too dynamic to upload as a file
+// (a rolling case-study page, a live gallery). Same picker shape as payment
+// links: model is shown the catalog, picks one by id, never invents a URL.
+export async function addHostedLink(pool, p) {
+  const r = await pool.query(
+    `insert into hosted_links (topic_id, label, url, description)
+     values ($1, $2, $3, $4)
+     returning id`,
+    [p.topicId ?? null, p.label, p.url, p.description ?? null],
+  );
+  return r.rows[0].id;
+}
+
+export async function updateHostedLink(pool, id, p) {
+  await pool.query(
+    `update hosted_links set
+       label = $2, url = $3, description = $4, active = $5, updated_at = now()
+     where id = $1`,
+    [id, p.label, p.url, p.description ?? null, p.active !== false],
+  );
+}
+
+export async function deleteHostedLink(pool, id) {
+  await pool.query('delete from hosted_links where id = $1', [id]);
+}
+
+export async function listHostedLinks(pool, { topicId = null } = {}) {
+  if (topicId) {
+    return (
+      await pool.query(
+        `select id, topic_id, label, url, description, active, created_at
+         from hosted_links where topic_id = $1 order by id desc`,
+        [topicId],
+      )
+    ).rows;
+  }
+  return (
+    await pool.query(
+      `select id, topic_id, label, url, description, active, created_at
+       from hosted_links order by topic_id nulls last, id desc`,
+    )
+  ).rows;
+}
+
+export async function getHostedLinkCatalog(pool, topicIds = []) {
+  const ids = topicIds.map(Number).filter((n) => Number.isFinite(n));
+  const res = await pool.query(
+    `select id, label, url, description, topic_id
+     from hosted_links
+     where active = true
+       and (topic_id is null or topic_id = any($1::bigint[]))
+     order by topic_id nulls last, id desc
+     limit 50`,
+    [ids],
+  );
+  return res.rows;
+}
+
+export async function getHostedLink(pool, id) {
+  return (
+    await pool.query('select id, label, url from hosted_links where id = $1', [id])
+  ).rows[0] ?? null;
+}
+
 // Records a factual, extraction-only note about an inbound image/PDF against
 // that exact message, so a human reading the thread and the AI's next turn
 // both have it without re-opening the file.

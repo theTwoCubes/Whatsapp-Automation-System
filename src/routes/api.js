@@ -63,6 +63,10 @@ import {
   listPaymentLinks,
   updatePaymentLink,
   deletePaymentLink,
+  addHostedLink,
+  listHostedLinks,
+  updateHostedLink,
+  deleteHostedLink,
   addAudit,
   listAudit,
   addConversationNote,
@@ -1548,6 +1552,51 @@ export function registerApi(app, deps) {
   app.delete('/api/payment-links/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
     await deletePaymentLink(pool, req.params.id);
     await audit(req, 'payment link removed', `link ${req.params.id}`);
+    return { ok: true };
+  });
+
+  // Hosted links. External URLs (Drive/S3/YouTube/portfolio pages) the AI can
+  // send when a customer asks for something too big for WhatsApp's 100 MB
+  // media cap, or too dynamic to freeze into a file. Same shape as payment
+  // links: catalog, description, picker, no url invention.
+  app.get('/api/hosted-links', { preHandler: auth }, async (req) => {
+    const topicId = req.query?.topicId ? Number(req.query.topicId) : null;
+    return { hostedLinks: await listHostedLinks(pool, { topicId }) };
+  });
+
+  app.post('/api/hosted-links', { preHandler: adminAuth }, async (req, reply) => {
+    const label = (req.body?.label ?? '').trim();
+    const url = (req.body?.url ?? '').trim();
+    if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
+    const id = await addHostedLink(pool, {
+      topicId: req.body?.topicId ? Number(req.body.topicId) : null,
+      label,
+      url,
+      description: (req.body?.description ?? '').trim() || null,
+    });
+    await audit(req, 'hosted link added', `link ${id}`, label);
+    return { id };
+  });
+
+  app.put('/api/hosted-links/:id', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
+    const label = (req.body?.label ?? '').trim();
+    const url = (req.body?.url ?? '').trim();
+    if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
+    if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
+    await updateHostedLink(pool, req.params.id, {
+      label,
+      url,
+      description: (req.body?.description ?? '').trim() || null,
+      active: req.body?.active !== false,
+    });
+    await audit(req, 'hosted link updated', `link ${req.params.id}`);
+    return { ok: true };
+  });
+
+  app.delete('/api/hosted-links/:id', { preHandler: adminAuth, schema: idParams }, async (req) => {
+    await deleteHostedLink(pool, req.params.id);
+    await audit(req, 'hosted link removed', `link ${req.params.id}`);
     return { ok: true };
   });
 

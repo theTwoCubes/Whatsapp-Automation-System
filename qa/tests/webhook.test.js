@@ -314,6 +314,31 @@ test('a send_payment_link_id with no matching link sends nothing extra, only the
   assert.equal(d.meta.sends.length, 1, 'no invented link gets sent');
 });
 
+test('the ai naming a hosted link sends it as a follow up text after the reply', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into hosted_links (label, url, description) values ('Logo design demo reel', 'https://drive.google.com/file/d/xyz/view', 'When a customer asks to see our showreel') returning id",
+    )
+  ).rows[0].id;
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sure, here it is.', send_hosted_link_id: Number(linkId) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.HL1', body: 'do you have a demo reel?' }), d);
+
+  assert.equal(d.meta.sends.length, 2, 'the reply and the hosted link both went out');
+  assert.equal(d.meta.sends[0].body, 'Sure, here it is.');
+  assert.match(d.meta.sends[1].body, /Logo design demo reel/);
+  assert.match(d.meta.sends[1].body, /https:\/\/drive\.google\.com\/file\/d\/xyz\/view/);
+});
+
+test('a send_hosted_link_id with no matching link sends nothing extra, only the reply', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Got it.', send_hosted_link_id: 999999 }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.HL2', body: 'ok' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'no invented link gets sent');
+});
+
 test('a send_media_id with no matching asset sends nothing extra, only the reply', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Monday to Saturday.', send_media_id: 999999 }));
   const d = deps({ ai });
