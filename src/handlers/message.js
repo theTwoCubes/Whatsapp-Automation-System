@@ -28,6 +28,7 @@ import {
   recordPaymentClaimed,
   markConversationAsPeerBot,
   recentOutboundStats,
+  isLeadQualifiedEnough,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
@@ -459,6 +460,31 @@ async function respondToLead(deps, conversationId, items) {
   if (decision?.handoff) {
     const reason = decision.reason || 'The ai judged this needs a person';
     const reasonCategory = categorizeHandoffReason(reason);
+
+    // Qualification gate: even when the prompt tells the AI to collect first,
+    // a stubborn model can still fire a handoff on the "customer asked for a
+    // human" trap. Complaint handoffs bypass this (a real issue does not
+    // wait), and an AI-outage synthetic handoff also bypasses (the model was
+    // not the one deciding). Everything else is downgraded: the reply goes
+    // out as a normal answer, the conversation stays with the bot, and the
+    // AI gets another turn to actually collect the details.
+    const canBypassGate = !aiSucceeded || reasonCategory === 'complaint';
+    if (!canBypassGate && !(await isLeadQualifiedEnough(pool, conversationId))) {
+      log.info(
+        { conversationId, reason, reasonCategory },
+        'ai wanted to hand off but lead is not qualified yet, downgrading to answer',
+      );
+      const holding = decision.reply && decision.reply.trim()
+        ? decision.reply.trim()
+        : "Sure, the team will personally reach out to you next.\n\nJust so I can pass this on properly, could you tell me your name and a bit about what this is for?";
+      const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
+      if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
+        const dripSteps = await resolveDripSteps(pool, settings, packs);
+        await scheduleDrips(pool, conversationId, dripSteps);
+      }
+      return;
+    }
+
     await handToPending(pool, conversationId, reason);
     await recordHandoff(pool, { conversationId, source: 'ai', reason, reasonCategory, topicId });
     await cancelDrips(pool, conversationId);

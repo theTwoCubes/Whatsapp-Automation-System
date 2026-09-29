@@ -48,15 +48,15 @@ async function tokenFor(app) {
 }
 
 async function pendingConversation(from) {
-  const ai = new FakeAi(JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' }));
-  await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), {
-    meta: new FakeMeta(),
-    ai,
-    pool,
-    config: testConfig,
-    log: silentLog,
-  });
   const waId = from || '918766226219';
+  // First inbound lands the contact; then we pre-qualify (server-side gate
+  // requires it) and fire the handoff-triggering message.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
+  const shared = { meta: new FakeMeta(), ai, pool, config: testConfig, log: silentLog };
+  await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'hi' }), shared);
+  await pool.query("update contacts set business = 'ACME Studio' where wa_id = $1", [waId]);
+  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
+  await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), shared);
   return (
     await pool.query(
       `select c.id from conversations c join contacts ct on ct.id = c.contact_id where ct.wa_id = $1`,
@@ -78,16 +78,16 @@ test('an attachment alone does not queue a pending handoff', async () => {
 });
 
 test('the ai can still hand off after an attachment, once it judges the lead is qualified', async () => {
-  const ai = new FakeAi(JSON.stringify({
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'thanks for the image' }));
+  const shared = { meta: new FakeMeta(), ai, pool, config: testConfig, log: silentLog };
+  // Land the contact and pre-qualify so the server-side handoff gate lets
+  // the escalation clear.
+  await processWebhook(inboundText({ id: 'wamid.att2a', body: 'hi' }), shared);
+  await pool.query("update contacts set business = 'ACME Studio'");
+  ai.reply = JSON.stringify({
     action: 'handoff', reply: 'Connecting you now.', reason: 'qualified: paid the analysis fee for a logo review',
-  }));
-  await processWebhook(inboundImage({ id: 'wamid.att2' }), {
-    meta: new FakeMeta(),
-    ai,
-    pool,
-    config: testConfig,
-    log: silentLog,
   });
+  await processWebhook(inboundImage({ id: 'wamid.att2' }), shared);
   const row = (await pool.query('select state, handoff_reason from conversations limit 1')).rows[0];
   assert.equal(row.state, 'pending');
   assert.match(row.handoff_reason, /qualified/i);

@@ -760,6 +760,29 @@ export async function markConversationAsPeerBot(pool, conversationId, reason) {
 // the contact have any identifying details captured. If we have sent a lot
 // and know nothing about who we are talking to, the far side is very likely
 // a bot even if the AI itself has not flagged it yet.
+// Minimum bar for an AI-initiated handoff. A qualified lead has at least
+// their name AND either a business/email/address OR a real requirement/budget/
+// timeline in lead_details. Complaint-driven handoffs bypass this check
+// upstream - the point of the floor is to stop the AI escalating strangers
+// with no context, not to block a genuine issue.
+export async function isLeadQualifiedEnough(pool, conversationId) {
+  const res = await pool.query(
+    `select
+       ct.name,
+       (ct.business is not null or ct.email is not null or ct.address is not null) as has_org_field,
+       ((ct.lead_details ? 'requirement') or (ct.lead_details ? 'budget') or (ct.lead_details ? 'timeline')) as has_intent_field
+     from contacts ct
+     join conversations c on c.contact_id = ct.id
+     where c.id = $1`,
+    [conversationId],
+  );
+  const row = res.rows[0];
+  if (!row) return false;
+  const hasName = Boolean(row.name && row.name.trim());
+  const hasContext = Boolean(row.has_org_field || row.has_intent_field);
+  return hasName && hasContext;
+}
+
 export async function recentOutboundStats(pool, conversationId, minutes = 15) {
   const res = await pool.query(
     `select

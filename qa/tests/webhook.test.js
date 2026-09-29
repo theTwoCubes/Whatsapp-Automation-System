@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { processWebhook } from '../../src/handlers/message.js';
 import { handToHuman, handToBot } from '../../src/handoff.js';
+import { catchUpAfterHandback } from '../../src/scheduler.js';
 import { inboundText, inboundImage, inboundReaction, inboundButtonReply, inboundInteractiveReply, inboundLocation, statusUpdate, adReferral } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
@@ -84,12 +85,15 @@ test('asking for a human queues the conversation and stops the bot', async () =>
     JSON.stringify({ action: 'handoff', reply: 'Let me connect you with someone.', reason: 'customer asked for a person' }),
   );
   const d = deps({ ai });
+  // Pre-qualify so the server-side handoff gate lets the escalation through.
+  await processWebhook(inboundText({ id: 'wamid.H1a', body: 'hi' }), d);
+  await pool.query("update contacts set business = 'ACME Studio'");
   await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
 
   const conv = await pool.query('select state, handoff_reason from conversations limit 1');
   assert.equal(conv.rows[0].state, 'pending');
   assert.ok(conv.rows[0].handoff_reason, 'a reason is recorded for the agent');
-  assert.equal(d.meta.sends[0].body, 'Let me connect you with someone.');
+  assert.equal(d.meta.sends[1].body, 'Let me connect you with someone.');
 });
 
 test('a hard opt-out phrase is honoured immediately, without ever calling the ai', async () => {
@@ -134,10 +138,54 @@ test('once a handoff is pending the bot stays quiet', async () => {
   );
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.H2', body: 'talk to a person' }), d);
+  // Seed enough on the contact that the server-side qualification gate lets
+  // the handoff go through; without this the gate downgrades to answer, and
+  // the point of THIS test is the post-handoff-quiet behavior.
+  await pool.query("update contacts set business = 'ACME Studio'");
+  await processWebhook(inboundText({ id: 'wamid.H2b', body: 'yes, please connect me' }), d);
   const sendsAfterHandoff = d.meta.sends.length;
 
   await processWebhook(inboundText({ id: 'wamid.H3', body: 'are you there' }), d);
   assert.equal(d.meta.sends.length, sendsAfterHandoff, 'no new bot reply while pending on a human');
+});
+
+test('after handback the bot catches up on an inbound the human left unanswered', async () => {
+  // Turn 1: lead sends first message, AI answers.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Hi, how can I help?' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.CU1', body: 'hi there' }), d);
+  const conversationId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+
+  // Human takes over, lead follows up, human ignores, then hands back.
+  await handToHuman(pool, conversationId, 'a@b.com');
+  await processWebhook(inboundText({ id: 'wamid.CU2', body: 'and what about the timeline?' }), d);
+  const sendsBeforeHandback = d.meta.sends.length;
+
+  await handToBot(pool, conversationId);
+  ai.reply = JSON.stringify({ action: 'answer', reply: 'Timelines depend on the service - which one were you looking at?' });
+  const caughtUp = await catchUpAfterHandback(d, conversationId);
+  assert.equal(caughtUp, true, 'catch-up should run when the last message is an inbound');
+  assert.equal(d.meta.sends.length, sendsBeforeHandback + 1, 'the bot picked up the pending inbound');
+  assert.match(d.meta.sends[d.meta.sends.length - 1].body, /Timelines depend on the service/);
+});
+
+test('handback catch-up does nothing when the human already replied before handing back', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Hi.' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.CU3', body: 'hi' }), d);
+  const conversationId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+
+  await handToHuman(pool, conversationId, 'a@b.com');
+  // Human replies manually - the last message is now outbound.
+  await pool.query(
+    "insert into messages (conversation_id, direction, type, body, wa_message_id) values ($1, 'outbound', 'text', 'agent reply', 'wamid.OUTX')",
+    [conversationId],
+  );
+  await handToBot(pool, conversationId);
+  const sendsBefore = d.meta.sends.length;
+  const caughtUp = await catchUpAfterHandback(d, conversationId);
+  assert.equal(caughtUp, false, 'nothing to catch up on when the human already replied');
+  assert.equal(d.meta.sends.length, sendsBefore, 'no extra outbound send');
 });
 
 test('a human-owned conversation (including one an agent just rejected) stays quiet until handed back', async () => {
@@ -165,17 +213,48 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
   assert.equal(d.meta.sends[0].body, testConfig.fallbackMessage);
 });
 
+test('an unqualified ai handoff is downgraded to answer instead of escalating a stranger', async () => {
+  // The AI wants to hand off, but the contact has no business/requirement
+  // beyond the fixture-default name. The server-side qualification gate
+  // should downgrade this to an answer, keep the state at bot, and let the
+  // AI keep collecting on the next turn.
+  const ai = new FakeAi(
+    JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you.', reason: 'customer asked for a person' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.GATE1', body: 'talk to a human please' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'unqualified handoff stays with the bot, not queued for a person');
+  assert.equal(d.meta.sends.length, 1, 'the holding message still went out');
+});
+
+test('a complaint handoff bypasses the qualification gate', async () => {
+  const ai = new FakeAi(
+    JSON.stringify({ action: 'handoff', reply: 'I am so sorry, someone will be with you shortly.', reason: 'complaint about undelivered file' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.COMPL1', body: 'the file you sent is broken, this is a problem' }), d);
+
+  const conv = await pool.query('select state, handoff_reason from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'pending', 'complaint escalates even without full lead details');
+  assert.match(conv.rows[0].handoff_reason, /complaint/);
+});
+
 test('the ai can decide on its own to hand a chat to a human', async () => {
   const ai = new FakeAi(
     JSON.stringify({ action: 'handoff', reply: 'Let me get a colleague to help with that.', reason: 'price negotiation' }),
   );
   const d = deps({ ai });
+  // Land the contact first, then pre-qualify so the handoff clears the gate.
+  await processWebhook(inboundText({ id: 'wamid.AI0', body: 'hi there' }), d);
+  await pool.query("update contacts set business = 'ACME Studio'");
   await processWebhook(inboundText({ id: 'wamid.AI1', body: 'can you do 2000 instead of 5000?' }), d);
 
   const conv = await pool.query('select state, handoff_reason from conversations limit 1');
   assert.equal(conv.rows[0].state, 'pending', 'ai handoff queues the conversation');
   assert.equal(conv.rows[0].handoff_reason, 'price negotiation');
-  assert.equal(d.meta.sends[0].body, 'Let me get a colleague to help with that.');
+  assert.equal(d.meta.sends[1].body, 'Let me get a colleague to help with that.');
 });
 
 test('the reply is cleaned of ai style formatting before sending', async () => {

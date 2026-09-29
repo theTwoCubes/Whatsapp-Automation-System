@@ -177,108 +177,155 @@ export async function runAutoResume(deps) {
       await handToBot(pool, row.id);
       realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
       log.info({ conversationId: row.id }, 'auto resumed conversation to the bot');
-
-      let decision;
-      try {
-        // Reuse whatever packs the conversation already had, plus the
-        // campaign's own if any. Auto resume has no new message to run
-        // keyword matching against, so this is what the last live turn had.
-        const sticky = await getActivePackIds(pool, row.id);
-        const packs = ['base'];
-        if (row.topic_id) packs.push(Number(row.topic_id));
-        for (const id of sticky) if (!packs.includes(id)) packs.push(id);
-        decision = await buildReply(pool, ai, settings, row.id, {
-          packs,
-          faqBudgetTokens: config.faqBudgetTokens,
-          allowPackRequests: false,
-        });
-      } catch {
-        // fall back below
-      }
-
-      if (decision?.replyLanguage) {
-        await setReplyLanguage(pool, row.id, decision.replyLanguage);
-      }
-      if (decision) {
-        await markIntroduced(pool, row.id);
-      }
-      if (decision?.leadProfile) {
-        await setLeadProfile(pool, row.id, decision.leadProfile);
-      }
-
-      // Mirrors respondToLead in handlers/message.js - the model's decision
-      // here carries exactly the same handoff/block/reaction meaning as it
-      // does on a live message, so it needs the same handling, not just the
-      // plain-text path this used to fall through to unconditionally.
-      if (decision?.handoff) {
-        const reason = decision.reason || 'The ai judged this needs a person';
-        const reasonCategory = categorizeHandoffReason(reason);
-        await handToPending(pool, row.id, reason);
-        await recordHandoff(pool, { conversationId: row.id, source: 'ai', reason, reasonCategory, topicId: row.topic_id ?? null });
-        await cancelDrips(pool, row.id);
-        log.info({ conversationId: row.id, reason, reasonCategory }, 'auto resume: ai queued conversation for a human');
-        const { wamid, waId } = await meta.sendText(row.wa_id, decision.reply || settings.handoffMessage);
-        if (wamid) {
-          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: decision.reply || settings.handoffMessage });
-          await reconcileContactWaId(pool, row.id, waId);
-        }
-        await pushHandoff(pool, row.id, reason, log);
-        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
-        continue;
-      }
-
-      if (decision?.block) {
-        const reply = decision.reply || 'This conversation has been closed.';
-        const { wamid, waId } = await meta.sendText(row.wa_id, reply);
-        if (wamid) {
-          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
-          await reconcileContactWaId(pool, row.id, waId);
-        }
-        await setConversationBlocked(pool, row.id, true);
-        await cancelDrips(pool, row.id);
-        log.info({ conversationId: row.id, reason: decision.reason }, 'auto resume: ai blocked conversation');
-        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
-        continue;
-      }
-
-      if (decision?.optOut) {
-        const reply = decision.reply || settings.optOutMessage;
-        const { wamid, waId } = await meta.sendText(row.wa_id, reply);
-        if (wamid) {
-          await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
-          await reconcileContactWaId(pool, row.id, waId);
-        }
-        await optOutContact(pool, row.id);
-        log.info({ conversationId: row.id }, 'auto resume: ai honoured an opt-out request');
-        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
-        continue;
-      }
-
-      if (decision?.reactEmoji && row.last_inbound_wamid) {
-        await maybeSendReaction(deps, row.id, row.wa_id, row.last_inbound_wamid, decision.reactEmoji);
-      }
-
-      // A reaction alone was a complete response - nothing left to send.
-      if (!decision?.reply && decision?.reactEmoji) continue;
-
-      const reply = decision?.reply || settings.fallbackMessage;
-      const { wamid, waId } = await meta.sendText(row.wa_id, reply);
-      if (wamid) {
-        await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
-        await reconcileContactWaId(pool, row.id, waId);
-        if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
-        if (decision?.sendPaymentLinkId) await maybeSendPaymentLink(deps, row.id, row.wa_id, decision.sendPaymentLinkId);
-        if (decision?.paymentClaimed) {
-          await recordPaymentClaimed(pool, row.id);
-          await pushHandoff(pool, row.id, 'Says they have completed a payment.', log, { kind: 'payment_claimed' });
-        }
-        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
-      }
+      await processResumeReplyForRow(deps, settings, row, 'auto resume');
     } catch (err) {
       log.error({ conversationId: row.id, err }, 'auto resume failed');
     }
   }
   return rows.length;
+}
+
+// Runs one buildReply pass for a conversation whose last message is an
+// inbound the bot never got to answer, then dispatches on the model's decision
+// with the same handoff/block/opt-out/reaction handling respondToLead uses
+// live. Extracted from the runAutoResume loop so the manual "Resume bot"
+// endpoint can also catch up on a pending inbound the human left unanswered.
+async function processResumeReplyForRow(deps, settings, row, context) {
+  const { pool, meta, ai, config, realtime, log } = deps;
+
+  let decision;
+  try {
+    // Reuse whatever packs the conversation already had, plus the campaign's
+    // own if any. Resume has no new message text to run keyword matching
+    // against, so this is what the last live turn had.
+    const sticky = await getActivePackIds(pool, row.id);
+    const packs = ['base'];
+    if (row.topic_id) packs.push(Number(row.topic_id));
+    for (const id of sticky) if (!packs.includes(id)) packs.push(id);
+    decision = await buildReply(pool, ai, settings, row.id, {
+      packs,
+      faqBudgetTokens: config.faqBudgetTokens,
+      allowPackRequests: false,
+    });
+  } catch {
+    // fall back below
+  }
+
+  if (decision?.replyLanguage) {
+    await setReplyLanguage(pool, row.id, decision.replyLanguage);
+  }
+  if (decision) {
+    await markIntroduced(pool, row.id);
+  }
+  if (decision?.leadProfile) {
+    await setLeadProfile(pool, row.id, decision.leadProfile);
+  }
+
+  // Mirrors respondToLead in handlers/message.js - the model's decision here
+  // carries exactly the same handoff/block/reaction meaning as it does on a
+  // live message.
+  if (decision?.handoff) {
+    const reason = decision.reason || 'The ai judged this needs a person';
+    const reasonCategory = categorizeHandoffReason(reason);
+    await handToPending(pool, row.id, reason);
+    await recordHandoff(pool, { conversationId: row.id, source: 'ai', reason, reasonCategory, topicId: row.topic_id ?? null });
+    await cancelDrips(pool, row.id);
+    log.info({ conversationId: row.id, reason, reasonCategory }, `${context}: ai queued conversation for a human`);
+    const { wamid, waId } = await meta.sendText(row.wa_id, decision.reply || settings.handoffMessage);
+    if (wamid) {
+      await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: decision.reply || settings.handoffMessage });
+      await reconcileContactWaId(pool, row.id, waId);
+    }
+    await pushHandoff(pool, row.id, reason, log);
+    realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+    return;
+  }
+
+  if (decision?.block) {
+    const reply = decision.reply || 'This conversation has been closed.';
+    const { wamid, waId } = await meta.sendText(row.wa_id, reply);
+    if (wamid) {
+      await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+      await reconcileContactWaId(pool, row.id, waId);
+    }
+    await setConversationBlocked(pool, row.id, true);
+    await cancelDrips(pool, row.id);
+    log.info({ conversationId: row.id, reason: decision.reason }, `${context}: ai blocked conversation`);
+    realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+    return;
+  }
+
+  if (decision?.optOut) {
+    const reply = decision.reply || settings.optOutMessage;
+    const { wamid, waId } = await meta.sendText(row.wa_id, reply);
+    if (wamid) {
+      await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+      await reconcileContactWaId(pool, row.id, waId);
+    }
+    await optOutContact(pool, row.id);
+    log.info({ conversationId: row.id }, `${context}: ai honoured an opt-out request`);
+    realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+    return;
+  }
+
+  if (decision?.reactEmoji && row.last_inbound_wamid) {
+    await maybeSendReaction(deps, row.id, row.wa_id, row.last_inbound_wamid, decision.reactEmoji);
+  }
+
+  if (!decision?.reply && decision?.reactEmoji) return;
+
+  const reply = decision?.reply || settings.fallbackMessage;
+  const { wamid, waId } = await meta.sendText(row.wa_id, reply);
+  if (wamid) {
+    await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: reply });
+    await reconcileContactWaId(pool, row.id, waId);
+    if (decision?.sendMediaId) await maybeSendMedia(deps, row.id, row.wa_id, decision.sendMediaId);
+    if (decision?.sendPaymentLinkId) await maybeSendPaymentLink(deps, row.id, row.wa_id, decision.sendPaymentLinkId);
+    if (decision?.paymentClaimed) {
+      await recordPaymentClaimed(pool, row.id);
+      await pushHandoff(pool, row.id, 'Says they have completed a payment.', log, { kind: 'payment_claimed' });
+    }
+    realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+  }
+}
+
+// Manual "Resume bot" catch-up. Called after the admin flips a conversation
+// back to the bot via /handback. If the last message on the thread is an
+// inbound the human never replied to, the bot picks it up and answers now
+// instead of waiting for the customer to nudge again. If the last message
+// was outbound (the human did reply before handing back), nothing to catch
+// up on and this returns without an extra send.
+export async function catchUpAfterHandback(deps, conversationId) {
+  const { pool, log } = deps;
+  const settings = await getSettings(pool, deps.config);
+
+  const res = await pool.query(
+    `select c.id, ct.wa_id, ca.topic_id,
+       (select m.wa_message_id from messages m
+        where m.conversation_id = c.id and m.direction = 'inbound'
+        order by m.created_at desc, m.id desc
+        limit 1) as last_inbound_wamid,
+       (select direction from messages m
+        where m.conversation_id = c.id
+        order by m.created_at desc, m.id desc
+        limit 1) as last_direction
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     where c.id = $1 and c.state = 'bot'`,
+    [conversationId],
+  );
+  const row = res.rows[0];
+  if (!row) return false;
+  if (row.last_direction !== 'inbound') return false;
+
+  try {
+    await processResumeReplyForRow(deps, settings, row, 'manual handback');
+    return true;
+  } catch (err) {
+    log?.error({ conversationId, err }, 'manual handback catch-up failed');
+    return false;
+  }
 }
 
 // Runs the weekly refinement pass once the configured interval has elapsed

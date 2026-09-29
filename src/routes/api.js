@@ -26,6 +26,7 @@ import {
   bulkUpdateFaqs,
 } from '../knowledge/faqs.js';
 import { simulateReply } from '../knowledge/simulator.js';
+import { catchUpAfterHandback } from '../scheduler.js';
 import { getSettings } from '../settings.js';
 import { saveSubscription, removeSubscription, getVapidPublicKey, getPushStatus, sendTestPush } from '../push.js';
 import {
@@ -823,6 +824,15 @@ export function registerApi(app, deps) {
     await handToBot(pool, req.params.id);
     await audit(req, 'handback', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
+
+    // If the last message on this thread is an inbound the human never
+    // replied to, the bot picks it up now instead of waiting for the
+    // customer to nudge again. Runs in the background so the HTTP response
+    // returns immediately - the reply lands via the realtime channel.
+    catchUpAfterHandback(deps, Number(req.params.id)).catch((err) => {
+      app.log?.warn({ conversationId: req.params.id, err }, 'handback catch-up failed');
+    });
+
     return { ok: true };
   });
 
