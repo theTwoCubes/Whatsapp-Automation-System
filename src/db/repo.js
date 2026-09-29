@@ -1362,9 +1362,9 @@ export async function addPaymentLink(pool, p) {
 export async function updatePaymentLink(pool, id, p) {
   await pool.query(
     `update payment_links set
-       label = $2, amount_inr = $3, url = $4, description = $5, active = $6, updated_at = now()
+       topic_id = $2, label = $3, amount_inr = $4, url = $5, description = $6, active = $7, updated_at = now()
      where id = $1`,
-    [id, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.active !== false],
+    [id, p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.active !== false],
   );
 }
 
@@ -1432,9 +1432,9 @@ export async function addHostedLink(pool, p) {
 export async function updateHostedLink(pool, id, p) {
   await pool.query(
     `update hosted_links set
-       label = $2, url = $3, description = $4, active = $5, updated_at = now()
+       topic_id = $2, label = $3, url = $4, description = $5, active = $6, updated_at = now()
      where id = $1`,
-    [id, p.label, p.url, p.description ?? null, p.active !== false],
+    [id, p.topicId ?? null, p.label, p.url, p.description ?? null, p.active !== false],
   );
 }
 

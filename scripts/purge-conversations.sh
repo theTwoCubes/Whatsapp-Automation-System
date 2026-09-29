@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Wipes every lead/chat/conversation trace from the database.
 # Keeps: knowledge (topics, faqs, faq_versions), media library, payment links,
-# agents, settings, templates, brand, tags catalog, campaigns, audit log.
+# hosted links, agents, settings, templates, brand, tags catalog, campaigns,
+# audit log.
 # Deletes: conversations, messages, contacts, drip jobs, handoff events,
 # notifications, dead-letter, faq proposals, notes, conversation tags,
 # bulk-send jobs. Resets learning cursors.
@@ -42,7 +43,7 @@ echo "Current row counts (before):"
 echo
 echo "This will permanently delete every conversation, message, lead, drip,"
 echo "handoff, notification, note, tag assignment, and dead-letter row."
-echo "Knowledge, media, payment links, agents, settings, and the audit log"
+echo "Knowledge, media, payment links, hosted links, agents, settings, and the audit log"
 echo "will be kept intact."
 echo
 read -r -p 'Type PURGE to proceed: ' confirm

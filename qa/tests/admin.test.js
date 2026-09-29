@@ -409,7 +409,7 @@ test('payment links can be created, listed by topic, updated, and deleted', asyn
 
   const update = await app.inject({
     method: 'PUT', url: `/api/payment-links/${id}`, headers: auth(t),
-    payload: { label: 'Logo analysis fee (updated)', url: 'https://rzp.io/l/abc', active: false },
+    payload: { topicId: topic.id, label: 'Logo analysis fee (updated)', url: 'https://rzp.io/l/abc', active: false },
   });
   assert.equal(update.statusCode, 200);
   const afterUpdate = await app.inject({ method: 'GET', url: `/api/payment-links?topicId=${topic.id}`, headers: auth(t) });
@@ -437,6 +437,61 @@ test('a payment link must be a real http or https url', async () => {
   const res = await app.inject({
     method: 'POST', url: '/api/payment-links', headers: auth(t),
     payload: { label: 'Deposit', url: 'javascript:alert(1)' },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('hosted links can be created, listed by topic, updated, and deleted', async () => {
+  const topic = await upsertTopic(pool, { slug: 'logo_design_hl', name: 'Logo Design HL' });
+  const other = await upsertTopic(pool, { slug: 'brand_identity_hl', name: 'Brand Identity HL' });
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  const create = await app.inject({
+    method: 'POST', url: '/api/hosted-links', headers: auth(t),
+    payload: { topicId: topic.id, label: 'Demo reel', url: 'https://drive.google.com/file/d/xyz/view', description: 'When they ask for our showreel' },
+  });
+  assert.equal(create.statusCode, 200);
+  const id = create.json().id;
+
+  const scoped = await app.inject({ method: 'GET', url: `/api/hosted-links?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(scoped.json().hostedLinks.length, 1);
+  assert.equal(scoped.json().hostedLinks[0].label, 'Demo reel');
+
+  // Editing moves the link to a different service and updates active state.
+  const update = await app.inject({
+    method: 'PUT', url: `/api/hosted-links/${id}`, headers: auth(t),
+    payload: { topicId: other.id, label: 'Demo reel (updated)', url: 'https://drive.google.com/file/d/xyz/view', active: false },
+  });
+  assert.equal(update.statusCode, 200);
+  const afterUpdate = await app.inject({ method: 'GET', url: `/api/hosted-links?topicId=${other.id}`, headers: auth(t) });
+  assert.equal(afterUpdate.json().hostedLinks[0].label, 'Demo reel (updated)');
+  assert.equal(afterUpdate.json().hostedLinks[0].active, false);
+  const originalTopic = await app.inject({ method: 'GET', url: `/api/hosted-links?topicId=${topic.id}`, headers: auth(t) });
+  assert.equal(originalTopic.json().hostedLinks.length, 0, 'the link moved off the original topic');
+
+  const del = await app.inject({ method: 'DELETE', url: `/api/hosted-links/${id}`, headers: auth(t) });
+  assert.equal(del.statusCode, 200);
+  const afterDelete = await app.inject({ method: 'GET', url: `/api/hosted-links?topicId=${other.id}`, headers: auth(t) });
+  assert.equal(afterDelete.json().hostedLinks.length, 0);
+  await app.close();
+});
+
+test('a hosted link needs a label and a url', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({ method: 'POST', url: '/api/hosted-links', headers: auth(t), payload: { label: 'Demo reel' } });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
+test('a hosted link must be a real http or https url', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  const res = await app.inject({
+    method: 'POST', url: '/api/hosted-links', headers: auth(t),
+    payload: { label: 'Demo reel', url: 'javascript:alert(1)' },
   });
   assert.equal(res.statusCode, 400);
   await app.close();

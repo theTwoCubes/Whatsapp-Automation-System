@@ -1539,6 +1539,7 @@ export function registerApi(app, deps) {
     if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
     if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
     await updatePaymentLink(pool, req.params.id, {
+      topicId: req.body?.topicId ? Number(req.body.topicId) : null,
       label,
       amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,
       url,
@@ -1585,6 +1586,7 @@ export function registerApi(app, deps) {
     if (!label || !url) return reply.code(400).send({ error: 'label and url are required' });
     if (!isHttpUrl(url)) return reply.code(400).send({ error: 'the link must be a valid http or https url' });
     await updateHostedLink(pool, req.params.id, {
+      topicId: req.body?.topicId ? Number(req.body.topicId) : null,
       label,
       url,
       description: (req.body?.description ?? '').trim() || null,

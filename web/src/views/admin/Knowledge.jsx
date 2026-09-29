@@ -986,6 +986,7 @@ function PaymentLinksPane({ topics }) {
     if (!editForm.label.trim() || !editForm.url.trim()) { toast.error('Label and link are required'); return; }
     try {
       await api.updatePaymentLink(editingId, {
+        topicId: editForm.topicId || null,
         label: editForm.label.trim(),
         amountInr: editForm.amountInr || null,
         url: editForm.url.trim(),
@@ -1092,7 +1093,7 @@ function PaymentLinksPane({ topics }) {
                           <>
                             <Button variant="secondary" size="sm" onClick={() => {
                               setEditingId(p.id);
-                              setEditForm({ label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', active: p.active });
+                              setEditForm({ topicId: p.topic_id ?? '', label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', active: p.active });
                             }}>Edit</Button>
                             <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
                           </>
@@ -1174,6 +1175,7 @@ function HostedLinksPane({ topics }) {
     if (!editForm.label.trim() || !editForm.url.trim()) { toast.error('Label and link are required'); return; }
     try {
       await api.updateHostedLink(editingId, {
+        topicId: editForm.topicId || null,
         label: editForm.label.trim(),
         url: editForm.url.trim(),
         description: editForm.description.trim(),
@@ -1278,7 +1280,7 @@ function HostedLinksPane({ topics }) {
                           <>
                             <Button variant="secondary" size="sm" onClick={() => {
                               setEditingId(p.id);
-                              setEditForm({ label: p.label, url: p.url, description: p.description ?? '', active: p.active });
+                              setEditForm({ topicId: p.topic_id ?? '', label: p.label, url: p.url, description: p.description ?? '', active: p.active });
                             }}>Edit</Button>
                             <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
                           </>

@@ -1,6 +1,7 @@
 import { buildFaqContext } from './context.js';
 import { keywordPacks, packCatalog } from './packs.js';
 import { buildReply } from '../ai/reply.js';
+import { getMediaCatalog, getPaymentLinkCatalog, getHostedLinkCatalog } from '../db/repo.js';
 
 // Dry runs the reply pipeline against a hypothetical message without touching
 // the conversation or sending anything. Returns exactly what the model would
@@ -27,15 +28,25 @@ export async function simulateReply(pool, ai, config, settings, { text, topicId 
   }
 
   const topicIds = packs.filter((p) => p !== 'base');
-  const [faqs, catalog] = await Promise.all([
+  const [faqs, catalog, media, paymentLinks, hostedLinks] = await Promise.all([
     buildFaqContext(pool, { packs, budgetTokens: config.faqBudgetTokens }),
     packCatalog(pool, topicIds),
+    getMediaCatalog(pool, topicIds),
+    getPaymentLinkCatalog(pool, topicIds),
+    getHostedLinkCatalog(pool, topicIds),
   ]);
 
+  // Exposing the media / payment / hosted-link catalogs on the trace is what
+  // lets a client debug "why didn't the AI send that video I uploaded?" -
+  // without this they can only see the FAQ context and would have to guess
+  // whether the file was scoped to the wrong pack or missing altogether.
   const trace = {
     packsIncluded: faqs.packs,
     keywordMatches: keywordHits,
     catalog: catalog.map((c) => ({ id: c.id, name: c.name, description: c.description })),
+    media: media.map((m) => ({ id: m.id, filename: m.filename, description: m.description, topic_id: m.topic_id })),
+    paymentLinks: paymentLinks.map((p) => ({ id: p.id, label: p.label, amount_inr: p.amount_inr, description: p.description, topic_id: p.topic_id })),
+    hostedLinks: hostedLinks.map((h) => ({ id: h.id, label: h.label, description: h.description, topic_id: h.topic_id })),
     faqCount: faqs.faqCount,
     contextTokens: faqs.tokens,
     droppedForBudget: faqs.dropped,
