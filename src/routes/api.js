@@ -827,13 +827,19 @@ export function registerApi(app, deps) {
 
     // If the last message on this thread is an inbound the human never
     // replied to, the bot picks it up now instead of waiting for the
-    // customer to nudge again. Runs in the background so the HTTP response
-    // returns immediately - the reply lands via the realtime channel.
-    catchUpAfterHandback(deps, Number(req.params.id)).catch((err) => {
+    // customer to nudge again. Awaited (not fire-and-forget) so the
+    // admin's "Resume bot" click gets a response only after the reply has
+    // actually landed - a torn-down process mid-hold cannot silently drop
+    // the pending inbound, and errors surface as a warning log rather than
+    // being lost to an unhandled rejection.
+    let caughtUp = false;
+    try {
+      caughtUp = await catchUpAfterHandback(deps, Number(req.params.id));
+    } catch (err) {
       app.log?.warn({ conversationId: req.params.id, err }, 'handback catch-up failed');
-    });
+    }
 
-    return { ok: true };
+    return { ok: true, caughtUp };
   });
 
   // Accepting or rejecting a pending handoff. Either way the agent who acted

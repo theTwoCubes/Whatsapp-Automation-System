@@ -216,8 +216,9 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
 test('an unqualified ai handoff is downgraded to answer instead of escalating a stranger', async () => {
   // The AI wants to hand off, but the contact has no business/requirement
   // beyond the fixture-default name. The server-side qualification gate
-  // should downgrade this to an answer, keep the state at bot, and let the
-  // AI keep collecting on the next turn.
+  // should downgrade this to an answer, keep the state at bot, use the
+  // AI's own reply (which is in the customer's language), and still
+  // schedule drips so the lead is not dropped.
   const ai = new FakeAi(
     JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you.', reason: 'customer asked for a person' }),
   );
@@ -227,6 +228,23 @@ test('an unqualified ai handoff is downgraded to answer instead of escalating a 
   const conv = await pool.query('select state from conversations limit 1');
   assert.equal(conv.rows[0].state, 'bot', 'unqualified handoff stays with the bot, not queued for a person');
   assert.equal(d.meta.sends.length, 1, 'the holding message still went out');
+  assert.equal(d.meta.sends[0].body, 'Sure, connecting you.', "the ai's own reply was used, not a hardcoded fallback");
+  const drips = await pool.query('select count(*)::int as n from drip_jobs');
+  assert.ok(drips.rows[0].n > 0, 'drips still get scheduled so the lead is not dropped after downgrade');
+});
+
+test('an empty-string budget in lead_details does not qualify a lead', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.EMPTY1', body: 'hi' }), d);
+  // Simulate the AI writing an empty-string field on some prior turn - the
+  // jsonb `?` operator would have counted this as qualified before the fix.
+  await pool.query(`update contacts set lead_details = '{"budget":""}'::jsonb`);
+  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
+  await processWebhook(inboundText({ id: 'wamid.EMPTY2', body: 'talk to a human please' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'empty-string details do not clear the qualification gate');
 });
 
 test('a complaint handoff bypasses the qualification gate', async () => {

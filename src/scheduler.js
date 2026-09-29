@@ -5,6 +5,7 @@ import {
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
   optOutContact,
   recordPaymentClaimed,
+  isLeadQualifiedEnough,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -223,10 +224,29 @@ async function processResumeReplyForRow(deps, settings, row, context) {
 
   // Mirrors respondToLead in handlers/message.js - the model's decision here
   // carries exactly the same handoff/block/reaction meaning as it does on a
-  // live message.
+  // live message, including the qualification gate. Auto-resume and manual
+  // catch-up both go through here, so an unqualified stranger cannot be
+  // escalated to pending just because a human once opened the chat.
   if (decision?.handoff) {
     const reason = decision.reason || 'The ai judged this needs a person';
     const reasonCategory = categorizeHandoffReason(reason);
+    const bypassGate = reasonCategory === 'complaint';
+    if (!bypassGate && !(await isLeadQualifiedEnough(pool, row.id))) {
+      log.info(
+        { conversationId: row.id, reason, reasonCategory },
+        `${context}: ai wanted to hand off but lead is not qualified yet, downgrading to answer`,
+      );
+      const holding = decision.reply && decision.reply.trim()
+        ? decision.reply.trim()
+        : settings.handoffMessage;
+      const { wamid, waId } = await meta.sendText(row.wa_id, holding);
+      if (wamid) {
+        await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: holding });
+        await reconcileContactWaId(pool, row.id, waId);
+        realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
+      }
+      return;
+    }
     await handToPending(pool, row.id, reason);
     await recordHandoff(pool, { conversationId: row.id, source: 'ai', reason, reasonCategory, topicId: row.topic_id ?? null });
     await cancelDrips(pool, row.id);
@@ -299,32 +319,49 @@ export async function catchUpAfterHandback(deps, conversationId) {
   const { pool, log } = deps;
   const settings = await getSettings(pool, deps.config);
 
-  const res = await pool.query(
-    `select c.id, ct.wa_id, ca.topic_id,
-       (select m.wa_message_id from messages m
-        where m.conversation_id = c.id and m.direction = 'inbound'
-        order by m.created_at desc, m.id desc
-        limit 1) as last_inbound_wamid,
-       (select direction from messages m
-        where m.conversation_id = c.id
-        order by m.created_at desc, m.id desc
-        limit 1) as last_direction
-     from conversations c
-     join contacts ct on ct.id = c.contact_id
-     left join campaigns ca on ca.id = c.campaign_id
-     where c.id = $1 and c.state = 'bot'`,
-    [conversationId],
-  );
-  const row = res.rows[0];
-  if (!row) return false;
-  if (row.last_direction !== 'inbound') return false;
+  // Try to take a session-level advisory lock for this conversation. If a
+  // parallel path (a webhook that fired between handback and this call, or
+  // a second Resume-bot click, or an auto-resume tick) already has it, bail
+  // out - that other path will produce the reply and we should not
+  // double-send. The lock is released in a finally block; if the process
+  // dies mid-hold PG drops the session lock automatically.
+  const gotLock = await pool.query('select pg_try_advisory_lock($1) as got', [Number(conversationId)]);
+  if (!gotLock.rows[0]?.got) {
+    log?.info({ conversationId }, 'handback catch-up: another handler already owns this conversation, skipping');
+    return false;
+  }
 
   try {
+    const res = await pool.query(
+      `select c.id, ct.wa_id, ca.topic_id,
+         (select m.wa_message_id from messages m
+          where m.conversation_id = c.id and m.direction = 'inbound'
+          order by m.created_at desc, m.id desc
+          limit 1) as last_inbound_wamid,
+         (select direction from messages m
+          where m.conversation_id = c.id
+          order by m.created_at desc, m.id desc
+          limit 1) as last_direction
+       from conversations c
+       join contacts ct on ct.id = c.contact_id
+       left join campaigns ca on ca.id = c.campaign_id
+       where c.id = $1 and c.state = 'bot'`,
+      [conversationId],
+    );
+    const row = res.rows[0];
+    if (!row) return false;
+    // last_direction check happens after taking the lock, so an outbound
+    // that landed while we were waiting for the lock (typical race: webhook
+    // replied faster than us) leaves nothing to catch up on and we exit.
+    if (row.last_direction !== 'inbound') return false;
+
     await processResumeReplyForRow(deps, settings, row, 'manual handback');
     return true;
   } catch (err) {
     log?.error({ conversationId, err }, 'manual handback catch-up failed');
     return false;
+  } finally {
+    await pool.query('select pg_advisory_unlock($1)', [Number(conversationId)]).catch(() => {});
   }
 }
 

@@ -474,9 +474,14 @@ async function respondToLead(deps, conversationId, items) {
         { conversationId, reason, reasonCategory },
         'ai wanted to hand off but lead is not qualified yet, downgrading to answer',
       );
+      // Fall back to the admin-configured handoff message (already
+      // language-appropriate for this deployment) rather than a hardcoded
+      // English line - the prompt now insists replies stay in the customer's
+      // language, so a canned English string would break that rule on the
+      // rare turn where the AI itself returns no reply body.
       const holding = decision.reply && decision.reply.trim()
         ? decision.reply.trim()
-        : "Sure, the team will personally reach out to you next.\n\nJust so I can pass this on properly, could you tell me your name and a bit about what this is for?";
+        : settings.handoffMessage;
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);

@@ -766,11 +766,20 @@ export async function markConversationAsPeerBot(pool, conversationId, reason) {
 // upstream - the point of the floor is to stop the AI escalating strangers
 // with no context, not to block a genuine issue.
 export async function isLeadQualifiedEnough(pool, conversationId) {
+  // The jsonb `?` operator returns true for an empty-string value, and the
+  // AI (or an admin edit) occasionally writes {"budget": ""} on a turn where
+  // it thought a value was being volunteered but the customer said nothing
+  // concrete. Trim + null-check both sides so a blank string cannot silently
+  // qualify a stranger.
   const res = await pool.query(
     `select
-       ct.name,
-       (ct.business is not null or ct.email is not null or ct.address is not null) as has_org_field,
-       ((ct.lead_details ? 'requirement') or (ct.lead_details ? 'budget') or (ct.lead_details ? 'timeline')) as has_intent_field
+       nullif(btrim(coalesce(ct.name, '')), '')     as name,
+       nullif(btrim(coalesce(ct.business, '')), '') as business,
+       nullif(btrim(coalesce(ct.email, '')), '')    as email,
+       nullif(btrim(coalesce(ct.address, '')), '')  as address,
+       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement,
+       nullif(btrim(coalesce(ct.lead_details->>'budget', '')), '')      as budget,
+       nullif(btrim(coalesce(ct.lead_details->>'timeline', '')), '')    as timeline
      from contacts ct
      join conversations c on c.contact_id = ct.id
      where c.id = $1`,
@@ -778,9 +787,10 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
   );
   const row = res.rows[0];
   if (!row) return false;
-  const hasName = Boolean(row.name && row.name.trim());
-  const hasContext = Boolean(row.has_org_field || row.has_intent_field);
-  return hasName && hasContext;
+  const hasName = Boolean(row.name);
+  const hasOrgField = Boolean(row.business || row.email || row.address);
+  const hasIntentField = Boolean(row.requirement || row.budget || row.timeline);
+  return hasName && (hasOrgField || hasIntentField);
 }
 
 export async function recentOutboundStats(pool, conversationId, minutes = 15) {

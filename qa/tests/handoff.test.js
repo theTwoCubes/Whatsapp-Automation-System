@@ -28,18 +28,24 @@ beforeEach(async () => {
 });
 
 async function buildApp() {
+  return (await buildAppWithDeps()).app;
+}
+
+async function buildAppWithDeps(overrides = {}) {
   const app = Fastify();
   await app.register(fastifyJwt, { secret: 'test-secret' });
   await app.register(fastifyWebsocket);
-  registerApi(app, {
+  const deps = {
     pool,
-    meta: new FakeMeta(),
-    ai: new FakeAi(),
+    meta: overrides.meta || new FakeMeta(),
+    ai: overrides.ai || new FakeAi(),
     config: apiConfig,
     realtime: noopRealtime,
-  });
+    log: silentLog,
+  };
+  registerApi(app, deps);
   await app.ready();
-  return app;
+  return { app, deps };
 }
 
 async function tokenFor(app) {
@@ -140,6 +146,35 @@ test('accepting a pending handoff claims it for the agent', async () => {
   const conv = await getConversationById(pool, id);
   assert.equal(conv.state, 'human');
   assert.equal(conv.assignee, 'a@b.com');
+  await app.close();
+});
+
+test('POST /handback catches up on an unanswered inbound end-to-end', async () => {
+  // Full route wiring test: click "Resume bot", verify the bot actually
+  // replies to what the human left behind. Covers the /handback endpoint's
+  // integration with catchUpAfterHandback, not just the helper in isolation.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi there' }));
+  const { app, deps } = await buildAppWithDeps({ ai });
+  const token = await tokenFor(app);
+  const h = { authorization: `Bearer ${token}` };
+
+  // Turn 1: lead's first message, AI answers.
+  await processWebhook(inboundText({ id: 'wamid.RH1', body: 'hi' }), deps);
+  const convId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+
+  // Human takes over, lead follows up, human never replies.
+  await app.inject({ method: 'POST', url: `/api/conversations/${convId}/accept`, headers: h }).catch(() => {});
+  await pool.query("update conversations set state='human', assignee='a@b.com' where id=$1", [convId]);
+  await processWebhook(inboundText({ id: 'wamid.RH2', body: 'what about pricing?' }), deps);
+  const sendsBeforeHandback = deps.meta.sends.length;
+
+  ai.reply = JSON.stringify({ action: 'answer', reply: 'Pricing depends on the service - which one?' });
+  const res = await app.inject({ method: 'POST', url: `/api/conversations/${convId}/handback`, headers: h });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().caughtUp, true, 'route reports the catch-up ran');
+  assert.equal(deps.meta.sends.length, sendsBeforeHandback + 1, 'the bot replied to the pending inbound');
+  assert.match(deps.meta.sends[deps.meta.sends.length - 1].body, /Pricing depends on the service/);
+
   await app.close();
 });
 
