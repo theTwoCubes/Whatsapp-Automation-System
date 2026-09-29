@@ -105,7 +105,10 @@ export function buildServer(config, pool, realtime = createRealtime()) {
 
   app.register(fastifyJwt, { secret: config.jwtSecret });
   app.register(fastifyWebsocket);
-  app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+  // 100 MB matches WhatsApp's largest per-file cap (documents). Per-kind caps
+  // (16 MB video/audio, 5 MB image) are enforced in the media upload route so
+  // the error message can name the actual limit that was hit.
+  app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024 } });
 
   // Keep the raw JSON bytes so signature verification can hash the body as it
   // was received, then parse alongside it.

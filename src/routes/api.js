@@ -143,6 +143,16 @@ const ALLOWED_MEDIA_MIMETYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ]);
 
+// WhatsApp Cloud API's per-kind size limits, straight from Meta's docs.
+// Documents get the full 100 MB the multipart layer allows; everything else
+// caps lower, so a lead's device actually plays the file back after send.
+const MEDIA_SIZE_CAPS = {
+  image: { bytes: 5 * 1024 * 1024, label: '5 MB' },
+  video: { bytes: 16 * 1024 * 1024, label: '16 MB' },
+  audio: { bytes: 16 * 1024 * 1024, label: '16 MB' },
+  document: { bytes: 100 * 1024 * 1024, label: '100 MB' },
+};
+
 // The 24 hour service window is open while the last inbound was under 24 hours
 // ago, which we track as window_expires_at.
 function windowOpen(conversation) {
@@ -1437,12 +1447,19 @@ export function registerApi(app, deps) {
           description = part.value || null;
         }
       }
-    } catch {
-      // fall through to the missing file check below
+    } catch (err) {
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE' || err?.code === 'FST_FILES_LIMIT') {
+        return reply.code(413).send({ error: 'file is larger than the 100 MB upload limit' });
+      }
+      return reply.code(400).send({ error: safeErrorMessage(err, app.log) });
     }
     if (!file) return reply.code(400).send({ error: 'a file is required' });
     if (!ALLOWED_MEDIA_MIMETYPES.has(file.mimetype)) {
       return reply.code(400).send({ error: `"${file.mimetype}" is not a file type WhatsApp can send` });
+    }
+    const kindCap = MEDIA_SIZE_CAPS[mediaKind(file.mimetype)];
+    if (kindCap && file.buffer.length > kindCap.bytes) {
+      return reply.code(413).send({ error: `${mediaKind(file.mimetype)} files must be under ${kindCap.label} for WhatsApp` });
     }
 
     try {
