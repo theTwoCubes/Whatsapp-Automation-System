@@ -233,6 +233,25 @@ test('an unqualified ai handoff is downgraded to answer instead of escalating a 
   assert.ok(drips.rows[0].n > 0, 'drips still get scheduled so the lead is not dropped after downgrade');
 });
 
+test('the downgrade regenerates the reply via a second AI call, not reuse the handoff-tone line', async () => {
+  // The AI wants to hand off with a "connecting you" reply, but the lead is
+  // not qualified. The gate should downgrade, and the second call (with
+  // enforceNoHandoff) should produce the actual reply the customer sees -
+  // not the original "connecting you now" text, which would be a lie.
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you now.', reason: 'customer asked for a person' }),
+    JSON.stringify({ action: 'answer', reply: 'Haan bilkul, team se personally connect karvate hain - bas pehle aapka naam aur business bata dijiye?' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.REGEN1', body: 'kisi human se baat karwao' }), d);
+
+  assert.equal(ai.calls, 2, 'the downgrade path made a second AI call to regenerate');
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'still with the bot');
+  assert.equal(d.meta.sends.length, 1);
+  assert.match(d.meta.sends[0].body, /naam aur business/, 'the regenerated (non-handoff) reply was sent, not the original connecting-you line');
+});
+
 test('an empty-string budget in lead_details does not qualify a lead', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
   const d = deps({ ai });

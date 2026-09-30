@@ -317,7 +317,7 @@ async function handleMessage(value, message, deps) {
             // otherwise an admin rotating the key from the console silently
             // keeps using the old one for every inbound image/PDF.
             const visionSettings = await getSettings(pool, config);
-            const note = await describeAttachment(visionSettings, buffer, contentType);
+            const note = await describeAttachment(visionSettings, buffer, contentType, log);
             if (note) {
               await saveAttachmentContext(pool, result.messageId, note);
               effectiveText = `${effectiveText} - ${note}`;
@@ -472,16 +472,31 @@ async function respondToLead(deps, conversationId, items) {
     if (!canBypassGate && !(await isLeadQualifiedEnough(pool, conversationId))) {
       log.info(
         { conversationId, reason, reasonCategory },
-        'ai wanted to hand off but lead is not qualified yet, downgrading to answer',
+        'ai wanted to hand off but lead is not qualified yet, regenerating reply as an answer',
       );
-      // Fall back to the admin-configured handoff message (already
-      // language-appropriate for this deployment) rather than a hardcoded
-      // English line - the prompt now insists replies stay in the customer's
-      // language, so a canned English string would break that rule on the
-      // rare turn where the AI itself returns no reply body.
-      const holding = decision.reply && decision.reply.trim()
-        ? decision.reply.trim()
-        : settings.handoffMessage;
+
+      // Regenerate the reply via a second AI call with enforceNoHandoff. The
+      // original decision.reply was written as a "connecting you now" holding
+      // line and would lie to the customer if reused. Cost is one small
+      // extra call per unqualified handoff attempt - cheap compared to a
+      // confused lead. If the regen itself fails, fall back to the
+      // admin-configured handoff message so we never go silent.
+      let downgradeReply = null;
+      try {
+        const regen = await buildReply(pool, ai, settings, conversationId, {
+          packs,
+          faqBudgetTokens: config.faqBudgetTokens,
+          allowPackRequests: false,
+          enforceNoHandoff: true,
+        });
+        if (regen?.reply && regen.reply.trim()) downgradeReply = regen.reply.trim();
+        if (regen?.replyLanguage) {
+          await setReplyLanguage(pool, conversationId, regen.replyLanguage);
+        }
+      } catch (err) {
+        log.warn({ conversationId, err }, 'downgrade regen failed, using canned fallback');
+      }
+      const holding = downgradeReply || settings.handoffMessage;
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);

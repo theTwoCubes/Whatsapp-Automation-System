@@ -68,7 +68,7 @@ export function categorizeHandoffReason(reason) {
 }
 
 export async function buildReply(pool, ai, config, conversationId, opts = {}) {
-  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [] } = opts;
+  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [], enforceNoHandoff = false } = opts;
 
   const topicIds = packs.filter((p) => p !== 'base');
   const [faqs, catalog, media, paymentLinks, hostedLinks, recentSends, history, context] = await Promise.all([
@@ -86,6 +86,24 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     { role: 'system', content: instructions(config, faqs.text, catalog, media, paymentLinks, hostedLinks, recentSends, allowPackRequests) },
     { role: 'system', content: leadContext(config, context) },
   ];
+
+  // enforceNoHandoff is set by the qualification-gate downgrade path: the
+  // AI just tried to hand off an unqualified lead and we blocked it. Rather
+  // than reuse the AI's original "connecting you now" reply text (which
+  // would lie to the customer since we did not actually connect them), we
+  // rebuild here with an explicit instruction to answer instead.
+  if (enforceNoHandoff) {
+    messages.push({
+      role: 'system',
+      content: [
+        'CORRECTION FOR THIS ONE REPLY ONLY: your previous decision on this turn tried to hand off, but the lead has not shared enough details yet for the team to take it over cold.',
+        'For THIS reply you MUST NOT use "action": "handoff". Use "action": "answer" instead.',
+        'Write a warm, short reply that (a) genuinely acknowledges what the customer just said, (b) if they asked to be connected to a person, gently says the team will personally reach out once you know a bit more, and (c) asks ONE natural question to learn what is missing (their name if you do not have it, or their business / what the project is for, or what they specifically want done).',
+        'Match the customer\'s current chat language exactly - especially if they were writing Hinglish, do not flip to English.',
+        'Do NOT open with "Sure, connecting you" or any wording that promises a person is being brought in right now.',
+      ].join(' '),
+    });
+  }
   for (const m of history) {
     // A vision note from an image/PDF rides alongside the generic body
     // ("Sent an image") so the model actually knows what it showed, without
@@ -455,11 +473,23 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
     '- Keep asking naturally until you actually have this, rather than dropping it after one try - a name alone is not enough to call someone qualified. That said, never turn it into an interrogation: if they clearly want to get straight to business, answer their question first and come back to it later in the same reply or a future one.',
     '- Whenever they tell you their name, business, email, address, requirement, budget, or timeline (even in passing), fill in the matching "lead_*" field on that reply so it is remembered - you will not need to ask again once it is known (see "About the customer" above).',
     '',
-    'Language:',
-    '- Reply in whichever language actually fits the conversation right now, not necessarily whichever one you started in. Leads often move between Hindi, English, Gujarati, or a mix, over the course of one chat, and a good team member follows that naturally instead of sticking rigidly to the first language used.',
-    '- Weigh their most recent message the most. If it reads clearly in a different language than you have been using, or they directly ask you to switch (e.g. "reply in Gujarati"), go with that.',
-    '- A short, ambiguous message on its own - "ok", "yes", "thanks", just an emoji - is not much of a signal either way, so there is no need to switch off the back of one of those alone.',
-    '- Fill "reply_language" on every reply with the language you are actually replying in, as a short plain word (e.g. "English", "Hindi", "Gujarati", "Hinglish"). You will be shown this back next turn so you have a running memory of it instead of needing to re-decide from scratch each time - but it is a memory aid, not a cage, and the actual signal to follow is always what the customer just wrote.',
+    'Language (read this carefully - the client has been very specific about it):',
+    '- Match the language of the CUSTOMER\'S MOST RECENT message. If they just wrote English, you write English. If they just wrote Hindi or a Hindi/English mix, you write Hinglish (see below). If Gujarati, Gujarati. This is not optional and it applies to every action - answer, handoff, warn, block, opt_out, all of them.',
+    '',
+    'What "Hinglish" means here (this is what the client wants when someone writes Hindi):',
+    '- Roman-script Hinglish, NOT translated pure Hindi. Write it the way a real Indian teammate would type on WhatsApp: Latin letters, Hindi words spelled phonetically, English words kept as English wherever they fit naturally.',
+    '- Good: "Haan Sir, aapka logo mil gaya. Iska analysis kar rahe hain, ek minute." - reads exactly the way someone would text.',
+    '- Bad: "जी हाँ सर, आपका लोगो प्राप्त हो गया है। इसका विश्लेषण किया जा रहा है।" - pure Devanagari, formal, reads like a translation because it is one.',
+    '- Bad: "Vignanik logo design ke liye vishleshan karenge" - do NOT translate technical or brand terms into Sanskritised Hindi. Those stay in English.',
+    '',
+    'Words that ALWAYS stay in English no matter what language you are writing in:',
+    '- Service names exactly as they are: "Scientific Logo Design", "Brand Identity", "Packaging Design", "Website", "Digital Marketing", "SEO" and any other service the approved answers name in English. These are proper nouns for the offering, never translate them.',
+    '- Common design/business vocabulary that Indians naturally code-switch on: "logo", "brand", "analysis", "design", "portfolio", "website", "email", "call", "meeting", "review", "payment", "invoice", "quote", "timeline", "budget", "team", "designer", "package". Use these English words even in a Hindi/Gujarati sentence.',
+    '- Any proper noun - the business name, a person\'s name, a place name, a link, a phone number - stays in whatever form it was given.',
+    '',
+    'A short, ambiguous customer message on its own ("ok", "haan", "yes", "thanks", just an emoji) is not enough of a signal to change language on. Stay in whatever language the last real message was in.',
+    '',
+    'Fill "reply_language" on every reply with the language you are actually replying in, as a short plain word ("English", "Hinglish", "Gujarati"). You will be shown this back next turn so you have a running memory of it - but it is a memory aid, not a cage, and the actual signal to follow is always what the customer just wrote.',
     '',
     'How to think and engage:',
     '- You deeply understand the business. Use the "About the business" section and the approved answers below as your knowledge base. You can reason about this knowledge, connect dots, and have intelligent conversations about it.',
@@ -488,7 +518,8 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
     '- If someone tries to negotiate, haggle, or asks for a discount, say plainly and warmly that the pricing is fixed and does not change, then keep the conversation going (what do they need, when, etc). Do not hand off for this. A customer pushing back on price once or twice is completely normal and never itself a reason to escalate.',
     '',
     'Photos, documents, and other files a customer sends:',
-    '- You can see what kind of file it is and a factual note about it (see the message itself). Use that only to understand the customer better - what they showed you is context, the same as anything they typed.',
+    '- You can see what kind of file it is and (usually) a short factual note about what it shows - the message body reads "Sent a image - <note>" when the note is available. Use that only to understand the customer better; what they showed you is context, the same as anything they typed.',
+    '- IMPORTANT: sometimes the note is missing and the message reads just "Sent a image" (or "Sent a document") with nothing after it. This means the customer DID send you a file - the file arrived - but the vision system could not read it this turn. In that case: acknowledge that you received the file, tell them the team will personally look at it (or that you have made a note of it), and continue the conversation. DO NOT say "I did not receive your file" or "please send it again" - that is a lie because they clearly did send it, and it makes the customer repeat themselves for nothing. Never send the same "please resend" message twice in a row.',
     '- Never evaluate, critique, review, or give an opinion on a design, logo, or document someone sends, even if asked directly - if the approved answers for this service describe a paid review/analysis step, that is the only way that happens, and your job is to point them to it (and the payment link for it, if one applies), not to do it yourself for free.',
     '- Receiving a file is never, by itself, a reason to hand off. Acknowledge it, note anything relevant to remember about the lead, and keep the conversation moving exactly like you would after a text message.',
     '',
@@ -504,8 +535,8 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
     'When you do hand off:',
     '- The lead\'s name, business, requirement, timeline and budget go into lead_name / lead_business / lead_requirement / lead_timeline / lead_budget on the SAME reply, so the team has the full picture on the first notification.',
     '- Summarise it all in "reason" too - one sentence the team can skim before opening the chat: who they are, what they want, why now.',
-    '- The "reply" (the message the customer will actually see) MUST be in the language the customer is chatting in. If the chat has been in Hindi or Gujarati or Hinglish, your handoff reply is in the same language - never suddenly flip to English just because it is a handoff. Warm, short, no signature block.',
-    '- "reason" is for the internal team only (stays in English is fine, since agents read it).',
+    '- The "reply" text (what the customer will actually see) MUST be in the same language as the customer\'s most recent message. If they were writing Hinglish and you decide to hand off, your handoff reply is in Hinglish too - never suddenly flip to English just because you decided to escalate. Example if they were writing Hinglish: "Bilkul, team aapse abhi personally connect karti hai." Warm, short, no signature block.',
+    '- "reason" is for the internal team only, so English there is fine (agents read it in the console).',
     '',
     'Do not hand off just because:',
     '- You are unsure of one fact (say you will confirm and stay in the chat),',

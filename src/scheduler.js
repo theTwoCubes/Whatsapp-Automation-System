@@ -234,11 +234,28 @@ async function processResumeReplyForRow(deps, settings, row, context) {
     if (!bypassGate && !(await isLeadQualifiedEnough(pool, row.id))) {
       log.info(
         { conversationId: row.id, reason, reasonCategory },
-        `${context}: ai wanted to hand off but lead is not qualified yet, downgrading to answer`,
+        `${context}: ai wanted to hand off but lead is not qualified yet, regenerating reply as an answer`,
       );
-      const holding = decision.reply && decision.reply.trim()
-        ? decision.reply.trim()
-        : settings.handoffMessage;
+      let downgradeReply = null;
+      try {
+        const sticky = await getActivePackIds(pool, row.id);
+        const packs = ['base'];
+        if (row.topic_id) packs.push(Number(row.topic_id));
+        for (const id of sticky) if (!packs.includes(id)) packs.push(id);
+        const regen = await buildReply(pool, ai, settings, row.id, {
+          packs,
+          faqBudgetTokens: deps.config.faqBudgetTokens,
+          allowPackRequests: false,
+          enforceNoHandoff: true,
+        });
+        if (regen?.reply && regen.reply.trim()) downgradeReply = regen.reply.trim();
+        if (regen?.replyLanguage) {
+          await setReplyLanguage(pool, row.id, regen.replyLanguage);
+        }
+      } catch (err) {
+        log?.warn({ conversationId: row.id, err }, `${context}: downgrade regen failed, using canned fallback`);
+      }
+      const holding = downgradeReply || settings.handoffMessage;
       const { wamid, waId } = await meta.sendText(row.wa_id, holding);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: holding });

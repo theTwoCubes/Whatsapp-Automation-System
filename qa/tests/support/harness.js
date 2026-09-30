@@ -118,11 +118,21 @@ export class FakeAi {
     this.fail = fail;
     this.calls = 0;
     this.enabled = true;
+    // Optional queue of replies used in order on successive complete() calls,
+    // for tests that need the AI to answer differently on turn 1 vs turn 2
+    // (e.g. the qualification-gate downgrade regenerates via a second call).
+    // When the queue empties, complete() falls back to this.reply.
+    this.replyQueue = [];
+  }
+  queueReplies(...replies) {
+    this.replyQueue.push(...replies);
+    return this;
   }
   async complete() {
     this.calls += 1;
     if (this.fail) throw new Error('ai unavailable');
-    return { text: this.reply, provider: 'fake', failedProviders: [] };
+    const next = this.replyQueue.length ? this.replyQueue.shift() : this.reply;
+    return { text: next, provider: 'fake', failedProviders: [] };
   }
   reconfigure(config) {
     this.lastReconfigure = config;

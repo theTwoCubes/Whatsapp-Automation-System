@@ -20,14 +20,58 @@ beforeEach(async () => {
   await resetTables(pool);
 });
 
-test('describeAttachment returns nothing when gemini is not configured', async () => {
-  const note = await describeAttachment({ geminiApiKey: '' }, Buffer.from('x'), 'image/png');
+test('describeAttachment returns nothing when neither gemini nor openai is configured', async () => {
+  const note = await describeAttachment({ geminiApiKey: '', openaiApiKey: '' }, Buffer.from('x'), 'image/png');
   assert.equal(note, null);
 });
 
 test('describeAttachment skips a mime type it does not support, even when configured', async () => {
   const note = await describeAttachment({ geminiApiKey: 'k', geminiModel: 'gemini-2.5-flash' }, Buffer.from('x'), 'audio/ogg');
   assert.equal(note, null);
+});
+
+test('describeAttachment falls back to openai when gemini fails', async () => {
+  const originalFetch = global.fetch;
+  const seenHosts = [];
+  global.fetch = async (url) => {
+    seenHosts.push(String(url).split('/')[2]);
+    if (String(url).includes('generativelanguage.googleapis.com')) {
+      return { ok: false, status: 500, json: async () => ({ error: { message: 'gemini down' } }) };
+    }
+    if (String(url).includes('api.openai.com')) {
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'a logo with a blue circle' } }] }) };
+    }
+    throw new Error(`unexpected host ${url}`);
+  };
+  try {
+    const config = { geminiApiKey: 'g', geminiModel: 'gemini-2.5-flash', openaiApiKey: 'sk-test', openaiModel: 'gpt-4o-mini' };
+    const note = await describeAttachment(config, Buffer.from('x'), 'image/png');
+    assert.equal(note, 'a logo with a blue circle');
+    assert.ok(seenHosts.includes('generativelanguage.googleapis.com'), 'gemini was tried first');
+    assert.ok(seenHosts.includes('api.openai.com'), 'openai was tried as fallback');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('describeAttachment uses openai directly when only openai is configured', async () => {
+  const originalFetch = global.fetch;
+  let openaiCalled = false;
+  global.fetch = async (url) => {
+    if (String(url).includes('api.openai.com')) {
+      openaiCalled = true;
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'a brochure draft' } }] }) };
+    }
+    throw new Error(`unexpected host ${url}`);
+  };
+  try {
+    const config = { geminiApiKey: '', openaiApiKey: 'sk-test', openaiModel: 'gpt-4o-mini' };
+    const note = await describeAttachment(config, Buffer.from('x'), 'image/png');
+    assert.equal(note, 'a brochure draft');
+    assert.equal(openaiCalled, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('a vision note is saved against the message and rides along in the next prompt', async () => {
