@@ -20,6 +20,14 @@ const EXTRACTION_PROMPT = [
 
 const GEMINI_SUPPORTED_NON_IMAGE = new Set(['application/pdf']);
 const OPENAI_SUPPORTED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+// Pinned vision model for the OpenAI fallback path. Deliberately NOT
+// reading config.openaiModel here: an admin may have set that to
+// gpt-3.5-turbo (or a future non-vision model) for chat cost reasons, and
+// this call would 400. gpt-4o-mini is both cheap and reliably vision-capable.
+const OPENAI_VISION_MODEL = 'gpt-4o-mini';
+// Per-provider timeout. Kept tight so a webhook batcher does not sit for
+// 40s waiting on two slow providers back-to-back (24s worst case now).
+const VISION_TIMEOUT_MS = 12000;
 
 function isGeminiSupported(mimeType) {
   return Boolean(mimeType) && (mimeType.startsWith('image/') || GEMINI_SUPPORTED_NON_IMAGE.has(mimeType));
@@ -48,7 +56,7 @@ async function describeViaGemini(config, buffer, mimeType) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
   });
   const data = await res.json();
   if (!res.ok || data.error) {
@@ -59,10 +67,9 @@ async function describeViaGemini(config, buffer, mimeType) {
 }
 
 async function describeViaOpenAi(config, buffer, mimeType) {
-  const model = config.openaiModel || 'gpt-4o-mini';
   const dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
   const body = {
-    model,
+    model: OPENAI_VISION_MODEL,
     messages: [{
       role: 'user',
       content: [
@@ -81,7 +88,7 @@ async function describeViaOpenAi(config, buffer, mimeType) {
       Authorization: `Bearer ${config.openaiApiKey}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
   });
   const data = await res.json();
   if (!res.ok || data.error) {

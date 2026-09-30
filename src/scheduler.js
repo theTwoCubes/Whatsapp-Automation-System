@@ -14,6 +14,13 @@ import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement
 import { pushHandoff, maybeSendMedia, maybeSendPaymentLink, maybeSendReaction } from './handlers/message.js';
 import { MetaApiError } from './meta/client.js';
 
+// Last-resort holding line for the qualification-gate downgrade path when
+// the regen call cannot produce a usable reply (rare). Kept in sync with
+// the sibling constant in handlers/message.js. Never says "connecting you"
+// - the entire point of the downgrade is that we are NOT connecting.
+const SCHEDULER_DOWNGRADE_HOLDING_MESSAGE =
+  "Sure - could you share your name and a bit about what your business is or what you're looking for? That helps me point you to the right thing.";
+
 // Runs the recurring background work: drip follow ups, the auto resume that
 // hands stalled chats back to the bot, and the weekly learning pass. In
 // process on an interval, single instance is fine for now.
@@ -248,14 +255,22 @@ async function processResumeReplyForRow(deps, settings, row, context) {
           allowPackRequests: false,
           enforceNoHandoff: true,
         });
-        if (regen?.reply && regen.reply.trim()) downgradeReply = regen.reply.trim();
+        // Same guard as respondToLead: if the model insists on handing off a
+        // second time, its reply is still the misleading "connecting you"
+        // text - drop it and let the canned holding line take over.
+        if (regen && !regen.handoff && regen.reply && regen.reply.trim()) {
+          downgradeReply = regen.reply.trim();
+        }
         if (regen?.replyLanguage) {
           await setReplyLanguage(pool, row.id, regen.replyLanguage);
+        }
+        if (regen?.leadProfile) {
+          await setLeadProfile(pool, row.id, regen.leadProfile);
         }
       } catch (err) {
         log?.warn({ conversationId: row.id, err }, `${context}: downgrade regen failed, using canned fallback`);
       }
-      const holding = downgradeReply || settings.handoffMessage;
+      const holding = downgradeReply || SCHEDULER_DOWNGRADE_HOLDING_MESSAGE;
       const { wamid, waId } = await meta.sendText(row.wa_id, holding);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: holding });

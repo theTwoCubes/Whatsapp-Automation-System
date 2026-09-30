@@ -213,12 +213,13 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
   assert.equal(d.meta.sends[0].body, testConfig.fallbackMessage);
 });
 
-test('an unqualified ai handoff is downgraded to answer instead of escalating a stranger', async () => {
-  // The AI wants to hand off, but the contact has no business/requirement
-  // beyond the fixture-default name. The server-side qualification gate
-  // should downgrade this to an answer, keep the state at bot, use the
-  // AI's own reply (which is in the customer's language), and still
-  // schedule drips so the lead is not dropped.
+test('an unqualified ai handoff is downgraded, and a stubborn model falls through to the canned holding line', async () => {
+  // The AI wants to hand off but the lead has no business/requirement beyond
+  // the fixture-default name. The gate downgrades and runs a regen with
+  // enforceNoHandoff; if the (mocked) model returns handoff a SECOND time,
+  // its reply is still the misleading "connecting you" text - so the fix
+  // now discards it and falls through to the canned holding message. State
+  // stays with the bot and drips are still scheduled.
   const ai = new FakeAi(
     JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you.', reason: 'customer asked for a person' }),
   );
@@ -227,8 +228,10 @@ test('an unqualified ai handoff is downgraded to answer instead of escalating a 
 
   const conv = await pool.query('select state from conversations limit 1');
   assert.equal(conv.rows[0].state, 'bot', 'unqualified handoff stays with the bot, not queued for a person');
+  assert.equal(ai.calls, 2, 'gate downgrade always runs a regen');
   assert.equal(d.meta.sends.length, 1, 'the holding message still went out');
-  assert.equal(d.meta.sends[0].body, 'Sure, connecting you.', "the ai's own reply was used, not a hardcoded fallback");
+  assert.doesNotMatch(d.meta.sends[0].body, /connecting you/i, 'the misleading handoff-tone reply must never be sent to the customer');
+  assert.match(d.meta.sends[0].body, /name|business/i, 'the canned holding line asks for missing details instead');
   const drips = await pool.query('select count(*)::int as n from drip_jobs');
   assert.ok(drips.rows[0].n > 0, 'drips still get scheduled so the lead is not dropped after downgrade');
 });

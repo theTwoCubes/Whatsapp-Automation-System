@@ -354,6 +354,15 @@ async function handleMessage(value, message, deps) {
 const PEER_BOT_LOOP_MAX_REPLIES = 6;
 const PEER_BOT_LOOP_WINDOW_MIN = 15;
 
+// Last-resort text used only when the qualification-gate downgrade regen
+// fails or the model insists on handing off a second time. Deliberately
+// short and English (the regen almost always succeeds, so this rarely
+// fires); asks for the missing details so the conversation keeps moving
+// rather than stalling. Never says "connecting you" - that's the whole
+// point of this path.
+const DOWNGRADE_HOLDING_MESSAGE =
+  "Sure - could you share your name and a bit about what your business is or what you're looking for? That helps me point you to the right thing.";
+
 async function tripPeerBotSafetyNet(pool, conversationId, log) {
   const { recentOutbound, hasLeadInfo } = await recentOutboundStats(pool, conversationId, PEER_BOT_LOOP_WINDOW_MIN);
   if (recentOutbound < PEER_BOT_LOOP_MAX_REPLIES) return false;
@@ -479,8 +488,10 @@ async function respondToLead(deps, conversationId, items) {
       // original decision.reply was written as a "connecting you now" holding
       // line and would lie to the customer if reused. Cost is one small
       // extra call per unqualified handoff attempt - cheap compared to a
-      // confused lead. If the regen itself fails, fall back to the
-      // admin-configured handoff message so we never go silent.
+      // confused lead. Guard against a stubborn model that returns handoff a
+      // second time too: if that happens, discard its reply (it will still be
+      // the misleading "connecting you" text) and fall through to the neutral
+      // canned holding line below.
       let downgradeReply = null;
       try {
         const regen = await buildReply(pool, ai, settings, conversationId, {
@@ -489,14 +500,19 @@ async function respondToLead(deps, conversationId, items) {
           allowPackRequests: false,
           enforceNoHandoff: true,
         });
-        if (regen?.reply && regen.reply.trim()) downgradeReply = regen.reply.trim();
+        if (regen && !regen.handoff && regen.reply && regen.reply.trim()) {
+          downgradeReply = regen.reply.trim();
+        }
         if (regen?.replyLanguage) {
           await setReplyLanguage(pool, conversationId, regen.replyLanguage);
+        }
+        if (regen?.leadProfile) {
+          await setLeadProfile(pool, conversationId, regen.leadProfile);
         }
       } catch (err) {
         log.warn({ conversationId, err }, 'downgrade regen failed, using canned fallback');
       }
-      const holding = downgradeReply || settings.handoffMessage;
+      const holding = downgradeReply || DOWNGRADE_HOLDING_MESSAGE;
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);

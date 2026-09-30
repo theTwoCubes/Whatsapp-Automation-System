@@ -98,6 +98,34 @@ test('a pending handoff nobody accepted in time also resumes to the bot', async 
   assert.equal(meta.sends.length, 1, 'the waiting lead got an answer');
 });
 
+test('auto resume applies the same qualification gate + regen as live respondToLead', async () => {
+  // Contact was never qualified (no business/requirement) - if the AI on
+  // auto-resume tries to hand off, the gate must downgrade and the regen
+  // reply must go out, mirroring the live respondToLead path exactly.
+  const id = await humanConversationWaiting();
+  await pool.query("update conversations set assigned_at = now() - interval '30 min' where id = $1", [id]);
+
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you.', reason: 'customer asked for a person' }),
+    JSON.stringify({ action: 'answer', reply: 'Bilkul - pehle aap apna naam aur business bata dijiye?' }),
+  );
+  const meta = new FakeMeta();
+  const resumed = await runAutoResume({
+    pool,
+    meta,
+    ai,
+    config: { ...testConfig, resumeMinutes: 15 },
+    log: silentLog,
+  });
+
+  assert.equal(resumed, 1);
+  const state = (await pool.query('select state from conversations where id = $1', [id])).rows[0].state;
+  assert.equal(state, 'bot', 'unqualified handoff on auto-resume stays with the bot');
+  assert.equal(ai.calls, 2, 'the regen ran (two AI calls: initial handoff attempt + regen)');
+  assert.equal(meta.sends.length, 1);
+  assert.match(meta.sends[0].body, /naam aur business/, 'the regenerated reply went out, not the handoff-tone one');
+});
+
 test('auto resume does nothing when disabled', async () => {
   const id = await humanConversationWaiting();
   await pool.query("update conversations set assigned_at = now() - interval '30 min' where id = $1", [id]);

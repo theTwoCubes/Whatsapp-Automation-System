@@ -54,6 +54,26 @@ test('describeAttachment falls back to openai when gemini fails', async () => {
   }
 });
 
+test('describeAttachment returns null when both providers fail', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (url) => {
+    if (String(url).includes('generativelanguage.googleapis.com')) {
+      return { ok: false, status: 500, json: async () => ({ error: { message: 'gemini down' } }) };
+    }
+    if (String(url).includes('api.openai.com')) {
+      return { ok: false, status: 500, json: async () => ({ error: { message: 'openai down too' } }) };
+    }
+    throw new Error(`unexpected host ${url}`);
+  };
+  try {
+    const config = { geminiApiKey: 'g', geminiModel: 'gemini-2.5-flash', openaiApiKey: 'sk-test', openaiModel: 'gpt-4o-mini' };
+    const note = await describeAttachment(config, Buffer.from('x'), 'image/png');
+    assert.equal(note, null, 'both providers failing must return null, not throw');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('describeAttachment uses openai directly when only openai is configured', async () => {
   const originalFetch = global.fetch;
   let openaiCalled = false;
