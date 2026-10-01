@@ -196,6 +196,10 @@ function parseDecision(raw, catalog) {
   const requirement = sanitizeLeadField(obj?.lead_requirement, 300);
   const budget = sanitizeLeadField(obj?.lead_budget, 80);
   const timeline = sanitizeLeadField(obj?.lead_timeline, 80);
+  // email_declined is the "I don't have an email" acknowledgement. The AI
+  // sets it on the one turn the lead says so, so the qualification gate can
+  // treat email as satisfied without the AI having to invent one.
+  const emailDeclined = obj?.lead_email_declined === true ? true : null;
   const leadProfile = {
     name: sanitizeLeadField(obj?.lead_name),
     business: sanitizeLeadField(obj?.lead_business),
@@ -205,6 +209,7 @@ function parseDecision(raw, catalog) {
       ...(requirement ? { requirement } : {}),
       ...(budget ? { budget } : {}),
       ...(timeline ? { timeline } : {}),
+      ...(emailDeclined ? { email_declined: true } : {}),
     },
   };
   const hasLeadProfile = Boolean(
@@ -521,7 +526,8 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
     '',
     'HARD RULE: before you can hand off, the customer must have TOLD you (in their own words on this chat) all four of these, and you must have written them into the matching lead_* fields:',
     '  (1) BUSINESS - what their business is or what the project is for. A sentence or two, concrete. "I run a jewellery store called Shubh" or "it is for my restaurant opening next month" is enough. The service they want ("Scientific logo design") is NOT their business - that is the service name. Ask a follow-up and get a concrete answer. Write it to lead_business.',
-    '  (2) EMAIL - a working email you can send the team\'s next step to. Ask for it: "could you share your email so Maulik can send the brief and invoice there?". Write it to lead_email.',
+    '  (2) EMAIL - a working email the team can send the next step to. Ask for it: "could you share your email so Maulik can send the brief and invoice there?". Write it to lead_email. If the lead genuinely says they do not have an email ("mera email nahi hai", "I don\'t use email", "no email, use WhatsApp"), accept that at face value and set "lead_email_declined": true on that reply - that counts the same as having an email for the qualification check. Do NOT make up an email, and do NOT keep pushing after they decline.',
+    '  Watch for the difference between a decline and a correction: "mera email yeh nahi hai" / "that\'s not my email" is a CORRECTION of something previously said, not a decline - do NOT set lead_email_declined, just wait for them to send the right one.',
     '  (3) ADDRESS - the city or full address, so the team knows where the lead is based. A city alone is fine for most services; a full address for anything that involves shipping or a visit. Write it to lead_address.',
     '  (4) REQUIREMENT - what specifically they want, in enough detail that the team can pick it up without starting over. "Scientific logo design" alone is not enough; "scientific logo design for my new ayurveda clinic, want to launch in 3 weeks" is. Write it to lead_requirement.',
     '',

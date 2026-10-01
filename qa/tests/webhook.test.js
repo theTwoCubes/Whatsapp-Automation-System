@@ -234,6 +234,38 @@ test('an unqualified ai handoff is downgraded and the ai\'s reply goes out as a 
   assert.ok(drips.rows[0].n > 0, 'drips still get scheduled after downgrade');
 });
 
+test('a lead with every other field but no email AND no decline does NOT qualify', async () => {
+  // Negative gate: business + address + requirement all set, but email is
+  // null and email_declined is absent. Handoff must be downgraded. Proves
+  // the gate reads email specifically, not "any lead_details key present".
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.NO_EMAIL1', body: 'hi' }), d);
+  await pool.query(
+    "update contacts set business = 'ACME Studio', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')",
+  );
+  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Great, team se connect karvate hain.', reason: 'qualified and ready to proceed' });
+  await processWebhook(inboundText({ id: 'wamid.NO_EMAIL2', body: 'ok lets proceed' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'missing email with no decline blocks the handoff');
+});
+
+test('a lead who says they have no email can still qualify when email_declined is set', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.ED1', body: 'hi' }), d);
+  // All hard-required fields plus email_declined; email itself stays null.
+  await pool.query(
+    "update contacts set business = 'ACME Studio', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic', 'email_declined', true)",
+  );
+  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Great, team se connect karvate hain.', reason: 'qualified and ready to proceed' });
+  await processWebhook(inboundText({ id: 'wamid.ED2', body: 'ok lets proceed' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'pending', 'email_declined counts the same as a real email for the gate');
+});
+
 test('an empty-string budget in lead_details does not qualify a lead', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
   const d = deps({ ai });

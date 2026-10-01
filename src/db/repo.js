@@ -789,7 +789,8 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
        nullif(btrim(coalesce(ct.business, '')), '') as business,
        nullif(btrim(coalesce(ct.email, '')), '')    as email,
        nullif(btrim(coalesce(ct.address, '')), '')  as address,
-       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement
+       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement,
+       (ct.lead_details->'email_declined') = 'true'::jsonb              as email_declined
      from contacts ct
      join conversations c on c.contact_id = ct.id
      where c.id = $1`,
@@ -797,7 +798,11 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
   );
   const row = res.rows[0];
   if (!row) return false;
-  return Boolean(row.business && row.email && row.address && row.requirement);
+  // Email is soft-required: the ask has to be made, but a lead who says
+  // "I don't have an email" can still qualify. The AI sets email_declined
+  // to true on the turn the lead says so. The other three are hard-required.
+  const emailOk = Boolean(row.email) || row.email_declined === true;
+  return Boolean(row.business && row.address && row.requirement) && emailOk;
 }
 
 export async function recentOutboundStats(pool, conversationId, minutes = 15) {
