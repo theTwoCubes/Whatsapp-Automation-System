@@ -10,6 +10,7 @@ import {
   addActivePackIds,
   setLastTopicId,
   setReplyLanguage,
+  setLockedLanguage,
   setLeadProfile,
   markIntroduced,
   reconcileContactWaId,
@@ -32,7 +33,6 @@ import {
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
-import { DOWNGRADE_HOLDING_MESSAGE } from '../ai/holding.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { getTopic } from '../knowledge/topics.js';
@@ -211,7 +211,17 @@ async function handleMessage(value, message, deps) {
   // gets treated as if they had typed it, going straight to the AI pipeline
   // below instead of being handled as a file.
   const quickReplyText = extractQuickReplyText(message);
-  let effectiveText = message.text?.body || quickReplyText || null;
+  // WhatsApp lets a lead send an image/document/video with a caption attached
+  // in the same message. The structured body is on message[type].caption,
+  // not message.text - treat that caption as the lead's actual words so the
+  // AI sees "look at this - can you review?" alongside the file, instead of
+  // dropping the text and only seeing "Sent an image".
+  const attachmentCaption =
+    message.image?.caption?.trim()
+    || message.document?.caption?.trim()
+    || message.video?.caption?.trim()
+    || null;
+  let effectiveText = message.text?.body || quickReplyText || attachmentCaption || null;
 
   let result;
   try {
@@ -435,6 +445,11 @@ async function respondToLead(deps, conversationId, items) {
   if (decision?.replyLanguage) {
     await setReplyLanguage(pool, conversationId, decision.replyLanguage);
   }
+  // Explicit language lock from the AI (customer asked to switch languages).
+  // Tri-state: a string sets it, null clears it, undefined leaves it alone.
+  if (decision?.languageLock !== undefined) {
+    await setLockedLanguage(pool, conversationId, decision.languageLock);
+  }
 
   // Only marked once the model has genuinely had a turn to introduce itself -
   // the canned fallback message never mentions the bot's name, so a run where
@@ -462,49 +477,23 @@ async function respondToLead(deps, conversationId, items) {
     const reason = decision.reason || 'The ai judged this needs a person';
     const reasonCategory = categorizeHandoffReason(reason);
 
-    // Qualification gate: even when the prompt tells the AI to collect first,
-    // a stubborn model can still fire a handoff on the "customer asked for a
-    // human" trap. Complaint handoffs bypass this (a real issue does not
-    // wait), and an AI-outage synthetic handoff also bypasses (the model was
-    // not the one deciding). Everything else is downgraded: the reply goes
-    // out as a normal answer, the conversation stays with the bot, and the
-    // AI gets another turn to actually collect the details.
+    // Qualification gate: before any AI-driven handoff clears, the lead must
+    // have actually told us their business AND their specific requirement
+    // (see isLeadQualifiedEnough). Complaint handoffs bypass (a real issue
+    // does not wait), and an AI-outage synthetic handoff bypasses (the model
+    // was not the one deciding). Everything else is downgraded: we discard
+    // the handoff flag, send the AI's own reply as a plain answer, keep
+    // state at bot, and let the next turn try again. The prompt is where
+    // the real work gets done - this gate is a thin safety net.
     const canBypassGate = !aiSucceeded || reasonCategory === 'complaint';
     if (!canBypassGate && !(await isLeadQualifiedEnough(pool, conversationId))) {
       log.info(
         { conversationId, reason, reasonCategory },
-        'ai wanted to hand off but lead is not qualified yet, regenerating reply as an answer',
+        'ai wanted to hand off but lead is not qualified yet, treating as a plain answer',
       );
-
-      // Regenerate the reply via a second AI call with enforceNoHandoff. The
-      // original decision.reply was written as a "connecting you now" holding
-      // line and would lie to the customer if reused. Cost is one small
-      // extra call per unqualified handoff attempt - cheap compared to a
-      // confused lead. Guard against a stubborn model that returns handoff a
-      // second time too: if that happens, discard its reply (it will still be
-      // the misleading "connecting you" text) and fall through to the neutral
-      // canned holding line below.
-      let downgradeReply = null;
-      try {
-        const regen = await buildReply(pool, ai, settings, conversationId, {
-          packs,
-          faqBudgetTokens: config.faqBudgetTokens,
-          allowPackRequests: false,
-          enforceNoHandoff: true,
-        });
-        if (regen && !regen.handoff && regen.reply && regen.reply.trim()) {
-          downgradeReply = regen.reply.trim();
-        }
-        if (regen?.replyLanguage) {
-          await setReplyLanguage(pool, conversationId, regen.replyLanguage);
-        }
-        if (regen?.leadProfile) {
-          await setLeadProfile(pool, conversationId, regen.leadProfile);
-        }
-      } catch (err) {
-        log.warn({ conversationId, err }, 'downgrade regen failed, using canned fallback');
-      }
-      const holding = downgradeReply || DOWNGRADE_HOLDING_MESSAGE;
+      const holding = decision.reply && decision.reply.trim()
+        ? decision.reply.trim()
+        : settings.fallbackMessage;
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);

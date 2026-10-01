@@ -1,6 +1,6 @@
 import {
   claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
-  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage,
+  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage, setLockedLanguage,
   setLeadProfile, markIntroduced, reconcileContactWaId,
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
   optOutContact,
@@ -13,7 +13,6 @@ import { getSettings } from './settings.js';
 import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
 import { pushHandoff, maybeSendMedia, maybeSendPaymentLink, maybeSendReaction } from './handlers/message.js';
 import { MetaApiError } from './meta/client.js';
-import { DOWNGRADE_HOLDING_MESSAGE } from './ai/holding.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
 // hands stalled chats back to the bot, and the weekly learning pass. In
@@ -216,6 +215,9 @@ async function processResumeReplyForRow(deps, settings, row, context) {
   if (decision?.replyLanguage) {
     await setReplyLanguage(pool, row.id, decision.replyLanguage);
   }
+  if (decision?.languageLock !== undefined) {
+    await setLockedLanguage(pool, row.id, decision.languageLock);
+  }
   if (decision) {
     await markIntroduced(pool, row.id);
   }
@@ -235,36 +237,11 @@ async function processResumeReplyForRow(deps, settings, row, context) {
     if (!bypassGate && !(await isLeadQualifiedEnough(pool, row.id))) {
       log.info(
         { conversationId: row.id, reason, reasonCategory },
-        `${context}: ai wanted to hand off but lead is not qualified yet, regenerating reply as an answer`,
+        `${context}: ai wanted to hand off but lead is not qualified yet, treating as a plain answer`,
       );
-      let downgradeReply = null;
-      try {
-        const sticky = await getActivePackIds(pool, row.id);
-        const packs = ['base'];
-        if (row.topic_id) packs.push(Number(row.topic_id));
-        for (const id of sticky) if (!packs.includes(id)) packs.push(id);
-        const regen = await buildReply(pool, ai, settings, row.id, {
-          packs,
-          faqBudgetTokens: deps.config.faqBudgetTokens,
-          allowPackRequests: false,
-          enforceNoHandoff: true,
-        });
-        // Same guard as respondToLead: if the model insists on handing off a
-        // second time, its reply is still the misleading "connecting you"
-        // text - drop it and let the canned holding line take over.
-        if (regen && !regen.handoff && regen.reply && regen.reply.trim()) {
-          downgradeReply = regen.reply.trim();
-        }
-        if (regen?.replyLanguage) {
-          await setReplyLanguage(pool, row.id, regen.replyLanguage);
-        }
-        if (regen?.leadProfile) {
-          await setLeadProfile(pool, row.id, regen.leadProfile);
-        }
-      } catch (err) {
-        log?.warn({ conversationId: row.id, err }, `${context}: downgrade regen failed, using canned fallback`);
-      }
-      const holding = downgradeReply || DOWNGRADE_HOLDING_MESSAGE;
+      const holding = decision.reply && decision.reply.trim()
+        ? decision.reply.trim()
+        : settings.fallbackMessage;
       const { wamid, waId } = await meta.sendText(row.wa_id, holding);
       if (wamid) {
         await recordOutbound(pool, { conversationId: row.id, waMessageId: wamid, body: holding });

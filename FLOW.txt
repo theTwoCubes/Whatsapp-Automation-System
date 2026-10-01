@@ -1,0 +1,349 @@
+WhatsApp AI assistant - complete flow of every scenario and the ideal outcome
+=============================================================================
+
+This document describes exactly what the bot should do for every situation it
+can encounter. Keep this file in sync with changes to src/ai/reply.js (the
+prompt), src/handlers/message.js (the webhook dispatcher), and src/scheduler.js
+(auto-resume + handback catch-up).
+
+LAST UPDATED: after the "simplify + raise qualification bar" round.
+
+
+A. CONVERSATION STATE MACHINE
+=============================
+
+Every conversation is in exactly one state at a time:
+
+  bot       The AI replies to inbounds. Default for every new chat.
+  pending   The AI escalated and asked for a human. No one has claimed it yet.
+            Bot stays quiet. Agents see it in the inbox.
+  human     An agent owns the chat (accepted a handoff, or messaged first).
+            Bot stays quiet.
+
+Transitions:
+  bot -> pending      AI chose action=handoff AND the qualification gate
+                      passed (business + email + address + requirement all
+                      set). Also: a complaint handoff bypasses the gate.
+  bot -> human        An agent messaged a bot-owned chat from the console
+                      (implicit claim).
+  pending -> human    Agent clicked Accept.
+  pending -> bot      Agent clicked Reject OR auto-resume fired after
+                      resumeMinutes with no one touching it.
+  human -> bot        Agent clicked Resume bot (manual handback) OR
+                      auto-resume fired after resumeMinutes of silence.
+
+
+B. WHAT THE BOT DOES ON EACH INBOUND
+====================================
+
+1. INBOUND LANDS (webhook from Meta)
+   - Message is stored. Contact is upserted with WhatsApp profile name,
+     phone (= wa_id).
+   - If the contact is opted-out, system auto-replies with the opt-out
+     message and stops drips. Nothing else happens.
+   - If the conversation is in pending or human state, bot stays silent;
+     the on-duty agent gets an in-app notification only (push suppressed
+     if the chat is already open).
+   - If the message is a reaction (emoji on a prior message), it's
+     recorded but no reply fires.
+   - If the message is an image/document/video with a caption, the caption
+     is extracted as the lead's actual text. The caption + file go through
+     together.
+   - For images/PDFs (without caption text), the vision pipeline runs:
+     Gemini first, OpenAI as fallback. A short factual note ("a logo with
+     the text Acme in blue") rides alongside "Sent an image" into the AI
+     prompt. If both providers fail, the AI is told the file arrived but
+     is unreadable this turn - it must acknowledge receipt, never claim
+     the file wasn't received.
+
+2. BATCHER DEBOUNCE
+   Multiple rapid messages inside the debounce window (default 30ms,
+   max wait 200ms) are coalesced into one AI call so a lead typing in
+   bursts gets one coherent reply instead of three.
+
+3. PEER-BOT SAFETY NET
+   Runs before the AI call. If this conversation has had 6+ outbound
+   replies in the last 15 minutes AND no lead info (no name, no
+   business), the conversation is silently marked as peer_bot and no
+   further replies go out. Protects against WhatsApp Business auto-reply
+   loops.
+
+4. AI DECISION (buildReply)
+   The AI returns ONE JSON object per turn with an action field. The seven
+   possible actions:
+
+   answer         Reply normally. May include send_media_id,
+                  send_payment_link_id, send_hosted_link_id to attach a
+                  file/link curated by the admin. May include lead_* fields
+                  if the customer volunteered name/business/email/etc.
+                  May include payment_claimed: true on the turn the lead
+                  states they have paid.
+
+   warn           Firm but polite warning for prompt injection, abuse, or
+                  attempts to make the AI pretend to be someone else.
+                  State stays at bot.
+
+   block          Final message, then the conversation is blocked. No more
+                  AI replies to this contact. Used after a warn did not land
+                  or on threats/harassment.
+
+   handoff        Transfer to a human. See section C for the full rules.
+
+   mark_as_bot    The other side is clearly another business's auto-reply,
+                  a WhatsApp Business bot, a menu-tree system. Silently
+                  blocks the conversation. No reply, no notification.
+
+   opt_out        Honours a request to stop getting messages ("please stop
+                  texting me"). Stops drips for this contact everywhere,
+                  but they can still message in later and get a normal reply.
+                  Not a block.
+
+   need_packs     The AI asks for an additional service knowledge pack it
+                  wasn't shown. System pulls it in and calls the AI again
+                  (max once per turn, so no infinite loop).
+
+5. POST-DECISION
+   - replyLanguage is persisted on the conversation (running memory for
+     the next turn).
+   - languageLock: if the AI explicitly set it (customer asked to switch),
+     it's persisted; if the AI set null, the lock is cleared; omitted
+     means leave as-is.
+   - leadProfile fields (name/business/email/address/requirement/budget/
+     timeline) are persisted on the contact.
+   - Drips are scheduled or re-scheduled.
+   - On handoff: the chat moves to pending AND an admin push + inbox
+     notification go out.
+   - On payment_claimed: the team gets a one-time push, chat stays with bot.
+
+
+C. HANDOFF - WHEN AND HOW
+=========================
+
+The AI is allowed to hand off ONLY in two scenarios:
+
+(1) QUALIFIED LEAD READY TO MOVE FORWARD
+    All four of these must be set on the contact, by the customer actually
+    telling the AI in words (not inferred, not from the WhatsApp profile):
+      - business   (what their business is or what the project is for)
+      - email      (where the team can reach them)
+      - address    (city or full address)
+      - requirement (concrete description of what they want done)
+    AND the AI judges they're genuinely ready for a human (agreed to a
+    next step, said they've paid, clearly want to move forward).
+
+(2) GENUINE SPECIFIC COMPLAINT
+    Customer reports something is broken/wrong/missing. Bypasses the four-
+    field check - a real issue does not wait.
+
+If any field in (1) is missing and it's not a complaint, the server-side
+qualification gate downgrades the handoff: discard the handoff flag,
+send the AI's reply as a plain answer, keep state at bot. The AI should
+have asked for the missing field instead of handing off - the prompt
+tells it this explicitly. The gate is the safety net.
+
+If an AI outage synthesises a handoff (fallback when both providers are
+down), the gate bypasses too - we can't ask the AI to collect more info
+when the AI is down.
+
+Phone and name are deliberately NOT in the qualification checklist. Phone
+comes from the WhatsApp number itself. Name comes from the WhatsApp
+profile - the customer never "told" us; they'd have to say "my actual
+name is X" and that's rare on WhatsApp.
+
+
+D. ADMIN CONSOLE ACTIONS
+========================
+
+Accept (on pending)      state -> human, assignee = this agent. Suggested
+                         agent cleared. Bot stays quiet.
+
+Reject (on pending)      state -> bot. Clears handoff reason and suggested
+                         agent. If the last message on the thread is still
+                         an unanswered inbound, catch-up fires: bot replies
+                         to it now. Previously reject assigned the chat to
+                         the rejecting agent - that was confusing and has
+                         been changed to just send it back to the bot.
+
+Resume bot (handback)    From human-owned to bot. Same catch-up: if there
+                         is an unanswered inbound, bot picks it up now.
+
+Agent replies while
+state is bot             Implicit accept: state -> human, assignee = this
+                         agent. Bot stays quiet from here.
+
+
+E. LANGUAGE RULES
+=================
+
+Default: AI matches the customer's most recent message.
+  English in -> English out.
+  Hindi or Hindi/English mix in -> Hinglish out (Roman script, phonetic
+    spelling, English words kept English where they fit naturally).
+  Gujarati in -> Gujarati out.
+
+NEVER pure translated Devanagari for a Hindi-writing customer. "Haan Sir,
+aapka logo mil gaya" good. "जी हाँ सर, आपका लोगो प्राप्त हो गया" bad.
+
+English-only glossary (these words always stay English regardless of
+chat language): "Scientific Logo Design", "Brand Identity", "logo",
+"brand", "analysis", "design", "portfolio", "website", "email", "call",
+"meeting", "review", "payment", "invoice", "quote", "timeline", "budget",
+"team", "designer", "package", and the business name / person names /
+links / phone numbers / addresses.
+
+LANGUAGE LOCK (new):
+  When the customer explicitly asks to switch language ("reply in
+  English", "Hindi me baat karo", "Gujarati please"), the AI returns
+  language_lock: "English" (or whichever). This is persisted on the
+  conversation. From that turn on, the AI's prompt says "LANGUAGE LOCK:
+  use <language> on every turn regardless of what they write" - the
+  default "match most recent message" rule is overridden.
+
+  Customer can clear the lock by asking to go back to free-flowing ("koi
+  bhi chalega", "whatever you prefer") - AI returns language_lock: null.
+
+  Omitting the language_lock field entirely leaves the lock state
+  unchanged.
+
+
+F. CONTACT-INFO SHARING
+=======================
+
+Website / email / Instagram:
+  Share only when the customer specifically asks ("what's your website?",
+  "aapki website kya hai?"). Never dumped as a signature block. If they
+  ask, the URL IS the answer - share it warmly.
+
+Phone number:
+  Reserved for qualified leads (business + email + address + requirement
+  known). If someone asks for the phone early, warmly say the team will
+  personally reach out once you know a bit more, then keep collecting the
+  missing fields.
+
+
+G. FORMATTING
+=============
+
+- Plain text only. No markdown, bold, bullet points, numbered lists, or
+  dashes used as bullets. WhatsApp does not render them.
+- Short paragraphs (one or two sentences each). Use literal \n\n between
+  distinct thoughts so the message is scannable.
+- Lead with the answer. Context or follow-up questions on new lines.
+- Never a signature block (website/email/phone footer).
+
+NEVER LOOP: the AI is explicitly told not to send the same message or a
+paraphrase of it twice in a row. If a question didn't get an answer, try
+a different angle or stop asking - never repeat verbatim.
+
+
+H. VISION (image/document attachment reading)
+=============================================
+
+Try Gemini first (configured model, default gemini-2.5-flash).
+On failure or missing key, fall back to OpenAI (gpt-4o-mini, pinned - we
+don't reuse config.openaiModel because the admin might have set a non-
+vision model for chat).
+
+Primary timeout: 12s. Fallback timeout: 8s. Worst-case total: 20s.
+
+If both fail: no note is attached, the AI is told the file arrived but
+is unreadable this turn. The AI must acknowledge receipt and continue -
+never say "I didn't receive your file" or ask the customer to resend.
+
+Only images and PDFs go to Gemini; only images go to OpenAI (its chat
+vision doesn't support PDFs). Audio and video attachments are not read.
+
+Per-hour cap: mediaAnalysisMaxPerHour (default 6) per conversation.
+
+
+I. KNOWLEDGE INPUTS AVAILABLE TO THE AI
+=======================================
+
+Every reply, the AI is shown:
+  - The "About the business" context from Setup
+  - Contact details on file (website/email/phone) with sharing rules
+  - FAQ answers for the base pack + any active service packs
+  - A catalog of media files it can send (admin-curated)
+  - A catalog of payment links (admin-curated)
+  - A catalog of hosted links (external URLs for oversized/dynamic
+    assets - demo reels, portfolio pages)
+  - A catalog of OTHER service packs it can request (via need_packs)
+  - "About the customer" block: name, business, email, address, lead
+    details, chat age, turn count, source service, running language,
+    language lock, whether the bot has introduced itself
+  - The last 30 turns of history (long messages truncated at 1500 chars)
+
+Service packs are pulled in automatically by keyword matching the inbound
+and (if the AI asks) by need_packs. They become sticky for the rest of
+the conversation once pulled in.
+
+
+J. DRIPS (FOLLOW-UPS)
+=====================
+
+After every bot reply, drip jobs are scheduled per the active service
+pack (or the general sequence from settings if no service matches). If
+the lead replies before a drip fires, the drip is cancelled - don't bother
+leads who are already engaged.
+
+Opted-out contacts get NO drips, ever. Blocked contacts same.
+Handoff cancels pending drips - a human owns it now.
+
+
+K. ERROR / EDGE PATHS
+=====================
+
+AI provider outage (both OpenAI and Gemini down):
+  Synthesised handoff with the fallback message. The push notification is
+  suppressed on this path - a 30s provider blip shouldn't ping every
+  agent for every inbound. The in-app notification still writes.
+
+Catch-up race (admin clicks Resume bot while a customer inbound arrives
+at the same moment):
+  pg advisory lock on conversation_id serializes the two catch-up calls.
+  Webhook flow does NOT take the lock, but the "last message is still
+  inbound" guard inside catchUpAfterHandback runs AFTER the lock is held,
+  so a webhook that beat us to it means we exit without sending.
+
+Opt-out keyword:
+  "STOP", "unsubscribe", "please take me off your list", or the same in
+  Hindi/Gujarati are caught by a hard keyword list BEFORE the AI is even
+  called. Also honoured by action: "opt_out" from the AI.
+
+
+L. NOTIFICATION TRIGGERS (what wakes the team up)
+=================================================
+
+Pushes fired:
+  - AI-decided handoff (unless the chat is muted or synthetic from
+    outage)
+  - payment_claimed (lead self-reports a payment)
+  - Inbound on a human-owned chat - routed ONLY to the assignee, not the
+    whole team
+
+Silent (in-app inbox only, no push):
+  - mark_as_bot (peer bot detected)
+  - Peer-bot safety net auto-trip (6+ replies, no lead info)
+  - opt_out
+  - block
+  - warn
+  - AI outage synthetic handoff
+
+
+M. CONFIGURATION KNOBS
+======================
+
+(Settings tab in admin)
+  - AI providers: OpenAI + Gemini keys and models. Chat uses the preferred
+    provider first, falls back to the other. Vision has its own fallback
+    chain.
+  - Business tone + about + bot name
+  - Fallback message, handoff message, opt-out message
+  - FAQ budget tokens (how much FAQ text goes into each prompt)
+  - Resume minutes (after how long a stalled human-owned chat auto-returns
+    to the bot)
+  - Media analysis per-hour cap
+  - Drip steps (general + per-service)
+
+
+END.

@@ -59,7 +59,7 @@ test('handing off to a human cancels the drips', async () => {
   assert.equal(await pending(), 3);
 
   // Server-side gate requires qualified lead before a handoff clears.
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G2', body: 'can I talk to a human' }), d);
   assert.equal(await pending(), 0, 'no follow ups once a human is involved');
@@ -180,7 +180,7 @@ test('due follow ups are skipped once a human owns the conversation', async () =
   // First message gets an answer, then pre-qualify + hand off so the gate
   // lets the escalation through.
   await processWebhook(inboundText({ id: 'wamid.G0', body: 'hi' }), d);
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G1', body: 'talk to a human' }), d);
   const conv = await firstConversation();

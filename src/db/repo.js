@@ -286,7 +286,7 @@ export async function getConversationContext(pool, conversationId) {
   const res = await pool.query(
     `select ct.name as contact_name, ct.business as contact_business, ct.email as contact_email,
             ct.address as contact_address, ct.lead_details as contact_lead_details,
-            c.created_at, c.reply_language, c.introduced_at,
+            c.created_at, c.reply_language, c.locked_language, c.introduced_at,
             t.name as topic_name,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
              and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
@@ -305,6 +305,15 @@ export async function getConversationContext(pool, conversationId) {
 // limited history window each time.
 export async function setReplyLanguage(pool, conversationId, language) {
   await pool.query('update conversations set reply_language = $2 where id = $1', [conversationId, language]);
+}
+
+// Hard language lock: set when the customer explicitly asks to switch
+// language ("reply in English", "Hindi me baat karo"). While set, the prompt
+// tells the AI to use this language regardless of what the customer writes
+// on later turns. Clearing it (passing null) returns to the usual "match
+// the latest customer message" behaviour.
+export async function setLockedLanguage(pool, conversationId, language) {
+  await pool.query('update conversations set locked_language = $2 where id = $1', [conversationId, language]);
 }
 
 // Marks that the bot has introduced itself in this chat, so the prompt never
@@ -760,26 +769,27 @@ export async function markConversationAsPeerBot(pool, conversationId, reason) {
 // the contact have any identifying details captured. If we have sent a lot
 // and know nothing about who we are talking to, the far side is very likely
 // a bot even if the AI itself has not flagged it yet.
-// Minimum bar for an AI-initiated handoff. A qualified lead has at least
-// their name AND either a business/email/address OR a real requirement/budget/
-// timeline in lead_details. Complaint-driven handoffs bypass this check
-// upstream - the point of the floor is to stop the AI escalating strangers
-// with no context, not to block a genuine issue.
+// Hard bar for an AI-initiated handoff. Before the bot can escalate, the
+// customer has to have actually TOLD us all of: what their business/project
+// is, their email, their address, and what specifically they want. Phone is
+// implicit (the WhatsApp number). Name is implicit (comes from the WhatsApp
+// profile) but is still a soft signal - we do not include it here because it
+// is always present and would be a free pass.
+//
+// Inferring a requirement from the service the customer walked in asking
+// for ("mujhe logo design chahiye") does NOT count - the AI must have asked
+// a follow-up and gotten a concrete answer; the lead_* fields are the
+// system's single source of truth that this happened.
+//
+// Complaint handoffs bypass this check upstream - a real issue does not
+// wait on a qualification checklist.
 export async function isLeadQualifiedEnough(pool, conversationId) {
-  // The jsonb `?` operator returns true for an empty-string value, and the
-  // AI (or an admin edit) occasionally writes {"budget": ""} on a turn where
-  // it thought a value was being volunteered but the customer said nothing
-  // concrete. Trim + null-check both sides so a blank string cannot silently
-  // qualify a stranger.
   const res = await pool.query(
     `select
-       nullif(btrim(coalesce(ct.name, '')), '')     as name,
        nullif(btrim(coalesce(ct.business, '')), '') as business,
        nullif(btrim(coalesce(ct.email, '')), '')    as email,
        nullif(btrim(coalesce(ct.address, '')), '')  as address,
-       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement,
-       nullif(btrim(coalesce(ct.lead_details->>'budget', '')), '')      as budget,
-       nullif(btrim(coalesce(ct.lead_details->>'timeline', '')), '')    as timeline
+       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement
      from contacts ct
      join conversations c on c.contact_id = ct.id
      where c.id = $1`,
@@ -787,10 +797,7 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
   );
   const row = res.rows[0];
   if (!row) return false;
-  const hasName = Boolean(row.name);
-  const hasOrgField = Boolean(row.business || row.email || row.address);
-  const hasIntentField = Boolean(row.requirement || row.budget || row.timeline);
-  return hasName && (hasOrgField || hasIntentField);
+  return Boolean(row.business && row.email && row.address && row.requirement);
 }
 
 export async function recentOutboundStats(pool, conversationId, minutes = 15) {

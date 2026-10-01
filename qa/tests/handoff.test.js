@@ -60,7 +60,7 @@ async function pendingConversation(from) {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
   const shared = { meta: new FakeMeta(), ai, pool, config: testConfig, log: silentLog };
   await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'hi' }), shared);
-  await pool.query("update contacts set business = 'ACME Studio' where wa_id = $1", [waId]);
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic') where wa_id = $1", [waId]);
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), shared);
   return (
@@ -89,7 +89,7 @@ test('the ai can still hand off after an attachment, once it judges the lead is 
   // Land the contact and pre-qualify so the server-side handoff gate lets
   // the escalation clear.
   await processWebhook(inboundText({ id: 'wamid.att2a', body: 'hi' }), shared);
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({
     action: 'handoff', reply: 'Connecting you now.', reason: 'qualified: paid the analysis fee for a logo review',
   });
@@ -178,29 +178,17 @@ test('POST /handback catches up on an unanswered inbound end-to-end', async () =
   await app.close();
 });
 
-test('rejecting a pending handoff makes the rejecting agent the owner, not the bot', async () => {
+test('rejecting a pending handoff sends it straight back to the bot', async () => {
+  // Reject now means "the AI should not have escalated this", so the chat
+  // returns to the bot - no human owner, no handoff reason - and the bot
+  // picks up the next inbound. Previously reject assigned the chat to the
+  // rejecting agent, which read as the opposite of what the admin meant.
   const id = await pendingConversation();
-  const app = await buildApp();
+  const { app } = await buildAppWithDeps();
   const token = await tokenFor(app);
   const h = { authorization: `Bearer ${token}` };
 
   const res = await app.inject({ method: 'POST', url: `/api/conversations/${id}/reject`, headers: h });
-  assert.equal(res.statusCode, 200);
-
-  const conv = await getConversationById(pool, id);
-  assert.equal(conv.state, 'human');
-  assert.equal(conv.assignee, 'a@b.com');
-  await app.close();
-});
-
-test('handback gives a rejected-then-claimed conversation back to the bot', async () => {
-  const id = await pendingConversation();
-  const app = await buildApp();
-  const token = await tokenFor(app);
-  const h = { authorization: `Bearer ${token}` };
-
-  await app.inject({ method: 'POST', url: `/api/conversations/${id}/reject`, headers: h });
-  const res = await app.inject({ method: 'POST', url: `/api/conversations/${id}/handback`, headers: h });
   assert.equal(res.statusCode, 200);
 
   const conv = await getConversationById(pool, id);

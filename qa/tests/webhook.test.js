@@ -87,7 +87,7 @@ test('asking for a human queues the conversation and stops the bot', async () =>
   const d = deps({ ai });
   // Pre-qualify so the server-side handoff gate lets the escalation through.
   await processWebhook(inboundText({ id: 'wamid.H1a', body: 'hi' }), d);
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   await processWebhook(inboundText({ id: 'wamid.H1', body: 'can I talk to a human please' }), d);
 
   const conv = await pool.query('select state, handoff_reason from conversations limit 1');
@@ -141,7 +141,7 @@ test('once a handoff is pending the bot stays quiet', async () => {
   // Seed enough on the contact that the server-side qualification gate lets
   // the handoff go through; without this the gate downgrades to answer, and
   // the point of THIS test is the post-handoff-quiet behavior.
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   await processWebhook(inboundText({ id: 'wamid.H2b', body: 'yes, please connect me' }), d);
   const sendsAfterHandoff = d.meta.sends.length;
 
@@ -213,46 +213,25 @@ test('ai failure falls back to a canned reply instead of going silent', async ()
   assert.equal(d.meta.sends[0].body, testConfig.fallbackMessage);
 });
 
-test('an unqualified ai handoff is downgraded, and a stubborn model falls through to the canned holding line', async () => {
-  // The AI wants to hand off but the lead has no business/requirement beyond
-  // the fixture-default name. The gate downgrades and runs a regen with
-  // enforceNoHandoff; if the (mocked) model returns handoff a SECOND time,
-  // its reply is still the misleading "connecting you" text - so the fix
-  // now discards it and falls through to the canned holding message. State
-  // stays with the bot and drips are still scheduled.
+test('an unqualified ai handoff is downgraded and the ai\'s reply goes out as a plain answer', async () => {
+  // The gate blocks the handoff because the contact does not have all four
+  // required fields (business, email, address, requirement). We discard the
+  // handoff flag, send decision.reply as-is, keep state at bot. One AI call
+  // per turn - no regen dance. The prompt is where this gets prevented in
+  // the first place; the gate is the thin safety net.
   const ai = new FakeAi(
-    JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you.', reason: 'customer asked for a person' }),
+    JSON.stringify({ action: 'handoff', reply: 'Haan bilkul, pehle thoda bata denge aapka business kya hai?', reason: 'customer asked for a person' }),
   );
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.GATE1', body: 'talk to a human please' }), d);
 
   const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'bot', 'unqualified handoff stays with the bot, not queued for a person');
-  assert.equal(ai.calls, 2, 'gate downgrade always runs a regen');
-  assert.equal(d.meta.sends.length, 1, 'the holding message still went out');
-  assert.doesNotMatch(d.meta.sends[0].body, /connecting you/i, 'the misleading handoff-tone reply must never be sent to the customer');
-  assert.match(d.meta.sends[0].body, /name|business/i, 'the canned holding line asks for missing details instead');
-  const drips = await pool.query('select count(*)::int as n from drip_jobs');
-  assert.ok(drips.rows[0].n > 0, 'drips still get scheduled so the lead is not dropped after downgrade');
-});
-
-test('the downgrade regenerates the reply via a second AI call, not reuse the handoff-tone line', async () => {
-  // The AI wants to hand off with a "connecting you" reply, but the lead is
-  // not qualified. The gate should downgrade, and the second call (with
-  // enforceNoHandoff) should produce the actual reply the customer sees -
-  // not the original "connecting you now" text, which would be a lie.
-  const ai = new FakeAi().queueReplies(
-    JSON.stringify({ action: 'handoff', reply: 'Sure, connecting you now.', reason: 'customer asked for a person' }),
-    JSON.stringify({ action: 'answer', reply: 'Haan bilkul, team se personally connect karvate hain - bas pehle aapka naam aur business bata dijiye?' }),
-  );
-  const d = deps({ ai });
-  await processWebhook(inboundText({ id: 'wamid.REGEN1', body: 'kisi human se baat karwao' }), d);
-
-  assert.equal(ai.calls, 2, 'the downgrade path made a second AI call to regenerate');
-  const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'bot', 'still with the bot');
+  assert.equal(conv.rows[0].state, 'bot', 'unqualified handoff stays with the bot');
+  assert.equal(ai.calls, 1, 'one AI call per turn - no regen');
   assert.equal(d.meta.sends.length, 1);
-  assert.match(d.meta.sends[0].body, /naam aur business/, 'the regenerated (non-handoff) reply was sent, not the original connecting-you line');
+  assert.match(d.meta.sends[0].body, /business/, "the ai's reply goes out as a plain answer");
+  const drips = await pool.query('select count(*)::int as n from drip_jobs');
+  assert.ok(drips.rows[0].n > 0, 'drips still get scheduled after downgrade');
 });
 
 test('an empty-string budget in lead_details does not qualify a lead', async () => {
@@ -288,7 +267,7 @@ test('the ai can decide on its own to hand a chat to a human', async () => {
   const d = deps({ ai });
   // Land the contact first, then pre-qualify so the handoff clears the gate.
   await processWebhook(inboundText({ id: 'wamid.AI0', body: 'hi there' }), d);
-  await pool.query("update contacts set business = 'ACME Studio'");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
   await processWebhook(inboundText({ id: 'wamid.AI1', body: 'can you do 2000 instead of 5000?' }), d);
 
   const conv = await pool.query('select state, handoff_reason from conversations limit 1');

@@ -866,10 +866,28 @@ export function registerApi(app, deps) {
     if (conversation.state !== 'pending') {
       return reply.code(409).send({ error: 'this conversation is not waiting on a handoff' });
     }
-    await handToHuman(pool, req.params.id, req.user.email);
+    // Reject means "the AI should not have escalated this, send it back".
+    // State goes to bot, not to the rejecting agent, so the bot picks up the
+    // next inbound. Previously this handed to the rejecting agent (making
+    // them owner) which was confusing for the client - rejecting read as
+    // "I don't want this" but ended up assigning it to them anyway.
+    await handToBot(pool, req.params.id);
     await audit(req, 'handoff rejected', `conversation ${req.params.id}`);
     realtime.emit({ type: 'refresh', conversationId: req.params.id });
-    return { ok: true };
+
+    // Same catch-up semantics as /handback - if the lead's last message is
+    // waiting unanswered (which is usually the case on reject), the bot
+    // replies to it now instead of leaving them hanging. Awaited so errors
+    // surface in the response rather than being lost to an unhandled
+    // rejection.
+    let caughtUp = false;
+    try {
+      caughtUp = await catchUpAfterHandback(deps, Number(req.params.id));
+    } catch (err) {
+      app.log?.warn({ conversationId: req.params.id, err }, 'reject catch-up failed');
+    }
+
+    return { ok: true, caughtUp };
   });
 
   app.get('/api/templates', { preHandler: auth }, async () => ({ templates: await listTemplates(pool) }));
