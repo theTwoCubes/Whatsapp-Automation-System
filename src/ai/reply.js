@@ -304,7 +304,7 @@ function contactLines(config) {
     lines.push(
       'Contact details you know (do not invent any others):',
       ...openFacts,
-      '- Share the website, email or Instagram ONLY when the customer specifically asks how to reach the team, where to see more work, or a similar direct question - and even then, share only the one they asked for (or the most fitting one), never all of them together.',
+      '- Share the website, email or Instagram ONLY when the customer specifically asks how to reach the team, where to see more work, or a similar direct question - and even then, share only the one they asked for (or the most fitting one), not all of them together.',
       '- If they DO ask directly - "what is your website?", "can I see your portfolio?", "aapki website kya hai?" - the answer IS the link. Share it, warmly. That is not a signature block, that is answering the actual question.',
       '- Do NOT paste these at the bottom of an unrelated reply as a signature. Real people do not do that on WhatsApp and it reads as spam.',
     );

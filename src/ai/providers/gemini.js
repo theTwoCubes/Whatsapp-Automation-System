@@ -1,5 +1,4 @@
-// Google Gemini via the REST API, so no extra SDK dependency. Takes the same
-// message shape as the OpenAI provider and returns raw text, throwing on error.
+// Google Gemini via the REST API, so no extra SDK dependency. Takes the same message shape as the OpenAI provider and returns raw text, throwing on error.
 export class GeminiProvider {
   constructor(apiKey, model) {
     this.name = 'gemini';
@@ -24,10 +23,6 @@ export class GeminiProvider {
       contents,
       generationConfig: {
         temperature: 0.6,
-        // Was 400 - too tight for a longer reply or a non-Latin script
-        // (Hindi/Gujarati costs far more tokens per sentence than English),
-        // which truncated the JSON mid-string with no error, wrongly read
-        // downstream as an unconditional handoff instead of a real failure.
         maxOutputTokens: 1024,
         ...(options.json ? { responseMimeType: 'application/json' } : {}),
       },
@@ -48,10 +43,6 @@ export class GeminiProvider {
       throw new Error(data.error?.message ?? `Gemini returned HTTP ${res.status}`);
     }
     const candidate = data.candidates?.[0];
-    // A truncated response is not usable output, but it also isn't a thrown
-    // error by default - throwing here is what lets AiClient fail over to
-    // the other provider instead of silently treating garbage JSON as a
-    // deliberate handoff.
     if (candidate?.finishReason === 'MAX_TOKENS') {
       throw new Error('Gemini response was truncated by the output token limit');
     }
