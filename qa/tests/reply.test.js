@@ -379,7 +379,7 @@ test('reply_language is in the contract and the model gets told it has not settl
   await buildReply(pool, ai, testConfig, id, {});
   const system = ai.lastMessages[0].content;
   assert.match(system, /reply_language/);
-  assert.match(system, /Language \(read this/);
+  assert.match(system, /Language \(the client/);
   const leadSystem = ai.lastMessages[1].content;
   assert.match(leadSystem, /not settled on a language/i);
 });

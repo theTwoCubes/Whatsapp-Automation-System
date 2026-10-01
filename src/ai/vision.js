@@ -25,9 +25,12 @@ const OPENAI_SUPPORTED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 
 // gpt-3.5-turbo (or a future non-vision model) for chat cost reasons, and
 // this call would 400. gpt-4o-mini is both cheap and reliably vision-capable.
 const OPENAI_VISION_MODEL = 'gpt-4o-mini';
-// Per-provider timeout. Kept tight so a webhook batcher does not sit for
-// 40s waiting on two slow providers back-to-back (24s worst case now).
-const VISION_TIMEOUT_MS = 12000;
+// Per-provider timeouts. Primary (Gemini) gets the longer window since it is
+// the preferred path for most mime types; the fallback (OpenAI) runs tighter
+// so a dual failure still returns in roughly 20s rather than 24, keeping the
+// perceived "AI is typing" wait inside the typical attention span.
+const VISION_PRIMARY_TIMEOUT_MS = 12000;
+const VISION_FALLBACK_TIMEOUT_MS = 8000;
 
 function isGeminiSupported(mimeType) {
   return Boolean(mimeType) && (mimeType.startsWith('image/') || GEMINI_SUPPORTED_NON_IMAGE.has(mimeType));
@@ -56,7 +59,7 @@ async function describeViaGemini(config, buffer, mimeType) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
+    signal: AbortSignal.timeout(VISION_PRIMARY_TIMEOUT_MS),
   });
   const data = await res.json();
   if (!res.ok || data.error) {
@@ -88,7 +91,7 @@ async function describeViaOpenAi(config, buffer, mimeType) {
       Authorization: `Bearer ${config.openaiApiKey}`,
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
+    signal: AbortSignal.timeout(VISION_FALLBACK_TIMEOUT_MS),
   });
   const data = await res.json();
   if (!res.ok || data.error) {

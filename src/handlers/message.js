@@ -32,6 +32,7 @@ import {
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
+import { DOWNGRADE_HOLDING_MESSAGE } from '../ai/holding.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { getTopic } from '../knowledge/topics.js';
@@ -353,15 +354,6 @@ async function handleMessage(value, message, deps) {
 // whatever the threshold is instead of eating the API bill.
 const PEER_BOT_LOOP_MAX_REPLIES = 6;
 const PEER_BOT_LOOP_WINDOW_MIN = 15;
-
-// Last-resort text used only when the qualification-gate downgrade regen
-// fails or the model insists on handing off a second time. Deliberately
-// short and English (the regen almost always succeeds, so this rarely
-// fires); asks for the missing details so the conversation keeps moving
-// rather than stalling. Never says "connecting you" - that's the whole
-// point of this path.
-const DOWNGRADE_HOLDING_MESSAGE =
-  "Sure - could you share your name and a bit about what your business is or what you're looking for? That helps me point you to the right thing.";
 
 async function tripPeerBotSafetyNet(pool, conversationId, log) {
   const { recentOutbound, hasLeadInfo } = await recentOutboundStats(pool, conversationId, PEER_BOT_LOOP_WINDOW_MIN);
