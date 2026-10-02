@@ -157,6 +157,16 @@ function describeInboundBody(message, quickReplyText) {
     case 'button':
     case 'interactive':
       return quickReplyText ? `Tapped: ${quickReplyText}` : null;
+    case 'image':
+    case 'document':
+    case 'video':
+    case 'audio':
+      // Captions WhatsApp lets a lead attach to a file go on the message
+      // body itself so the console thread shows "lead's words + the file"
+      // (the media card renders separately above the body text). Without
+      // this the admin would only see the file icon with no idea what the
+      // customer actually wrote alongside it.
+      return message[message.type]?.caption?.trim() || null;
     case 'location': {
       const loc = message.location;
       return loc?.name ? `Location shared: ${loc.name}` : 'Location shared';
@@ -306,13 +316,18 @@ async function handleMessage(value, message, deps) {
 
   // Anything the lead sends that is not plain text or a quick-reply tap
   // (image, document, voice note, location, and so on) is no longer an
-  // automatic handoff - only a qualified lead gets passed to a person, and a
-  // file on its own says nothing about that either way. It goes through the
-  // exact same AI pipeline as a text message, just with a generic label
-  // instead of a body, and - for an image or PDF, within a rate limit - a
-  // short factual note on what it actually shows.
-  if (!effectiveText) {
-    effectiveText = `Sent a ${message.type}`;
+  // automatic handoff - only a qualified lead gets passed to a person, and
+  // a file on its own says nothing about that either way. It goes through
+  // the exact same AI pipeline as a text message. Caption text (if any)
+  // becomes effectiveText so the AI reads what the lead typed; vision runs
+  // IN ADDITION (not instead) and the factual note is stored on the message
+  // as attachment_context so the prompt sees "caption text - what the
+  // image shows" together. If there's no caption, effectiveText falls back
+  // to a generic "Sent a <type>" label.
+  const isAttachment = message.type === 'image' || message.type === 'document'
+    || message.type === 'video' || message.type === 'audio' || message.type === 'sticker';
+  if (isAttachment) {
+    if (!effectiveText) effectiveText = `Sent a ${message.type}`;
 
     if (message.type === 'image' || message.type === 'document') {
       const recentCount = await countRecentAttachments(pool, result.conversationId, 60);
@@ -331,7 +346,6 @@ async function handleMessage(value, message, deps) {
             const note = await describeAttachment(visionSettings, buffer, contentType, log);
             if (note) {
               await saveAttachmentContext(pool, result.messageId, note);
-              effectiveText = `${effectiveText} - ${note}`;
             }
           }
         } catch (err) {
@@ -339,6 +353,8 @@ async function handleMessage(value, message, deps) {
         }
       }
     }
+  } else if (!effectiveText) {
+    effectiveText = `Sent a ${message.type}`;
   }
 
   const items = await getBatcher(config).enqueueMessage(result.conversationId, {

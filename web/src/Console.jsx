@@ -2430,10 +2430,10 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                     ? (
                       <div className="flex flex-col gap-1.5">
                         <InboundAttachment message={m} />
-                        {m.body && <div className="pt-0.5 truncate">{m.body}</div>}
+                        {m.body && <div className="pt-0.5 whitespace-pre-wrap break-words">{m.body}</div>}
                       </div>
                     )
-                    : m.body
+                    : <span className="whitespace-pre-wrap break-words">{m.body}</span>
                   }
                   <span className={`flex items-center justify-end gap-1 text-xs font-semibold mt-1.5 ${m.direction === 'outbound' ? 'text-white/60' : 'text-gray-500'}`}>
                     {shortTime(m.sent_at || m.created_at)}
