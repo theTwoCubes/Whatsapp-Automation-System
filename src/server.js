@@ -210,7 +210,7 @@ export function buildServer(config, pool, realtime = createRealtime()) {
   // plugin. Adding a websocket route synchronously before the plugin finishes
   // loading means its onRoute hook never sees the route and the upgrade fails.
   app.register(async (instance) => {
-    registerApi(instance, { pool, meta, ai, config, realtime });
+    registerApi(instance, { pool, meta, ai, config, realtime, log: app.log });
   });
 
   // Serve the built console if it is there. Missing in dev and test, which is fine.
