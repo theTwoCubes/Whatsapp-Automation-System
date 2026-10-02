@@ -50,6 +50,7 @@ import {
   listAgents,
   createAgent,
   deleteAgent,
+  deleteMessages,
   setAgentRole,
   overview,
   listLeads,
@@ -888,6 +889,28 @@ export function registerApi(app, deps) {
     }
 
     return { ok: true, caughtUp };
+  });
+
+  // Multi-select message delete, like WhatsApp's own "delete for everyone"
+  // but scoped to this admin console only - we cannot unsend from the lead's
+  // phone, only purge from our side. The AI reads conversation history
+  // directly from this table, so a delete here also removes the message
+  // from the AI's context on the next turn - which is the whole point of
+  // this during testing. Admin-only on purpose: a deletion is irreversible
+  // and losing a message can mask a real support issue, so it is not an
+  // operation to leave open to every agent.
+  app.post('/api/conversations/:id/messages/delete', { preHandler: adminAuth, schema: idParams }, async (req, reply) => {
+    const ids = Array.isArray(req.body?.messageIds) ? req.body.messageIds : null;
+    if (!ids || ids.length === 0) {
+      return reply.code(400).send({ error: 'messageIds (a non-empty array of message ids) is required' });
+    }
+    if (ids.length > 500) {
+      return reply.code(400).send({ error: 'cannot delete more than 500 messages in one request' });
+    }
+    const deleted = await deleteMessages(pool, Number(req.params.id), ids);
+    await audit(req, 'messages deleted', `conversation ${req.params.id}`, `${deleted} message${deleted === 1 ? '' : 's'}`);
+    realtime.emit({ type: 'refresh', conversationId: req.params.id });
+    return { ok: true, deleted };
   });
 
   app.get('/api/templates', { preHandler: auth }, async () => ({ templates: await listTemplates(pool) }));

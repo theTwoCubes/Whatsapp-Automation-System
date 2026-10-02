@@ -9,7 +9,7 @@ import {
   Download, Film, Mic, Pencil, Bot, UserRound, MoreHorizontal, ArrowDown,
   Pin, PinOff, Archive, ArchiveRestore, BellOff, Bell, MoreVertical,
   ShieldBan, ShieldCheck, Trash2, Reply, Eraser, Smile, ListFilter, Plus,
-  IndianRupee,
+  IndianRupee, CheckSquare, Square,
 } from 'lucide-react';
 
 // Kept in sync with src/ai/reactions.js on the backend - the only emoji an
@@ -22,7 +22,7 @@ const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 // same-session shortcut to jump straight to it without waiting on that
 // fetch, and to drive the FAB's in-flight indicator at the Console root).
 const ACTIVE_BULK_BATCH_KEY = 'wa_console_active_bulk_batch';
-import { api, getToken } from './api.js';
+import { api, getToken, getAgentRole } from './api.js';
 import { BrandContext } from './brand.js';
 import {
   shortTime, groupByDay, templateParamCount,
@@ -2054,6 +2054,24 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
   const [replyTo, setReplyTo]             = useState(null);
   const [search, setSearch]               = useState('');
   const [showSearch, setShowSearch]       = useState(false);
+  // Multi-select delete, like WhatsApp. selectedIds is a Set of message ids;
+  // when non-empty the thread enters "selection mode" (checkboxes visible,
+  // bubble clicks toggle instead of reply, action bar at the bottom).
+  // Only admins can enter selection mode in the first place.
+  const [selectedIds, setSelectedIds]     = useState(() => new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting]           = useState(false);
+  const isAdminUser = getAgentRole() === 'admin';
+  const inSelectMode = selectedIds.size > 0;
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
   const endRef    = useRef(null);
   const inputRef  = useRef(null);
   const scrollRef = useRef(null);
@@ -2078,9 +2096,13 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
-  // On conversation switch always scroll to bottom
+  // On conversation switch always scroll to bottom and drop any pending
+  // selection so clicking into a different chat does not accidentally
+  // carry the delete queue over.
   useEffect(() => {
     setShowNewMsg(false);
+    clearSelection();
+    setConfirmDelete(false);
     setTimeout(() => endRef.current?.scrollIntoView({ block: 'end' }), 50);
   }, [conversation.id]);
 
@@ -2129,6 +2151,24 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
     const replyWamid = replyTo?.wa_message_id || null;
     act(() => api.send(conversation.id, text.trim(), replyWamid), 'Message sent');
     setReplyTo(null);
+  };
+
+  const performDelete = async () => {
+    if (selectedIds.size === 0 || deleting) return;
+    setDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await api.deleteMessages(conversation.id, ids);
+      haptic('Light');
+      toast.success(`Deleted ${res?.deleted ?? ids.length} message${(res?.deleted ?? ids.length) === 1 ? '' : 's'}`);
+      clearSelection();
+      setConfirmDelete(false);
+      await onChanged();
+    } catch (err) {
+      toast.error(err.message || 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // Quote lookup: resolve a message's reply_to_wamid to the referenced message
@@ -2402,6 +2442,12 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                       className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
                       <Smile size={15} />
                     </button>
+                    {isAdminUser && (
+                      <button type="button" onClick={() => toggleSelected(m.id)}
+                        className="text-gray-400 hover:text-gray-700" title="Select message" aria-label="Select message">
+                        <Square size={15} />
+                      </button>
+                    )}
                   </div>
                 )}
                 {picking && (
@@ -2413,11 +2459,14 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                   />
                 )}
                 <div
+                  onClick={inSelectMode ? () => toggleSelected(m.id) : undefined}
                   className={`
                     relative max-w-[85%] md:max-w-[72%] px-3 md:px-5 py-2 md:py-3 rounded-2xl text-sm md:text-lg leading-relaxed shadow-xs
                     break-words [overflow-wrap:anywhere]
                     ${m.direction === 'outbound' ? 'msg-outbound bg-gray-800 text-white rounded-br-sm' : 'msg-inbound bg-white text-gray-900 rounded-bl-sm border border-black/5'}
                     ${m.direction === 'outbound' ? 'pr-14' : ''}
+                    ${selectedIds.has(m.id) ? 'ring-2 ring-red-400 ring-offset-1' : ''}
+                    ${inSelectMode ? 'cursor-pointer' : ''}
                   `}
                 >
                   {quoted && (
@@ -2451,6 +2500,12 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
                 </div>
                 {m.direction !== 'outbound' && (
                   <div className="flex items-center gap-1 opacity-50 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    {isAdminUser && (
+                      <button type="button" onClick={() => toggleSelected(m.id)}
+                        className="text-gray-400 hover:text-gray-700" title="Select message" aria-label="Select message">
+                        <Square size={15} />
+                      </button>
+                    )}
                     <button ref={reactAnchorRef} type="button" onClick={() => setReactingTo(picking ? null : m.id)}
                       className="text-gray-400 hover:text-gray-700" title="React" aria-label="React">
                       <Smile size={15} />
@@ -2512,6 +2567,59 @@ function ChatThread({ thread, templates, onSync, onChanged, onCleared, onLoadOld
             onClose={() => setShowTemplates(false)}
             onSent={async () => { setShowTemplates(false); await onChanged(); }}
           />
+        )}
+
+        {/* Selection action bar - sits above the input when any message is
+            selected for delete. Mimics WhatsApp's own selection toolbar.
+            Admin-only (non-admins never see the select button on bubbles,
+            so inSelectMode cannot be true for them). */}
+        {inSelectMode && (
+          <div className="flex items-center gap-3 px-3 md:px-5 py-2 border-t border-gray-200 bg-gray-900 text-white">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-white/10 flex-shrink-0"
+              aria-label="Cancel selection"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-1 text-sm font-medium">
+              {selectedIds.size} selected
+            </div>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-red-500 hover:bg-red-600 text-white text-sm font-medium flex-shrink-0"
+            >
+              <Trash2 size={14} /> Delete
+            </button>
+          </div>
+        )}
+
+        {/* Delete confirmation modal */}
+        {confirmDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="dialog" aria-modal="true" onClick={() => !deleting && setConfirmDelete(false)}>
+            <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b border-gray-100">
+                <div className="text-base font-semibold text-gray-900">
+                  Delete {selectedIds.size} message{selectedIds.size === 1 ? '' : 's'}?
+                </div>
+                <div className="text-xs text-gray-500 mt-1.5">
+                  They will be removed from the conversation and from the AI's memory on the next reply. The lead's own WhatsApp will still show them - this only clears your side. This cannot be undone.
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50/70">
+                <button type="button" onClick={() => setConfirmDelete(false)} disabled={deleting}
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+                  Cancel
+                </button>
+                <button type="button" onClick={performDelete} disabled={deleting}
+                  className="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-md disabled:opacity-50">
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Reply preview - the message being quoted, with a cancel button */}

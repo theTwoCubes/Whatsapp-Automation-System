@@ -267,6 +267,25 @@ export async function updateStatus(pool, s) {
 }
 
 // Recent messages for a conversation in chronological order, for the AI context.
+// Hard-delete a set of messages from a conversation. Used by the console's
+// WhatsApp-style multi-select delete, mainly during testing so an admin
+// can prune a chat without wiping the whole thread. Scoped to the
+// conversation so an id from another chat is silently ignored, and
+// returns the number actually deleted so the client knows if some ids
+// were already gone. The AI reads conversation history straight from
+// this table, so a delete here is a delete from the AI's context too.
+export async function deleteMessages(pool, conversationId, messageIds) {
+  const ids = (Array.isArray(messageIds) ? messageIds : [])
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return 0;
+  const res = await pool.query(
+    'delete from messages where conversation_id = $1 and id = any($2::bigint[])',
+    [conversationId, ids],
+  );
+  return res.rowCount;
+}
+
 export async function getConversationHistory(pool, conversationId, limit = 12) {
   const res = await pool.query(
     `select direction, body, attachment_context from messages

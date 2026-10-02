@@ -182,6 +182,8 @@ export const api = {
   addPaymentLink: (body) => req('/payment-links', { method: 'POST', body: JSON.stringify(body) }),
   updatePaymentLink: (id, body) => req(`/payment-links/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePaymentLink: (id) => req(`/payment-links/${id}`, { method: 'DELETE' }),
+  deleteMessages: (conversationId, messageIds) =>
+    req(`/conversations/${conversationId}/messages/delete`, { method: 'POST', body: JSON.stringify({ messageIds }) }),
   hostedLinks: (topicId = null) => req(`/hosted-links${topicId ? `?topicId=${topicId}` : ''}`),
   addHostedLink: (body) => req('/hosted-links', { method: 'POST', body: JSON.stringify(body) }),
   updateHostedLink: (id, body) => req(`/hosted-links/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

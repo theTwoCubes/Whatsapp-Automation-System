@@ -497,6 +497,61 @@ test('a hosted link must be a real http or https url', async () => {
   await app.close();
 });
 
+test('admin can bulk-delete messages from a conversation and the AI no longer sees them', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+
+  // Seed three messages across one conversation.
+  await processWebhook(inboundText({ id: 'wamid.DEL1', body: 'first message' }), {
+    meta: new FakeMeta(), ai: new FakeAi(), pool, config: testConfig, log: silentLog,
+  });
+  await processWebhook(inboundText({ id: 'wamid.DEL2', body: 'second message' }), {
+    meta: new FakeMeta(), ai: new FakeAi(), pool, config: testConfig, log: silentLog,
+  });
+  await processWebhook(inboundText({ id: 'wamid.DEL3', body: 'third message' }), {
+    meta: new FakeMeta(), ai: new FakeAi(), pool, config: testConfig, log: silentLog,
+  });
+  const convId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+  const rows = (await pool.query('select id, body from messages where conversation_id = $1 order by id', [convId])).rows;
+  assert.ok(rows.length >= 3, 'three inbounds and (up to three) replies landed');
+
+  // Pick the first two messages' ids and delete them.
+  const toDelete = rows.slice(0, 2).map((r) => r.id);
+  const res = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${convId}/messages/delete`,
+    headers: auth(t),
+    payload: { messageIds: toDelete },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().deleted, 2);
+
+  const remaining = await pool.query('select id from messages where conversation_id = $1 and id = any($2::bigint[])', [convId, toDelete]);
+  assert.equal(remaining.rowCount, 0, 'deleted ids are actually gone from the table');
+
+  const audit = await pool.query("select action, detail from audit_log where action = 'messages deleted' order by id desc limit 1");
+  assert.ok(audit.rowCount > 0, 'the delete is written to the audit log');
+  assert.match(audit.rows[0].detail, /2 messages/);
+  await app.close();
+});
+
+test('bulk-delete rejects an empty id list', async () => {
+  const app = await buildApp(new FakeMeta());
+  const t = await token(app);
+  await processWebhook(inboundText({ id: 'wamid.DELE', body: 'hi' }), {
+    meta: new FakeMeta(), ai: new FakeAi(), pool, config: testConfig, log: silentLog,
+  });
+  const convId = (await pool.query('select id from conversations limit 1')).rows[0].id;
+  const res = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${convId}/messages/delete`,
+    headers: auth(t),
+    payload: { messageIds: [] },
+  });
+  assert.equal(res.statusCode, 400);
+  await app.close();
+});
+
 test('tags can be created, applied, listed on a conversation, and removed', async () => {
   const convId = await makeConversation();
   const app = await buildApp(new FakeMeta());
