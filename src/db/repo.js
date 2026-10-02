@@ -335,6 +335,48 @@ export async function setLockedLanguage(pool, conversationId, language) {
   await pool.query('update conversations set locked_language = $2 where id = $1', [conversationId, language]);
 }
 
+// Parks a retry timestamp on a conversation. The scheduler picks these up
+// after the delay, clears the field atomically, and runs one more buildReply
+// pass - used when the first pass produced a holding message because the AI
+// output was unparseable or empty, so a quiet retry gets us a real answer
+// without the lead having to nudge again.
+export async function scheduleRetry(pool, conversationId, delayMinutes = 5) {
+  await pool.query(
+    "update conversations set retry_at = now() + ($2 || ' minutes')::interval where id = $1",
+    [conversationId, String(delayMinutes)],
+  );
+}
+
+export async function clearRetryAt(pool, conversationId) {
+  await pool.query('update conversations set retry_at = null where id = $1', [conversationId]);
+}
+
+// Returns rows ready for a retry pass: bot-owned, with a retry_at in the past,
+// whose last message is still an inbound (otherwise there is nothing to catch
+// up on). Clearing retry_at is left to the caller so the scheduler can atomic
+// claim-then-run without racing with itself.
+export async function conversationsDueForRetry(pool, limit = 20) {
+  const res = await pool.query(
+    `select c.id, ct.wa_id, ca.topic_id,
+       (select m.wa_message_id from messages m
+        where m.conversation_id = c.id and m.direction = 'inbound'
+        order by m.created_at desc, m.id desc
+        limit 1) as last_inbound_wamid,
+       (select direction from messages m
+        where m.conversation_id = c.id
+        order by m.created_at desc, m.id desc
+        limit 1) as last_direction
+     from conversations c
+     join contacts ct on ct.id = c.contact_id
+     left join campaigns ca on ca.id = c.campaign_id
+     where c.state = 'bot' and c.retry_at is not null and c.retry_at <= now()
+     order by c.retry_at asc
+     limit $1`,
+    [limit],
+  );
+  return res.rows;
+}
+
 // Marks that the bot has introduced itself in this chat, so the prompt never
 // tells it to do so twice. Once set it never clears - a cleared chat still
 // counts as an already-met lead, not a stranger.

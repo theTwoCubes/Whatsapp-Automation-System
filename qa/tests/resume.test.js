@@ -1,8 +1,8 @@
 import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runAutoResume } from '../../src/scheduler.js';
-import { recordInbound } from '../../src/db/repo.js';
+import { runAutoResume, runRetryAttempts } from '../../src/scheduler.js';
+import { recordInbound, scheduleRetry } from '../../src/db/repo.js';
 import { handToHuman, handToPending } from '../../src/handoff.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
@@ -137,4 +137,59 @@ test('auto resume does nothing when disabled', async () => {
     log: silentLog,
   });
   assert.equal(resumed, 0);
+});
+
+async function botConversationWithPendingInbound() {
+  const { conversationId } = await recordInbound(pool, {
+    waId: '911111111113',
+    name: 'Stuck Lead',
+    waMessageId: `wamid.${Math.random()}`,
+    type: 'text',
+    body: 'hello?',
+    referral: null,
+    raw: {},
+  });
+  await pool.query("update conversations set state = 'bot' where id = $1", [conversationId]);
+  return conversationId;
+}
+
+test('a retry whose ai now returns a clean answer delivers that answer', async () => {
+  const id = await botConversationWithPendingInbound();
+  await scheduleRetry(pool, id, 0);
+
+  const meta = new FakeMeta();
+  const processed = await runRetryAttempts({
+    pool,
+    meta,
+    ai: new FakeAi(JSON.stringify({ action: 'answer', reply: 'Here is the real answer.' })),
+    config: testConfig,
+    log: silentLog,
+  });
+
+  assert.equal(processed, 1);
+  assert.equal(meta.sends.length, 1, 'the retry delivered the ai answer');
+  assert.match(meta.sends[0].body, /real answer/);
+  const retryAt = (await pool.query('select retry_at from conversations where id = $1', [id])).rows[0].retry_at;
+  assert.equal(retryAt, null, 'retry_at cleared after the attempt');
+});
+
+test('a retry whose ai is still broken stays silent instead of sending another holding line', async () => {
+  const id = await botConversationWithPendingInbound();
+  await scheduleRetry(pool, id, 0);
+
+  const meta = new FakeMeta();
+  // The AI returns garbage again - parseDecision will set parseFailed=true
+  // and synthesise handoff:true. The retry must not fire another fallback.
+  const processed = await runRetryAttempts({
+    pool,
+    meta,
+    ai: new FakeAi('not valid json at all'),
+    config: testConfig,
+    log: silentLog,
+  });
+
+  assert.equal(processed, 1);
+  assert.equal(meta.sends.length, 0, 'no second holding message was sent');
+  const retryAt = (await pool.query('select retry_at from conversations where id = $1', [id])).rows[0].retry_at;
+  assert.equal(retryAt, null, 'retry_at cleared even on a silent retry');
 });

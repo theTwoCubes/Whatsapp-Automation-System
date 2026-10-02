@@ -6,6 +6,8 @@ import {
   optOutContact,
   recordPaymentClaimed,
   isLeadQualifiedEnough,
+  conversationsDueForRetry,
+  clearRetryAt,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -24,6 +26,7 @@ export function startScheduler(deps, intervalMs = 60000) {
       await runDueDrips(deps);
       await runAutoResume(deps);
       await runBulkSend(deps);
+      await runRetryAttempts(deps);
       await runWeeklyRefinementIfDue(deps);
       // Hard-delete soft-deleted chats past their grace period, at most once
       // an hour so the delete query is not run on every minute tick.
@@ -191,8 +194,9 @@ export async function runAutoResume(deps) {
 // with the same handoff/block/opt-out/reaction handling respondToLead uses
 // live. Extracted from the runAutoResume loop so the manual "Resume bot"
 // endpoint can also catch up on a pending inbound the human left unanswered.
-async function processResumeReplyForRow(deps, settings, row, context) {
+async function processResumeReplyForRow(deps, settings, row, context, options = {}) {
   const { pool, meta, ai, config, realtime, log } = deps;
+  const { silentOnStuck = false } = options;
 
   let decision;
   try {
@@ -235,6 +239,13 @@ async function processResumeReplyForRow(deps, settings, row, context) {
     const reasonCategory = categorizeHandoffReason(reason);
     const bypassGate = reasonCategory === 'complaint';
     if (!bypassGate && !(await isLeadQualifiedEnough(pool, row.id))) {
+      // Retry mode: a repeat parseFailed-into-holding is the exact loop
+      // we are trying to avoid. If the retry pass still has nothing real
+      // to say, swallow it instead of double-sending.
+      if (silentOnStuck && (decision.parseFailed || !decision.reply || !decision.reply.trim())) {
+        log?.info({ conversationId: row.id, reason }, `${context}: ai still stuck on handoff downgrade, staying silent`);
+        return;
+      }
       log.info(
         { conversationId: row.id, reason, reasonCategory },
         `${context}: ai wanted to hand off but lead is not qualified yet, treating as a plain answer`,
@@ -297,6 +308,15 @@ async function processResumeReplyForRow(deps, settings, row, context) {
 
   if (!decision?.reply && decision?.reactEmoji) return;
 
+  // Retry mode: if the model is still stuck (no real reply, no action), do
+  // not fire another holding message. The whole point of a scheduled retry
+  // is "if a clean answer appears now, deliver it; otherwise stay quiet"
+  // instead of spamming the lead with repeated "one moment" lines.
+  if (silentOnStuck && (!decision || !decision.reply || decision.parseFailed)) {
+    log?.info({ conversationId: row.id }, `${context}: ai still stuck, staying silent`);
+    return;
+  }
+
   const reply = decision?.reply || settings.fallbackMessage;
   const { wamid, waId } = await meta.sendText(row.wa_id, reply);
   if (wamid) {
@@ -310,6 +330,52 @@ async function processResumeReplyForRow(deps, settings, row, context) {
     }
     realtime?.emit({ type: 'refresh', conversationId: String(row.id) });
   }
+}
+
+// Picks up conversations the handler parked for a retry because the first AI
+// pass left them stuck (parseFailed or empty-reply fallback). Clears retry_at
+// before running so a repeated failure does not spin on every tick, takes the
+// same advisory lock the webhook and manual handback use so a message arriving
+// between ticks is not raced, and routes through processResumeReplyForRow with
+// silentOnStuck=true so a second broken decision stays quiet instead of
+// re-sending another holding line.
+export async function runRetryAttempts(deps) {
+  const { pool, log } = deps;
+  const rows = await conversationsDueForRetry(pool, 20);
+  if (rows.length === 0) return 0;
+  const settings = await getSettings(pool, deps.config);
+  let processed = 0;
+  for (const row of rows) {
+    // Advisory locks are session-scoped, and pool.query may land on a
+    // different pooled connection each time, so we check out a dedicated
+    // client for the whole lock/unlock pair - otherwise the unlock runs
+    // on the wrong backend and the lock leaks until the connection is
+    // dropped from the pool.
+    const client = await pool.connect();
+    try {
+      const gotLock = await client.query('select pg_try_advisory_lock($1) as got', [Number(row.id)]);
+      if (!gotLock.rows[0]?.got) {
+        log?.info({ conversationId: row.id }, 'retry: another handler holds the lock, skipping this tick');
+        continue;
+      }
+      try {
+        // Clear retry_at before running so a stuck-again result does not get
+        // picked up a second time; the handler will re-park a fresh retry if
+        // it still needs one.
+        await clearRetryAt(pool, row.id);
+        if (row.last_direction !== 'inbound') continue;
+        await processResumeReplyForRow(deps, settings, row, 'retry', { silentOnStuck: true });
+        processed += 1;
+      } catch (err) {
+        log?.error({ conversationId: row.id, err }, 'retry attempt failed');
+      } finally {
+        await client.query('select pg_advisory_unlock($1)', [Number(row.id)]).catch(() => {});
+      }
+    } finally {
+      client.release();
+    }
+  }
+  return processed;
 }
 
 // Manual "Resume bot" catch-up. Called after the admin flips a conversation
@@ -326,11 +392,14 @@ export async function catchUpAfterHandback(deps, conversationId) {
   // parallel path (a webhook that fired between handback and this call, or
   // a second Resume-bot click, or an auto-resume tick) already has it, bail
   // out - that other path will produce the reply and we should not
-  // double-send. The lock is released in a finally block; if the process
-  // dies mid-hold PG drops the session lock automatically.
-  const gotLock = await pool.query('select pg_try_advisory_lock($1) as got', [Number(conversationId)]);
+  // double-send. A dedicated client holds the lock for its lifetime: pool
+  // connections are not pinned to the caller, so lock-then-pool.query-unlock
+  // would run the unlock on a different backend and leak the lock.
+  const client = await pool.connect();
+  const gotLock = await client.query('select pg_try_advisory_lock($1) as got', [Number(conversationId)]);
   if (!gotLock.rows[0]?.got) {
     log?.info({ conversationId }, 'handback catch-up: another handler already owns this conversation, skipping');
+    client.release();
     return false;
   }
 
@@ -364,7 +433,8 @@ export async function catchUpAfterHandback(deps, conversationId) {
     log?.error({ conversationId, err }, 'manual handback catch-up failed');
     return false;
   } finally {
-    await pool.query('select pg_advisory_unlock($1)', [Number(conversationId)]).catch(() => {});
+    await client.query('select pg_advisory_unlock($1)', [Number(conversationId)]).catch(() => {});
+    client.release();
   }
 }
 

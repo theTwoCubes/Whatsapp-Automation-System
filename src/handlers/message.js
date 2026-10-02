@@ -30,6 +30,7 @@ import {
   markConversationAsPeerBot,
   recentOutboundStats,
   isLeadQualifiedEnough,
+  scheduleRetry,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
@@ -531,6 +532,13 @@ async function respondToLead(deps, conversationId, items) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);
         await scheduleDrips(pool, conversationId, dripSteps);
       }
+      // The AI gave us nothing usable (parseFailed) and the lead is not
+      // qualified so we did not hand off either. Park a retry so the
+      // scheduler takes another swing in a few minutes - if the next
+      // attempt is clean we can finally reply for real.
+      if (decision.parseFailed) {
+        await scheduleRetry(pool, conversationId);
+      }
       return;
     }
 
@@ -577,7 +585,15 @@ async function respondToLead(deps, conversationId, items) {
   if (!decision?.reply && decision?.reactEmoji) return;
 
   const reply = decision?.reply || settings.fallbackMessage;
+  const usedFallback = !decision?.reply;
   const sent = await sendAndRecord(deps, to, conversationId, reply);
+  // If we fell through to the configured fallback message because the AI
+  // did not give us a real reply, schedule a retry so the scheduler can
+  // run the model one more time in a few minutes rather than leaving the
+  // lead with a stale "one moment" and nothing after.
+  if (sent && usedFallback) {
+    await scheduleRetry(pool, conversationId);
+  }
   if (sent && decision?.sendMediaId) {
     await maybeSendMedia(deps, conversationId, to, decision.sendMediaId);
   }

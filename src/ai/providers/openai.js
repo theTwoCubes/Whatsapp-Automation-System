@@ -14,7 +14,7 @@ export class OpenAIProvider {
       model: options.model ?? this.model,
       messages,
       temperature: 0.6,
-      max_tokens: 2048,
+      max_tokens: 4096,
     };
     if (options.json) body.response_format = { type: 'json_object' };
 
