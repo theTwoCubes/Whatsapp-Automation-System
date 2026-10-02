@@ -488,12 +488,28 @@ async function respondToLead(deps, conversationId, items) {
     const canBypassGate = !aiSucceeded || reasonCategory === 'complaint';
     if (!canBypassGate && !(await isLeadQualifiedEnough(pool, conversationId))) {
       log.info(
-        { conversationId, reason, reasonCategory },
+        { conversationId, reason, reasonCategory, parseFailed: decision.parseFailed === true },
         'ai wanted to hand off but lead is not qualified yet, treating as a plain answer',
       );
-      const holding = decision.reply && decision.reply.trim()
-        ? decision.reply.trim()
-        : settings.fallbackMessage;
+      // Pick the fallback text carefully. If the AI returned a reply, use
+      // that. If not, we're in one of two cases:
+      //  (a) parseFailed = the AI returned unparseable output and
+      //      parseDecision defaulted to handoff:true. Using
+      //      settings.fallbackMessage ("someone will get back to you")
+      //      here would lie - we are NOT handing off. Use a neutral
+      //      "one sec" line so the chat stays open and the next turn
+      //      can produce a real reply.
+      //  (b) The AI genuinely returned handoff with empty reply text.
+      //      Use settings.fallbackMessage - the admin configured it for
+      //      exactly this situation.
+      let holding;
+      if (decision.reply && decision.reply.trim()) {
+        holding = decision.reply.trim();
+      } else if (decision.parseFailed) {
+        holding = 'One moment, let me check and come right back to you.';
+      } else {
+        holding = settings.fallbackMessage;
+      }
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
         const dripSteps = await resolveDripSteps(pool, settings, packs);

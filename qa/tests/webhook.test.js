@@ -234,6 +234,24 @@ test('an unqualified ai handoff is downgraded and the ai\'s reply goes out as a 
   assert.ok(drips.rows[0].n > 0, 'drips still get scheduled after downgrade');
 });
 
+test('unparseable ai output on an unqualified lead sends a neutral holding line, not a handoff promise', async () => {
+  // The AI returned text that JSON.parse chokes on (seen in production
+  // when the response was truncated by maxOutputTokens). parseDecision
+  // defaults to handoff:true and marks parseFailed:true. On a lead who
+  // has not been qualified yet, the gate downgrades, and the fallback
+  // text must NOT be settings.fallbackMessage (which reads as "someone
+  // will get back to you" - a lie because we did not actually hand off).
+  const ai = new FakeAi('this is not { valid json');
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PARSE1', body: 'hi' }), d);
+
+  const conv = await pool.query('select state from conversations limit 1');
+  assert.equal(conv.rows[0].state, 'bot', 'state stays bot - no actual handoff');
+  assert.equal(d.meta.sends.length, 1);
+  assert.doesNotMatch(d.meta.sends[0].body, /team will get back|someone from our team/i, 'the fallback line must not promise a human');
+  assert.match(d.meta.sends[0].body, /moment|second|check/i, 'uses a neutral "one moment" line');
+});
+
 test('a lead with every other field but no email AND no decline does NOT qualify', async () => {
   // Negative gate: business + address + requirement all set, but email is
   // null and email_declined is absent. Handoff must be downgraded. Proves

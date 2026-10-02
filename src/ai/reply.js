@@ -117,6 +117,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     block: parsed.block || false,
     optOut: parsed.optOut || false,
     markBot: parsed.markBot || false,
+    parseFailed: parsed.parseFailed || false,
     paymentClaimed: parsed.paymentClaimed || false,
     reason: parsed.reason,
     requestedPackIds: parsed.requestedPackIds,
@@ -162,14 +163,18 @@ function sanitizeLeadEmail(value) {
 }
 
 function parseDecision(raw, catalog) {
-  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, languageLock: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false };
-  if (!raw) return { ...empty, reason: 'the assistant returned nothing' };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, languageLock: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false, parseFailed: false };
+  // `parseFailed` is a diagnostic flag the respondToLead downgrade path uses
+  // to pick a safer user-facing fallback. These two "we got nothing we could
+  // use" branches set it; everything downstream (warn, answer, handoff,
+  // etc.) leaves it at false so the normal flow is unchanged.
+  if (!raw) return { ...empty, reason: 'the assistant returned nothing', parseFailed: true };
 
   let obj;
   try {
     obj = JSON.parse(raw);
   } catch {
-    return { ...empty, reason: 'the assistant did not return usable output' };
+    return { ...empty, reason: 'the assistant did not return usable output', parseFailed: true };
   }
 
   const reply = typeof obj?.reply === 'string' ? obj.reply.trim() : '';
