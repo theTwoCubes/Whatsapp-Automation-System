@@ -335,6 +335,19 @@ export async function setLockedLanguage(pool, conversationId, language) {
   await pool.query('update conversations set locked_language = $2 where id = $1', [conversationId, language]);
 }
 
+// Newest message id on a conversation, or null when it has none. Used by the
+// scheduler to snapshot a conversation before a multi-second ai call and
+// re-check afterwards: if a new message landed in the meantime the live
+// webhook path now owns this turn and the scheduler must not also reply.
+export async function latestMessageId(pool, conversationId) {
+  const res = await pool.query(
+    'select max(id) as id from messages where conversation_id = $1',
+    [conversationId],
+  );
+  const id = res.rows[0]?.id;
+  return id === null || id === undefined ? null : String(id);
+}
+
 // Parks a retry timestamp on a conversation. The scheduler picks these up
 // after the delay, clears the field atomically, and runs one more buildReply
 // pass - used when the first pass produced a holding message because the AI

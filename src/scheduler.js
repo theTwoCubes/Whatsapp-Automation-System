@@ -8,6 +8,8 @@ import {
   isLeadQualifiedEnough,
   conversationsDueForRetry,
   clearRetryAt,
+  latestMessageId,
+  getConversationState,
 } from './db/repo.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
@@ -198,6 +200,12 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
   const { pool, meta, ai, config, realtime, log } = deps;
   const { silentOnStuck = false } = options;
 
+  // Snapshot the thread before the ai call so we can tell afterwards whether
+  // it moved. buildReply takes seconds, and the live webhook path does not
+  // take our advisory lock - it only re-checks state - so a message arriving
+  // mid-call would otherwise get two replies built against stale history.
+  const messageIdBefore = await latestMessageId(pool, row.id);
+
   let decision;
   try {
     // Reuse whatever packs the conversation already had, plus the campaign's
@@ -214,6 +222,28 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
     });
   } catch {
     // fall back below
+  }
+
+  // The thread moved while we were thinking: either a new message landed (the
+  // live handler is answering it with fresher context than ours) or an agent
+  // took the chat. Either way this decision is stale - drop it rather than
+  // double-reply. Checked before any write so a discarded turn leaves no
+  // trace on the conversation.
+  const messageIdAfter = await latestMessageId(pool, row.id);
+  if (messageIdAfter !== messageIdBefore) {
+    log?.info(
+      { conversationId: row.id, messageIdBefore, messageIdAfter },
+      `${context}: a new message landed during the ai call, dropping this stale reply`,
+    );
+    return;
+  }
+  const stateNow = await getConversationState(pool, row.id);
+  if (stateNow !== 'bot') {
+    log?.info(
+      { conversationId: row.id, state: stateNow },
+      `${context}: conversation left the bot during the ai call, dropping this reply`,
+    );
+    return;
   }
 
   if (decision?.replyLanguage) {

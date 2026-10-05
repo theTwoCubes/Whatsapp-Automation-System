@@ -173,6 +173,52 @@ test('a retry whose ai now returns a clean answer delivers that answer', async (
   assert.equal(retryAt, null, 'retry_at cleared after the attempt');
 });
 
+test('a retry drops its reply when a new message lands during the ai call', async () => {
+  const id = await botConversationWithPendingInbound();
+  await scheduleRetry(pool, id, 0);
+
+  // Simulates the real race: the live webhook path does not take the
+  // scheduler's advisory lock, so a message can land while buildReply is
+  // still running. The scheduler's answer is then stale and must be dropped
+  // so the lead does not get two replies built on different history.
+  const racingAi = new FakeAi(JSON.stringify({ action: 'answer', reply: 'stale answer' }));
+  const origComplete = racingAi.complete.bind(racingAi);
+  racingAi.complete = async (...args) => {
+    await recordInbound(pool, {
+      waId: '911111111113',
+      name: 'Stuck Lead',
+      waMessageId: `wamid.${Math.random()}`,
+      type: 'text',
+      body: 'actually never mind, different question',
+      referral: null,
+      raw: {},
+    });
+    return origComplete(...args);
+  };
+
+  const meta = new FakeMeta();
+  await runRetryAttempts({ pool, meta, ai: racingAi, config: testConfig, log: silentLog });
+
+  assert.equal(meta.sends.length, 0, 'the stale scheduler reply was not sent');
+});
+
+test('a retry drops its reply when an agent takes the chat during the ai call', async () => {
+  const id = await botConversationWithPendingInbound();
+  await scheduleRetry(pool, id, 0);
+
+  const racingAi = new FakeAi(JSON.stringify({ action: 'answer', reply: 'stale answer' }));
+  const origComplete = racingAi.complete.bind(racingAi);
+  racingAi.complete = async (...args) => {
+    await handToHuman(pool, id, 'agent@x.com');
+    return origComplete(...args);
+  };
+
+  const meta = new FakeMeta();
+  await runRetryAttempts({ pool, meta, ai: racingAi, config: testConfig, log: silentLog });
+
+  assert.equal(meta.sends.length, 0, 'no reply was sent into a chat an agent just took');
+});
+
 test('a retry whose ai is still broken stays silent instead of sending another holding line', async () => {
   const id = await botConversationWithPendingInbound();
   await scheduleRetry(pool, id, 0);
