@@ -1,14 +1,21 @@
 # Base pack - AdVoice Inc.
 
-Everything below applies to every conversation regardless of the service.
-Format: `Q:` then `A:`. Lines starting with `!verbatim` mean the answer's
-numbers must be quoted word for word.
+Applies to every conversation regardless of service.
+
+Only `Q:`/`A:` pairs are loaded into the AI's knowledge by
+scripts/seed-faqs.js - prose outside a Q/A pair (like this paragraph) is
+ignored. Behaviour rules therefore belong in the system prompt, not here;
+this file is strictly the approved customer-facing answers. A line
+`!verbatim` before a Q means the numbers in that answer must be quoted
+word for word.
+
+# Who we are
 
 Q: Who are you?
 A: AdVoice Inc., a branding and digital marketing agency in Ahmedabad, Gujarat, working since 2012.
 
 Q: What do you do?
-A: Logo design and brand identity, brochures and catalogues, packaging, website design and development, digital marketing (PPC, email, Google My Business), and short-form video for social. Real estate is a particular strength - over 70 projects delivered - and we have worked across more than 30 industries.
+A: Logo design and brand identity, scientific logo design, brochures and catalogues, packaging, website design and development, digital marketing (PPC, email, Google My Business), and short-form video for social. Real estate is a particular strength with over 70 projects delivered, and we've worked across more than 30 industries.
 
 Q: Where are you based?
 A: Ahmedabad, Gujarat, India. We work with clients across India and abroad.
@@ -16,23 +23,40 @@ A: Ahmedabad, Gujarat, India. We work with clients across India and abroad.
 Q: How long have you been running?
 A: Since 2012.
 
-Q: What are your working hours?
-A: Standard business hours, Monday to Saturday. WhatsApp messages are answered by the team during those hours.
-
-Q: How do I reach a person?
-A: Just say so here and the team will jump in. You can also reach us on the number you're messaging.
-
-Q: Hi / Hello / Hey / Namaste / Good morning
-A: Hi! This is AdVoice Inc. How can we help - a logo, a brochure or catalogue, packaging, website, digital marketing, or something else?
-
-Q: What services do you have?
-A: Logo design, scientific logo design, brochure and catalogue design, packaging, website design and development, digital marketing, and short-form video. Which one are you thinking about?
-
-Q: Can you share your portfolio?
-A: Yes! Which service are you looking at - logo design, brochures/catalogues, packaging, website, digital marketing, or video - so I can send the right samples? If you'd rather see a general overview first, just say so.
-
 Q: What industries do you work with?
 A: Over 30, with particular depth in real estate, manufacturing, and pharma.
+
+Q: What services do you have?
+A: Logo design and brand identity, scientific logo design, brochure and catalogue design, packaging, website design and development, digital marketing, and short-form video. Which one were you thinking about?
+
+Q: Can you share your portfolio?
+A: Yes. Tell me which service you're looking at and a bit about your business, and I'll line up the most relevant work to send across.
+
+Q: What are your working hours?
+A: You can message here any time and I'll reply. The team itself works standard business hours, Monday to Saturday, so anything that needs a person from our side happens in those hours.
+
+# Talking to the team
+
+Q: Can I talk to a person?
+A: Yes, that's completely possible. So the right person picks it up with the full picture, let me first get a few details about your business and what you need, then I'll get you connected.
+
+Q: I want to speak to someone directly, not a bot.
+A: Understood. I'll get you to the team. Just so they don't have to start from scratch, tell me what your business is and what you're looking to get done, and I'll pass it across.
+
+Q: Can I book a call?
+A: Once I know what the project is, the team can set up a call to go through it properly. Tell me a bit about your business and what you need.
+
+Q: Why do you need my email?
+A: So the team can send the brief, quotation, and invoice somewhere they stay findable - WhatsApp isn't great for documents you'll need later. If you'd rather keep everything on WhatsApp, that's fine too, just say so.
+
+Q: I don't have an email address.
+A: No problem at all, we'll keep everything on WhatsApp then.
+
+Q: Why do you need my city or address?
+A: Mainly so the team knows which region you're in, and for the invoice. For anything involving printing or a delivery we need the full address; otherwise the city is enough.
+
+Q: Why so many questions?
+A: Only so whoever picks this up already knows your business and what you need, instead of asking you everything again. Happy to answer whatever you want to know in the meantime.
 
 # Billing entities
 
@@ -62,17 +86,17 @@ A: We charge 50% advance and do the full design work in milestones so we underst
 Q: What if I put the project on hold?
 A: We hold the file for up to 15 days. After that we ask for payment against the work already done.
 
-# No negotiation
+# Pricing is fixed
 
 !verbatim
 Q: Can you do a discount?
-A: Our pricing is fixed - no negotiation, no discount, whatever the size of the project or how long you've worked with us.
+A: Our pricing is fixed - we don't negotiate on rates, whatever the size of the project or how long you've worked with us. Where a service has a published volume rate, such as brochure and catalogue work above 20 pages, that's already built into the price list rather than something negotiated.
 
 Q: Can you match a cheaper quote I got elsewhere?
-A: No, our pricing doesn't change based on other quotes. We're happy to explain what's included if that helps the comparison.
+A: No, our pricing doesn't change based on other quotes. Happy to explain what's included if that helps you compare properly.
 
-Q: Is there a loyalty or bulk discount?
-A: No, pricing is the same regardless of order size or how long you've been a client.
+Q: Is there a loyalty discount, or a better rate if I pay everything upfront?
+A: No to both - the rate is the same however long you've been a client, and paying more upfront doesn't change the fee. The published volume rates apply to everyone equally.
 
 Q: What if I find an error after final approval?
 A: For digital PDFs we redo and reissue the file. For printing, changes are not possible after it has gone to press.
@@ -82,10 +106,10 @@ A: For digital PDFs we redo and reissue the file. For printing, changes are not 
 Q: What languages do you work in?
 A: All Indian and international languages. For multilingual print, the client provides translated Word files and we typeset them.
 
-Q: Do you do Gujarati / Hindi work?
+Q: Do you do Gujarati or Hindi work?
 A: Yes - Gujarati, Hindi, and other Indian and international languages.
 
-# Content and copywriting
+# Content and copy
 
 Q: Do you write the copy?
 A: Copywriting isn't our core service - clients usually give us the final content. If you prefer, we can draft content using AI tools.
@@ -110,30 +134,12 @@ A: Yes, both are done as part of the page design.
 # Rush work
 
 Q: Do you take rush projects?
-A: Yes, when it is feasible from our side. No extra charge as long as the team doesn't need to work overtime.
+A: Yes, when it's feasible from our side. No extra charge as long as the team doesn't need to work overtime.
 
-# Qualification before handoff
+# Things we don't advise on
 
-A lead only gets passed to the team once they're actually qualified - a real
-name, what their business or project is, and what they specifically want,
-plus genuine intent to move forward (not just browsing or asking one price
-question). Get to know them first; do not hand off just because a topic
-below came up.
+Q: Can you give me legal, trademark, or tax advice?
+A: That's outside what we can advise on - worth speaking to a professional in that area. We're happy to help with the design and branding side.
 
-- Wanting to negotiate a price or asking for a discount is never a reason to
-  hand off - hold the line politely (see "No negotiation" above) and keep
-  the conversation going.
-- Sending a photo, document, existing logo, or any other file is never a
-  reason to hand off by itself - note what's useful about it and continue
-  the conversation normally.
-- A genuine, specific complaint, or a lead who is qualified and sincerely
-  asking for a person, are reasons to hand off.
-- A question about a service with no matching pack, or a policy genuinely
-  not covered anywhere above, is worth flagging to the team once the lead is
-  otherwise qualified - not on its own from a brand new, unqualified chat.
-
-# Out of scope (politely decline and steer back)
-
-- General knowledge, coding help, personal advice, or anything unrelated to AdVoice Inc. services.
-- Legal, trademark, or tax advice.
-- Predictions about business outcomes ("will I get more sales?"). Redirect to a conversation with the team.
+Q: Will a new logo or brochure increase my sales?
+A: Design gives you a stronger foundation, but sales depend on marketing, pricing, product, and execution too. We'd rather be straight with you than promise a number.
