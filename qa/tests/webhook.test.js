@@ -5,6 +5,8 @@ import { processWebhook } from '../../src/handlers/message.js';
 import { handToHuman, handToBot } from '../../src/handoff.js';
 import { catchUpAfterHandback } from '../../src/scheduler.js';
 import { inboundText, inboundImage, inboundReaction, inboundButtonReply, inboundInteractiveReply, inboundLocation, statusUpdate, adReferral } from './support/fixtures.js';
+import { upsertTopic } from '../../src/knowledge/topics.js';
+import { createFaq } from '../../src/knowledge/faqs.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -660,4 +662,56 @@ test('the safety net blocks a bot-loop even when the ai keeps replying past the 
   assert.match(row.rows[0].handoff_reason, /^peer_bot: auto:/, 'the auto-trip carries a distinct reason');
   assert.equal(ai.calls, 0, 'the AI is not called when the safety net trips');
   assert.equal(d.meta.sends.length, beforeSends, 'no new reply is sent once the safety net trips');
+});
+
+test('the service recorded for a lead is the strongest keyword match, not the weakest', async () => {
+  // Mirrors a real miscategorisation: "scientific logo" matches the scientific
+  // pack on its own two-word keyword AND the plain logo pack on the single word
+  // "logo". keywordPacks ranks the stronger match first, so that is what the
+  // conversation must be filed under. Taking the last element instead filed
+  // these leads under plain Logo Design.
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific logo, yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004.' });
+
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.SVC1', body: 'Scientific logo' }), d);
+
+  const row = await pool.query('select last_topic_id, active_pack_ids from conversations limit 1');
+  assert.equal(
+    Number(row.rows[0].last_topic_id),
+    Number(sci.id),
+    'filed under Scientific Logo Design: "scientific logo" outranks a bare "logo"',
+  );
+  // Both packs are still pulled in for context - only the recorded service is ranked.
+  const packs = row.rows[0].active_pack_ids.map(Number);
+  assert.ok(packs.includes(Number(sci.id)), 'scientific pack attached');
+});
+
+test('a plain logo enquiry is still filed under plain Logo Design', async () => {
+  // The other direction of the same ranking: no scientific keyword appears, so
+  // the generic pack must win outright rather than the specific one leaking in.
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific logo, yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004.' });
+
+  const d = deps();
+  await processWebhook(inboundText({ id: 'wamid.SVC2', body: 'I want logo design' }), d);
+
+  const row = await pool.query('select last_topic_id, active_pack_ids from conversations limit 1');
+  assert.equal(Number(row.rows[0].last_topic_id), Number(logo.id), 'filed under Logo Design');
+  assert.ok(
+    !row.rows[0].active_pack_ids.map(Number).includes(Number(sci.id)),
+    'the scientific pack is not pulled in at all',
+  );
 });

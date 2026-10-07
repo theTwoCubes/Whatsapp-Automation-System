@@ -656,7 +656,13 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
   for (const id of keyword) add(id);
   if (keyword.length > 0) {
     await addActivePackIds(pool, conversationId, keyword);
-    await setLastTopicId(pool, conversationId, keyword[keyword.length - 1]);
+    // keywordPacks returns the best match first (most terms matched), so the
+    // service recorded for the conversation is keyword[0]. This used to take
+    // the last element, which is the WEAKEST match - so a message like "I
+    // want a scientific logo", which matches the scientific pack on
+    // "scientific logo" and the plain logo pack on "logo", filed the lead
+    // under the wrong service.
+    await setLastTopicId(pool, conversationId, keyword[0]);
   }
 
   return packs;

@@ -38,22 +38,30 @@ export async function keywordPacks(pool, text, excludeTopicIds = []) {
   ).rows;
 
   const scored = [];
+  const haystack = ` ${normalise(text)} `;
   for (const t of topics) {
     if (exclude.has(String(t.id))) continue;
     const terms = packTerms(t);
-    let hits = 0;
+    let score = 0;
     for (const term of terms) {
+      // A term is worth its word count, so a specific phrase outranks a
+      // generic single word. Without this, "scientific logo" scored the same
+      // as a bare "logo" and the two packs tied, leaving the winner to fall
+      // out of table order - which filed Scientific Logo Design leads under
+      // plain Logo Design. Now "scientific logo" (2) beats "logo" (1), while
+      // "logo design" still wins outright for a plain logo enquiry.
+      const weight = term.split(' ').length;
       // Multi word terms match as a phrase, single word terms are matched
       // against the stemmed word set so plurals count as the same word.
       if (term.includes(' ')) {
-        if (` ${normalise(text)} `.includes(` ${term} `)) hits += 1;
+        if (haystack.includes(` ${term} `)) score += weight;
       } else if (words.has(stem(term))) {
-        hits += 1;
+        score += weight;
       }
     }
-    if (hits > 0) scored.push({ id: Number(t.id), hits });
+    if (score > 0) scored.push({ id: Number(t.id), score });
   }
-  return scored.sort((a, b) => b.hits - a.hits).map((s) => s.id);
+  return scored.sort((a, b) => b.score - a.score).map((s) => s.id);
 }
 
 // Strips a common plural ending, so "posters" and "poster" collapse together.
