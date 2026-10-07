@@ -715,3 +715,67 @@ test('a plain logo enquiry is still filed under plain Logo Design', async () => 
     'the scientific pack is not pulled in at all',
   );
 });
+
+test('lead_service from the ai overrides the keyword guess', async () => {
+  // The whole point of the field: the lead never says "scientific", so keyword
+  // matching can only see "logo" and files them under plain Logo Design. The
+  // model understands what they mean and says so.
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific logo, yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004.' });
+
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'That is our Scientific Logo Design service.',
+    lead_service: 'Scientific Logo Design',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.LS1', body: 'i want a logo that brings luck to my business' }), deps({ ai }));
+
+  const row = await pool.query('select last_topic_id from conversations limit 1');
+  assert.equal(
+    Number(row.rows[0].last_topic_id),
+    Number(sci.id),
+    'the ai-named service wins over the keyword match on "logo"',
+  );
+});
+
+test('a lead_service the ai invents is ignored rather than wiping the real one', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'Sure.',
+    lead_service: 'Interpretive Dance Branding',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.LS2', body: 'i want a logo' }), deps({ ai }));
+
+  const row = await pool.query('select last_topic_id from conversations limit 1');
+  assert.equal(
+    Number(row.rows[0].last_topic_id),
+    Number(logo.id),
+    'the hallucinated service is discarded and the keyword match survives',
+  );
+});
+
+test('lead_service matches on the slug and tolerates casing and punctuation', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo' });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await createFaq(pool, { topicId: logo.id, question: 'A?', answer: 'B.' });
+  await createFaq(pool, { topicId: sci.id, question: 'C?', answer: 'D.' });
+
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'ok',
+    lead_service: 'scientific-logo-design',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.LS3', body: 'i want a logo' }), deps({ ai }));
+
+  const row = await pool.query('select last_topic_id from conversations limit 1');
+  assert.equal(Number(row.rows[0].last_topic_id), Number(sci.id), 'slug form resolves too');
+});

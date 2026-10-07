@@ -10,7 +10,9 @@ import {
   clearRetryAt,
   latestMessageId,
   getConversationState,
+  setLastTopicId,
 } from './db/repo.js';
+import { resolveTopicByServiceName } from './knowledge/topics.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
 import { getSettings } from './settings.js';
@@ -257,6 +259,12 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
   }
   if (decision?.leadProfile) {
     await setLeadProfile(pool, row.id, decision.leadProfile);
+  }
+  // Same as respondToLead: the model's own read of the service wins over the
+  // keyword guess, and an unrecognised name is ignored rather than applied.
+  if (decision?.leadService) {
+    const topic = await resolveTopicByServiceName(pool, decision.leadService);
+    if (topic) await setLastTopicId(pool, row.id, topic.id);
   }
 
   // Mirrors respondToLead in handlers/message.js - the model's decision here

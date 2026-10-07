@@ -279,6 +279,15 @@ Service packs are pulled in automatically by keyword matching the inbound
 and (if the AI asks) by need_packs. They become sticky for the rest of
 the conversation once pulled in.
 
+Which service the conversation is RECORDED under is separate from which
+packs got loaded. Keyword matching scores each pack by the word count of
+the terms it matched, so a specific "scientific logo" outranks a generic
+"logo", and the best match is recorded. The AI can override that with
+lead_service, naming the service exactly as it appears in the approved
+answers - this covers a lead who describes a service without ever using
+its keywords. A lead_service that matches no active topic is ignored, so
+a bad value never wipes a good one.
+
 
 J. DRIPS (FOLLOW-UPS)
 =====================

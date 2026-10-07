@@ -127,6 +127,7 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
     reactEmoji: parsed.reactEmoji,
     replyLanguage: parsed.replyLanguage,
     languageLock: parsed.languageLock,
+    leadService: parsed.leadService ?? null,
     leadProfile: parsed.leadProfile,
     packs: faqs.packs,
     faqCount: faqs.faqCount,
@@ -163,7 +164,7 @@ function sanitizeLeadEmail(value) {
 }
 
 function parseDecision(raw, catalog) {
-  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, languageLock: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false, parseFailed: false };
+  const empty = { reply: '', handoff: true, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage: null, languageLock: null, leadService: null, leadProfile: null, warn: false, block: false, optOut: false, markBot: false, parseFailed: false };
   // `parseFailed` is a diagnostic flag the respondToLead downgrade path uses
   // to pick a safer user-facing fallback. These two "we got nothing we could
   // use" branches set it; everything downstream (warn, answer, handoff,
@@ -205,6 +206,12 @@ function parseDecision(raw, catalog) {
   // sets it on the one turn the lead says so, so the qualification gate can
   // treat email as satisfied without the AI having to invent one.
   const emailDeclined = obj?.lead_email_declined === true ? true : null;
+  // The service the model says this conversation is actually about. Keyword
+  // matching already loads packs cheaply, but it only sees literal words - a
+  // lead who describes a service without naming it leaves the conversation
+  // filed under nothing. This is the model's own read, resolved against the
+  // real topic list by the caller, and it wins over the keyword guess.
+  const leadService = sanitizeLeadField(obj?.lead_service, 80);
   const leadProfile = {
     name: sanitizeLeadField(obj?.lead_name),
     business: sanitizeLeadField(obj?.lead_business),
@@ -227,7 +234,7 @@ function parseDecision(raw, catalog) {
     // falls back to a handoff.
     if (!reply && !reactEmoji) return { ...empty, reason: 'the assistant answered with an empty message' };
     return {
-      reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, sendHostedLinkId, reactEmoji, replyLanguage, languageLock,
+      reply, handoff: false, reason: '', requestedPackIds: [], sendMediaId, sendPaymentLinkId, sendHostedLinkId, reactEmoji, replyLanguage, languageLock, leadService,
       leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false,
       paymentClaimed: Boolean(obj?.payment_claimed),
     };
@@ -238,11 +245,11 @@ function parseDecision(raw, catalog) {
     // message downstream - that would hand an abuse/injection attempt a
     // friendly canned reply instead of any warning at all.
     const warnReply = reply || 'This is a business chat and I can only help with questions about our services.';
-    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, warn: true, block: false, optOut: false };
+    return { reply: warnReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, leadService, warn: true, block: false, optOut: false };
   }
 
   if (obj?.action === 'block') {
-    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, warn: false, block: true, optOut: false };
+    return { reply, handoff: false, reason: reason || 'blocked by assistant', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, leadService, warn: false, block: true, optOut: false };
   }
 
   if (obj?.action === 'mark_as_bot') {
@@ -259,7 +266,7 @@ function parseDecision(raw, catalog) {
     // in db/repo.js. They can still message in and get a normal reply later;
     // this only stops us reaching out to them first.
     const optOutReply = reply || "Understood, you won't receive further messages from us. Reply anytime if you need help.";
-    return { reply: optOutReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, warn: false, block: false, optOut: true };
+    return { reply: optOutReply, handoff: false, reason: '', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, leadService, warn: false, block: false, optOut: true };
   }
 
   if (obj?.action === 'need_packs') {
@@ -275,7 +282,7 @@ function parseDecision(raw, catalog) {
   }
 
   if (obj?.action === 'handoff') {
-    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
+    return { reply, handoff: true, reason: reason || 'the assistant asked for a person', requestedPackIds: [], sendMediaId: null, sendPaymentLinkId: null, sendHostedLinkId: null, reactEmoji: null, replyLanguage, languageLock, leadService, leadProfile: hasLeadProfile ? leadProfile : null, warn: false, block: false, optOut: false };
   }
   return { ...empty, reason: 'the assistant returned an unknown action' };
 }
@@ -344,6 +351,7 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
       '{"action": "answer", "reply": "your message", "send_media_id": null, "send_payment_link_id": null, "send_hosted_link_id": null, "react_emoji": null, "reply_language": "English"}',
       '- Add "lead_name", "lead_business", "lead_email", "lead_address", "lead_requirement", "lead_budget", and/or "lead_timeline" to that same object, only on the turn you actually learn one of them, e.g. {"action": "answer", "reply": "...", "reply_language": "English", "lead_name": "Priya"}. Omit them entirely otherwise - do not repeat a value already known back every turn.',
       '- Add "payment_claimed": true on the one turn a customer states they have completed a payment (any payment, not just one you sent a link for). Omit it (or leave it false) every other turn, including later ones about the same payment - this is a one-time flag for the team to notice, not a running state.',
+      '- Add "lead_service" once it is genuinely clear which single service this conversation is about, written EXACTLY as the service name appears in the approved answers you were given (for example "Scientific Logo Design", not "scientific logo" or "vignanik"). Set it even when the customer described the service in their own words without naming it. If they are asking about more than one, or you cannot tell yet, omit it rather than guessing - a wrong value files the lead under the wrong service. Once set it only needs re-sending if the conversation genuinely moves to a different service.',
       '',
       `To just react to their last message instead of typing a reply - only for a short "thanks", "ok", "great" or similar where a real person would tap an emoji rather than type something back. Use one of these exactly: ${REACTION_EMOJIS.join(' ')}. Leave "reply" empty when you do this:`,
       `{"action": "answer", "reply": "", "react_emoji": "${REACTION_EMOJIS[0]}", "reply_language": "English"}`,

@@ -36,7 +36,7 @@ import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
 import { describeAttachment } from '../ai/vision.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { keywordPacks } from '../knowledge/packs.js';
-import { getTopic } from '../knowledge/topics.js';
+import { getTopic, resolveTopicByServiceName } from '../knowledge/topics.js';
 import { parseDripSteps } from '../config.js';
 import { handToPending } from '../handoff.js';
 import { notifyAgentsOfHandoff } from '../push.js';
@@ -476,6 +476,21 @@ async function respondToLead(deps, conversationId, items) {
   }
   if (decision?.leadProfile) {
     await setLeadProfile(pool, conversationId, decision.leadProfile);
+  }
+
+  // The service the model says this is about, which overrides the keyword
+  // guess assemblePacks already recorded. Keywords only see literal words, so
+  // a lead who describes a service without naming it leaves the conversation
+  // filed under nothing or under whichever generic pack matched. An
+  // unrecognised name resolves to null and is ignored rather than clearing a
+  // good value, so a hallucinated service cannot blank the real one.
+  if (decision?.leadService) {
+    const topic = await resolveTopicByServiceName(pool, decision.leadService);
+    if (topic) {
+      await setLastTopicId(pool, conversationId, topic.id);
+    } else {
+      log.info({ conversationId, leadService: decision.leadService }, 'ai named a service that matches no topic, keeping the keyword match');
+    }
   }
 
   // The AI decided the other side is another automated system, not a real

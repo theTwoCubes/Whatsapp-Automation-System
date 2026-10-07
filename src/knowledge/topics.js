@@ -28,6 +28,23 @@ export async function getTopicBySlug(pool, slug) {
   return res.rows[0] ?? null;
 }
 
+// Resolves a free-text service name from the AI's "lead_service" back to a
+// real topic. Deliberately strict: an exact match on the name or the slug
+// after normalising case, punctuation and spacing, and nothing looser. A fuzzy
+// match here would silently file leads under the wrong service, which is the
+// exact problem this field exists to fix - so an unrecognised value returns
+// null and the keyword guess is left alone.
+export async function resolveTopicByServiceName(pool, value) {
+  const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const wanted = norm(value);
+  if (!wanted) return null;
+  const res = await pool.query('select id, slug, name from topics where active = true');
+  for (const row of res.rows) {
+    if (norm(row.name) === wanted || norm(row.slug) === wanted) return row;
+  }
+  return null;
+}
+
 export async function upsertTopic(pool, { slug, name, description, keywords, dripSteps }) {
   const res = await pool.query(
     `insert into topics (slug, name, description, keywords, drip_steps) values ($1, $2, $3, $4, $5)
