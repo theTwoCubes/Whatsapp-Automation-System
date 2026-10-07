@@ -23,6 +23,14 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-whatsapp}:${POSTGRES_PASSWORD:-whatsapp}@db:5432/${POSTGRES_DB:-whatsapp}
+      # graph.facebook.com publishes an AAAA record, but a default Docker
+      # bridge network has no IPv6 route. Node races both families (Happy
+      # Eyeballs is on by default from Node 20), so roughly half of all calls
+      # to Meta picked the IPv6 address and died with ENETUNREACH, surfacing
+      # as "fetch failed" on sends and read receipts. Ordering results is not
+      # enough on its own - autoselection still attempts IPv6 - so the race
+      # is disabled too, which pins every outbound call to IPv4.
+      NODE_OPTIONS: --dns-result-order=ipv4first --no-network-family-autoselection
     depends_on:
       db:
         condition: service_healthy
