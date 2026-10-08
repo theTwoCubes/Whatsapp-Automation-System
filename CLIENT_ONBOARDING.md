@@ -35,10 +35,12 @@ Sign in and open Admin:
   deposit, a paid consultation, anything with a real payment link), add it here
   with a description of when it applies. Leave this empty for services with no
   such step.
-- Settings: set the business name, tone, the fallback and handoff messages, the
-  drip schedule, and the auto resume timeout.
-- Templates: create the day 3, 5 and 8 follow up templates and any re-engagement
-  templates, then submit them for Meta approval. Sync once approved.
+- Settings: set the business name, tone, the fallback and handoff messages, and
+  the auto resume timeout.
+- Templates: create the follow up and re-engagement templates, then submit them
+  for Meta approval and Sync once approved. Only after that set the drip
+  schedule on the Follow-ups page - a step naming a template that is not
+  approved in this WABA just fails at send time. Leave it empty until then.
 - Branding: set the console name, watermark, support email and accent colour for
   a white labelled console.
 - Agents: add logins for the client's team.

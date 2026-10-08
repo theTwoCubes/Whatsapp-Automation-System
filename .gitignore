@@ -44,7 +44,7 @@ backups/
 qa/results/*
 !qa/results/.gitkeep
 
-# Capacitor generated project — regenerated with `npx cap add android`
+# Capacitor generated project - regenerated with `npx cap add android`
 android/
 .gradle/
 

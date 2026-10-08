@@ -6,7 +6,9 @@ can encounter. Keep this file in sync with changes to src/ai/reply.js (the
 prompt), src/handlers/message.js (the webhook dispatcher), and src/scheduler.js
 (auto-resume + handback catch-up).
 
-LAST UPDATED: after the "simplify + raise qualification bar" round.
+LAST UPDATED: after the lead_service + stuck-conversation retry round
+(see src/knowledge/packs.js for service ranking, src/scheduler.js
+runRetryAttempts for the 5 minute retry).
 
 
 A. CONVERSATION STATE MACHINE
@@ -22,8 +24,14 @@ Every conversation is in exactly one state at a time:
 
 Transitions:
   bot -> pending      AI chose action=handoff AND the qualification gate
-                      passed (business + email + address + requirement all
-                      set). Also: a complaint handoff bypasses the gate.
+                      passed. The gate (isLeadQualifiedEnough in
+                      src/db/repo.js) hard-requires business, address and
+                      requirement; email is soft, so a lead who says they
+                      have no email still qualifies once the AI sets
+                      email_declined. Note the lead's name is NOT part of
+                      the gate - it almost always arrives free from the
+                      WhatsApp profile. Also: a complaint handoff bypasses
+                      the gate entirely.
   bot -> human        An agent messaged a bot-owned chat from the console
                       (implicit claim).
   pending -> human    Agent clicked Accept.
@@ -57,9 +65,12 @@ B. WHAT THE BOT DOES ON EACH INBOUND
      the file wasn't received.
 
 2. BATCHER DEBOUNCE
-   Multiple rapid messages inside the debounce window (default 30ms,
-   max wait 200ms) are coalesced into one AI call so a lead typing in
-   bursts gets one coherent reply instead of three.
+   Multiple rapid messages inside the debounce window (default 2500ms,
+   max wait 8000ms - MESSAGE_BATCH_DEBOUNCE_MS and
+   MESSAGE_BATCH_MAX_WAIT_MS) are coalesced into one AI call so a lead
+   typing in bursts gets one coherent reply instead of three. The test
+   harness runs these at 30ms/200ms to keep the suite fast; those are not
+   the production values.
 
 3. PEER-BOT SAFETY NET
    Runs before the AI call. If this conversation has had 6+ outbound

@@ -4,7 +4,7 @@
 # Every time you change the frontend or backend and want the client's phone to
 # get the update, run this script and hand them the resulting APK. The wrapper
 # points at your hosted URL so most content updates do not need a rebuild at
-# all — only rebuild the APK when you change the shell, the app id, or the
+# all - only rebuild the APK when you change the shell, the app id, or the
 # Capacitor plugins.
 #
 # First run bootstrap (once per machine):
@@ -65,7 +65,7 @@ if [ -f "$CAP_CONFIG" ]; then
   if echo "$SERVER_URL" | grep -q 'ngrok'; then
     echo "⚠  capacitor.config.json server.url points at ngrok:"
     echo "     $SERVER_URL"
-    echo "   Free ngrok tunnels rotate on every restart — any APK built now will"
+    echo "   Free ngrok tunnels rotate on every restart - any APK built now will"
     echo "   stop working the moment that URL changes. Use a reserved subdomain or"
     echo "   deploy to a real host before shipping this APK to the client."
     echo "   Continue anyway? [y/N]"

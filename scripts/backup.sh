@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Dumps the database to backups/ and keeps the 14 most recent files.
-# Run from the project root, or from cron. See docs/deploy-runbook.md.
+# Run from the project root, or from cron. See the Backups section in DEPLOY.md
+# for the cron entry and for how to actually restore one.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

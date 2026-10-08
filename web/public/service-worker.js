@@ -6,7 +6,7 @@ const VERSION = 'sw-2026-08-30-4';
 
 // Which chat the console/app is currently viewing. Kept in memory so we can
 // suppress duplicate pings for a chat the agent is already reading. Reset
-// whenever the SW is terminated by the browser, which is fine — a dormant SW
+// whenever the SW is terminated by the browser, which is fine - a dormant SW
 // means the tab was closed, so notifications should fire again.
 let viewingConversationId = null;
 

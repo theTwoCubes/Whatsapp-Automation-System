@@ -88,20 +88,51 @@ Migrations run automatically on the new container's boot.
 
 ## Handover to the client account
 
-The system is env driven, so moving from the test setup to the client account is
-a matter of swapping values in `.env` and restarting:
+Nothing in the code is tied to a specific account, so no code changes are
+needed. But the Meta side needs more than swapping `.env` values, and the
+steps below are the ones that actually caused silent failures when they were
+missed. Do them in order.
 
 1. Put the client's `META_PHONE_NUMBER_ID`, `META_WABA_ID`, `META_ACCESS_TOKEN`
-   (a permanent System User token) and `META_APP_SECRET` in `.env`.
-2. Point the client's webhook at `https://YOUR-DOMAIN/webhook` and tick
-   `messages`.
-3. Add the client's `OPENAI_API_KEY`.
-4. Load the knowledge base and the approved template names.
-5. Restart:
+   (a permanent System User token) and `META_APP_SECRET` in `.env`. The app
+   secret belongs to the client's *app*, not their WABA - using the wrong one
+   makes every inbound fail signature verification with a 401.
+2. Point the client's webhook at `https://YOUR-DOMAIN/webhook`, set the verify
+   token, and tick `messages`.
+3. **Subscribe the app to the WABA.** This is separate from the webhook config
+   above and is the one most easily missed: a correctly configured webhook on a
+   WABA that is subscribed to no app receives nothing at all.
+
+       curl -X POST "https://graph.facebook.com/v21.0/<WABA_ID>/subscribed_apps" \
+         -H "Authorization: Bearer <ACCESS_TOKEN>"
+
+   Verify with a `GET` on the same path. It must list the client's app.
+4. **Remove any other app's webhook on that number.** If the number was
+   previously on a different app (a BSP like doubletick, or your own test app),
+   that subscription keeps intercepting deliveries.
+5. **Register the number on Cloud API**, or sends fail even though inbound
+   works. Two-factor authentication has to be off first, and the PIN is the
+   number's existing 6 digit PIN if it ever had one:
+
+       curl -X POST "https://graph.facebook.com/v21.0/<PHONE_NUMBER_ID>/register" \
+         -H "Authorization: Bearer <ACCESS_TOKEN>" \
+         -d "messaging_product=whatsapp" -d "pin=<6_DIGIT_PIN>"
+
+   Then re-enable 2FA. Confirm the number reads CONNECTED on CLOUD_API.
+6. Set data localization if the client needs in-country storage, via
+   `POST /<PHONE_NUMBER_ID>/settings` with the region nested under
+   `storage_configuration` (a bare `data_localization_region` is rejected).
+7. Add the client's AI keys (see Requirements in README.md for which does what).
+8. Load the knowledge base, then sync templates and only then set the drip
+   schedule - a step naming a template that is not approved in *this* WABA
+   fails at send time.
+9. Restart:
 
        docker compose -f docker-compose.prod.yml up -d
 
-Nothing in the code is tied to a specific account, so no code changes are needed.
+10. Send a real message to the number and confirm it appears in the console,
+    then confirm the bot's reply arrives back on the phone. Inbound and
+    outbound fail independently, so test both directions explicitly.
 
 ## Monitoring and scaling
 
@@ -174,12 +205,19 @@ already true "last time."
    Bulk send to confirm the batch is still there. That last step is the direct,
    end-to-end proof that bulk-send progress now survives a reload in the real
    deployment, not just in dev.
-7. **Known accepted risk, not blocking**: `npm audit` on the repo root reports 9
-   moderate-severity findings, all transitive through `@capacitor/cli` and
-   `firebase-admin` (mobile build tooling, not runtime/request-path code).
+7. **Known accepted risk, not blocking**: `npm audit` on the repo root reports
+   findings up to critical severity (currently `tar` and `sharp`, transitive
+   through `@capacitor/assets`), all marked "No fix available" upstream. Every
+   one of them is in the Android icon/APK build tooling, which lives in
+   `devDependencies` and never runs against untrusted input. What actually
+   serves traffic is what CI gates on:
+
+       npm audit --omit=dev --audit-level=high
+
+   That is the number to care about, and it must be clean before a deploy.
    `npm audit fix --force` was tried in a hardening pass and made things worse
-   (introduced a critical and 3 high findings elsewhere) - do not force-upgrade
-   these without a dedicated maintenance window and its own full test cycle.
+   - do not force-upgrade these without a dedicated maintenance window and its
+   own full test cycle.
 8. **Known limitation, not blocking at current scale**: rate limiters (login,
    write, global API) are in-process memory, not shared. Fine for the current
    single-app-container deployment; if the app is ever scaled to more than one

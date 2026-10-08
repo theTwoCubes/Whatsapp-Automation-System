@@ -135,7 +135,7 @@ async function upsertTopic(client, slug, meta) {
 async function replaceFaqs(client, topicId, items) {
   // Wipe the existing rows for this pack, then re-insert. faq_versions rows
   // cascade with the delete, so history in that table only reflects the live
-  // ids. That's fine for a seed script — versioning is for in-app edits.
+  // ids. That's fine for a seed script - versioning is for in-app edits.
   const where = topicId == null ? 'topic_id is null' : 'topic_id = $1';
   const params = topicId == null ? [] : [topicId];
   await client.query(`delete from faqs where ${where}`, params);
@@ -178,7 +178,7 @@ async function main() {
       const topicId = await upsertTopic(client, slug, meta);
       await replaceFaqs(client, topicId, items);
       const label = slug === 'base' ? 'base (topic_id=null)' : `${slug} (topic_id=${topicId})`;
-      console.log(`  ok:   ${label} — ${items.length} FAQs`);
+      console.log(`  ok:   ${label} - ${items.length} FAQs`);
     }
     await client.query('commit');
     console.log('done.');

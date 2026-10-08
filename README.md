@@ -48,21 +48,24 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
   bounded. The model can also ask for one more Topic pack by name mid-reply
   if the current answers do not cover the question.
 - Facts can be added one at a time, or pasted in bulk (an FAQ document, raw
-  notes) and split automatically into atomic, individually deduplicated
-  units. New entries are checked against existing ones by embedding
-  similarity so the same fact is never stored twice.
+  notes) and split automatically into atomic units. Deduplication is
+  deliberately literal rather than similarity based: re-loading a pack
+  replaces that pack's rows, so editing the source file always wins and
+  repeated loads never leave duplicates behind.
 - Facts can be edited, deactivated, or deleted from the console at any time
   without a deployment.
 
 ### Media library
 
 - Media assets (images and documents) are uploaded through the console,
-  tagged to a Topic, and given a short description that is embedded for
-  search, the same way knowledge facts are.
-- When a reply is sent, the bot looks for a media asset whose description
-  closely matches what the lead asked about and attaches it automatically.
-  A cooldown keeps the bot from repeatedly resending the same file to the
-  same conversation without hard blocking a lead who genuinely asks again.
+  tagged to a Topic, and given a short description of when the file
+  applies.
+- The descriptions for the conversation's Topics are handed to the model
+  alongside the approved answers, and it names the file to attach as part
+  of its decision. A file can also be pinned directly to one FAQ answer,
+  so using that answer sends the file with it. A cooldown keeps the bot
+  from repeatedly resending the same file to the same conversation without
+  hard blocking a lead who genuinely asks again.
 - Media a lead sends is never silently dropped. An inbound photo or PDF is
   read once with Gemini vision for a short, factual, non-judgemental
   description (never a critique or analysis of the file itself, which stays
@@ -91,9 +94,10 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 ### Lead qualification and handoff
 
 - The bot only hands a conversation to a person once the lead is actually
-  qualified: a real name, what their business or project is, what they
-  specifically want, and genuine intent to move forward - not just because
-  it is unsure of one fact, a price got pushed back on, or a file came in.
+  qualified: what their business is, where they are based, and what they
+  specifically want, plus an email or an explicit "I don't have one" -
+  not just because it is unsure of one fact, a price got pushed back on,
+  or a file came in.
   Name, business, email, address, requirement, budget, and timeline are
   picked up conversationally as they come up and saved to the lead, visible
   in full on the console's chat sidebar and the dashboard's leads table.
@@ -119,9 +123,12 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 
 ### Follow up automation
 
-- After a bot reply, a sequence of follow up messages is scheduled using
-  approved WhatsApp templates, by default at day 3, day 5, and day 8. Every
-  new reply from the lead resets the schedule.
+- After a bot reply, a sequence of follow up messages can be scheduled
+  using approved WhatsApp templates. The sequence ships empty, since the
+  template names have to match templates actually approved in the client's
+  WhatsApp Manager; it is configured per service from the console's
+  Follow-ups page once they are synced. Every new reply from the lead
+  resets the schedule.
 - Follow ups are sent using row level locking, so running more than one
   instance of the scheduler never sends the same follow up twice.
 - A handoff, whether initiated by the bot, the lead, or an agent, cancels
@@ -218,9 +225,10 @@ targets.
 - PostgreSQL with the pgvector extension
 - A Meta app with the WhatsApp product enabled: a phone number id, a
   WhatsApp Business Account id, an access token, and the app secret
-- An OpenAI API key, a Gemini API key, or both. An OpenAI key is required
-  for embeddings (knowledge retrieval, media matching, deduplication)
-  regardless of which provider is used for replies
+- An OpenAI API key, a Gemini API key, or both. Either one is enough to
+  run the bot; configuring both buys automatic failover. A Gemini key is
+  what reads an inbound photo or PDF, with OpenAI used only as the vision
+  fallback, so set Gemini even if OpenAI is the primary chat provider
 - A way to expose the local server to Meta during development, such as
   ngrok or cloudflared
 - To compile the Android APK: the Android SDK and a Firebase project 

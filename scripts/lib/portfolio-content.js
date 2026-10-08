@@ -119,11 +119,11 @@ const FOOTER = [
 // and the exact FAQ question its file should be attached to.
 export const docs = {
   'general-overview': {
-    title: 'AdVoice Inc. — Portfolio Overview',
+    title: 'AdVoice Inc. - Portfolio Overview',
     topicSlug: null,
     description: 'A one-page overview PDF with a sample project from every service - logo design, brochures and catalogues, packaging, website design, digital marketing, and short video. Best for a lead who has not settled on a specific service yet, or wants a broad sense of the work before narrowing down. If they have already named a specific service, send that service\'s own portfolio file instead of this one.',
     blocks: [
-      { heading: 'AdVoice Inc. — A Look At Our Work' },
+      { heading: 'AdVoice Inc. - A Look At Our Work' },
       { text: 'Since 2012 we have delivered branding, print, digital, and marketing work across more than 30 industries, with particular depth in real estate, manufacturing, and pharma. Here is a quick look across our services - ask for a specific one and we will send more.' },
       { spacer: true },
       { sub: 'Logo & Brand Identity' },
@@ -149,11 +149,11 @@ export const docs = {
     ],
   },
   'logo-design': {
-    title: 'AdVoice Inc. — Logo & Brand Identity Portfolio',
+    title: 'AdVoice Inc. - Logo & Brand Identity Portfolio',
     topicSlug: 'logo-design',
     description: 'A one-page PDF showing four recent logo and brand identity projects (Kalpavriksha Realty, Ferrotech Industries, Saffron Leaf Organics, Meridian Interiors), each with a short write-up of the brief and the direction taken. Send when a lead asks to see logo design samples, past work, or examples of the identity process.',
     blocks: [
-      { heading: 'Logo & Brand Identity — Selected Work' },
+      { heading: 'Logo & Brand Identity - Selected Work' },
       { text: 'A look at recent identity projects. Every mark below went through briefing, mind mapping, hand sketching, and three developed directions before final delivery.' },
       { spacer: true },
       { sub: '1. Kalpavriksha Realty' },
@@ -171,11 +171,11 @@ export const docs = {
     ],
   },
   'scientific-logo-design': {
-    title: 'AdVoice Inc. — Scientific Logo Design Portfolio',
+    title: 'AdVoice Inc. - Scientific Logo Design Portfolio',
     topicSlug: 'scientific-logo-design',
     description: 'A one-page PDF with three examples of scientific/Vedic logo design work done through the consultation process with Maulik Dave (Suryodaya Finance, Vaidya Ayurveda Clinic, Nakshatra Jewellers). Only send this for scientific logo design questions specifically - use the standard logo design portfolio for ordinary logo requests instead.',
     blocks: [
-      { heading: 'Scientific Logo Design — With Maulik Dave' },
+      { heading: 'Scientific Logo Design - With Maulik Dave' },
       { text: 'A sample of identities developed through the scientific logo design process, where shape, colour, and symbolism are aligned to the business category and growth direction alongside standard design craft.' },
       { spacer: true },
       { sub: '1. Suryodaya Finance' },
@@ -192,11 +192,11 @@ export const docs = {
     ],
   },
   'brochure-catalogue-design': {
-    title: 'AdVoice Inc. — Brochure & Catalogue Portfolio',
+    title: 'AdVoice Inc. - Brochure & Catalogue Portfolio',
     topicSlug: 'brochure-catalogue-design',
     description: 'A one-page PDF with four brochure and catalogue design examples across real estate, pharma, manufacturing, and education. Send when a lead asks to see brochure or catalogue samples, or examples of print layout work.',
     blocks: [
-      { heading: 'Brochure & Catalogue Design — Selected Work' },
+      { heading: 'Brochure & Catalogue Design - Selected Work' },
       { text: 'A sample of print and digital brochure and catalogue projects across real estate, pharma, and manufacturing.' },
       { spacer: true },
       { sub: '1. Greenfield Meadows (Real Estate)' },
@@ -214,11 +214,11 @@ export const docs = {
     ],
   },
   'packaging-design': {
-    title: 'AdVoice Inc. — Packaging Design Portfolio',
+    title: 'AdVoice Inc. - Packaging Design Portfolio',
     topicSlug: 'packaging-design',
     description: 'A one-page PDF with three packaging design examples across skincare, packaged foods, and supplements. Send when a lead asks to see packaging design samples or past packaging projects.',
     blocks: [
-      { heading: 'Packaging Design — Selected Work' },
+      { heading: 'Packaging Design - Selected Work' },
       { text: 'A sample of packaging projects across personal care, food, and retail.' },
       { spacer: true },
       { sub: '1. Aroha Wellness (Skincare)' },
@@ -233,11 +233,11 @@ export const docs = {
     ],
   },
   'website-design': {
-    title: 'AdVoice Inc. — Website Design & Development Portfolio',
+    title: 'AdVoice Inc. - Website Design & Development Portfolio',
     topicSlug: 'website-design',
     description: 'A one-page PDF with three website design and development examples across interiors, real estate, and manufacturing. Send when a lead asks to see website samples or past web projects.',
     blocks: [
-      { heading: 'Website Design & Development — Selected Work' },
+      { heading: 'Website Design & Development - Selected Work' },
       { text: 'A sample of websites designed and built for lead generation and portfolio presentation.' },
       { spacer: true },
       { sub: '1. Meridian Interiors' },
@@ -252,11 +252,11 @@ export const docs = {
     ],
   },
   'digital-marketing': {
-    title: 'AdVoice Inc. — Digital Marketing Portfolio',
+    title: 'AdVoice Inc. - Digital Marketing Portfolio',
     topicSlug: 'digital-marketing',
     description: 'A one-page PDF summarising three digital marketing projects covering PPC, Google My Business, and email marketing. Send when a lead asks about digital marketing results, examples, or past campaigns.',
     blocks: [
-      { heading: 'Digital Marketing — Selected Work' },
+      { heading: 'Digital Marketing - Selected Work' },
       { text: 'A sample of PPC, Google My Business, and email marketing work.' },
       { spacer: true },
       { sub: '1. Vantage Realty (PPC + Google My Business)' },
@@ -271,11 +271,11 @@ export const docs = {
     ],
   },
   'video-creation': {
-    title: 'AdVoice Inc. — Short Video Portfolio',
+    title: 'AdVoice Inc. - Short Video Portfolio',
     topicSlug: 'video-creation',
     description: 'A one-page PDF with three short video project examples made for social media. Send when a lead asks to see video samples or past video work.',
     blocks: [
-      { heading: 'Short-Form Video — Selected Work' },
+      { heading: 'Short-Form Video - Selected Work' },
       { text: 'A sample of short videos produced for social media and WhatsApp sharing.' },
       { spacer: true },
       { sub: '1. Meridian Interiors' },

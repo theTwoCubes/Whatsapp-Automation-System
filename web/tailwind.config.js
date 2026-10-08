@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Dynamic accent — references CSS variable so JS brand-color updates work
+        // Dynamic accent - references CSS variable so JS brand-color updates work
         accent: {
           DEFAULT: 'var(--accent)',
           hover:   'var(--accent-hover)',
