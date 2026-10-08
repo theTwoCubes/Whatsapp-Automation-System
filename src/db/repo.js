@@ -1171,18 +1171,6 @@ export async function untagConversation(pool, conversationId, tagId) {
   await pool.query('delete from conversation_tags where conversation_id = $1 and tag_id = $2', [conversationId, tagId]);
 }
 
-export async function listConversationTags(pool, conversationId) {
-  return (
-    await pool.query(
-      `select t.id, t.name, t.color from conversation_tags ct
-       join tags t on t.id = ct.tag_id
-       where ct.conversation_id = $1
-       order by t.name`,
-      [conversationId],
-    )
-  ).rows;
-}
-
 // A fairness hint for a pending handoff: cycles through every agent in id
 // order using a cursor stored in settings, so "whose turn is it" rotates
 // evenly instead of the same fast-clicking agent always grabbing the queue.
@@ -1750,7 +1738,7 @@ export async function conversationsToResume(pool, minutes) {
   const res = await pool.query(
     `select c.id, ct.wa_id, ca.topic_id,
        (select m.wa_message_id from messages m
-        where m.conversation_id = c.id
+        where m.conversation_id = c.id and m.direction = 'inbound'
         order by m.created_at desc, m.id desc
         limit 1) as last_inbound_wamid
      from conversations c

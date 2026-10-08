@@ -59,27 +59,8 @@ export function FormStack({ children }) {
   return <div className="flex flex-col gap-4">{children}</div>;
 }
 
-// A titled block inside a card. Sits one clear step above a field label
-// (sm/semibold gray-900 vs sm/medium gray-800) so the eye reads it as a
-// heading, not another label. Use inside CardBody to split a long form.
-export function SubSection({ title, description, children }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <div className="text-base font-semibold text-gray-900">{title}</div>
-        {description && <p className="text-sm text-gray-500 mt-1 leading-relaxed">{description}</p>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 export function FormActions({ children }) {
   return <div className="flex items-center justify-end gap-2 pt-2">{children}</div>;
-}
-
-export function Divider() {
-  return <div className="border-t border-gray-100 my-6" />;
 }
 
 export function TabPills({ tabs, active, onChange }) {
@@ -98,15 +79,6 @@ export function TabPills({ tabs, active, onChange }) {
           {label}
         </button>
       ))}
-    </div>
-  );
-}
-
-export function ListRow({ left, right }) {
-  return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
-      <div className="flex-1 min-w-0">{left}</div>
-      {right && <div className="flex-shrink-0 flex items-center gap-2">{right}</div>}
     </div>
   );
 }

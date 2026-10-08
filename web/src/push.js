@@ -56,10 +56,6 @@ export function pushAvailable() {
     && Notification.permission !== 'denied';
 }
 
-// True after we successfully subscribed at least once this session.
-let subscribed = false;
-export function isSubscribed() { return subscribed; }
-
 export async function enablePush() {
   if (isCapacitor()) {
     return enableNativePush();
@@ -87,7 +83,6 @@ export async function enablePush() {
     subscription: sub.toJSON(),
     meta: { platform: 'web' },
   });
-  subscribed = true;
   return { ok: true };
 }
 
@@ -147,7 +142,6 @@ function _doNativeRegistration(PushNotifications) {
           subscription: { transport: 'fcm', token: token.value },
           meta: { platform: 'android' },
         });
-        subscribed = true;
         resolve({ ok: true });
       } catch (err) {
         resolve({ ok: false, reason: err.message });

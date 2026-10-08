@@ -53,9 +53,6 @@ export function loadConfig() {
     geminiApiKey: process.env.GEMINI_API_KEY?.trim() || '',
     geminiModel: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
 
-    // Embeddings are only used to match media to what a lead asked about.
-    // Answers are not embedded, the whole pack is given to the model as text.
-    embeddingModel: process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small',
     // How much room the approved answers get in a prompt. The whole pack goes
     // in, so this is a ceiling rather than a target, and going over it drops
     // the least important entries rather than searching for the best ones.
