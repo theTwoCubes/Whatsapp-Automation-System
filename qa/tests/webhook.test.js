@@ -456,6 +456,45 @@ test('the ai naming a payment link sends it as a follow up text after the reply'
   assert.match(d.meta.sends[1].body, /https:\/\/rzp\.io\/l\/abc/);
 });
 
+test("a payment link's note always goes out underneath the url, in the same message", async () => {
+  const note = 'After payment kindly email your existing logo, business category, Business website if any and your phone number. We will revert back in 24-48 hours.';
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, amount_inr, url, description, note) values ('Existing logo analysis', 510, 'https://rzp.io/l/sci', 'For reviewing a logo they already have', $1) returning id",
+      [note],
+    )
+  ).rows[0].id;
+
+  // The model is told nothing about the note, so this proves the sender
+  // appends it rather than the ai being trusted to remember it.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Here you go.', send_payment_link_id: Number(linkId) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAYNOTE1', body: 'please check my current logo' }), d);
+
+  assert.equal(d.meta.sends.length, 2);
+  const linkMessage = d.meta.sends[1].body;
+  assert.match(linkMessage, /Existing logo analysis - ₹510/);
+  assert.ok(
+    linkMessage.indexOf('https://rzp.io/l/sci') < linkMessage.indexOf('After payment kindly email'),
+    'the note sits below the url, not above it',
+  );
+  assert.ok(linkMessage.endsWith(note), 'the note is sent verbatim');
+});
+
+test('a payment link with no note is sent exactly as before', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, amount_inr, url) values ('Project deposit', 25002, 'https://rzp.io/l/dep') returning id",
+    )
+  ).rows[0].id;
+
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sure.', send_payment_link_id: Number(linkId) }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAYNOTE2', body: 'i want a new logo' }), d);
+
+  assert.equal(d.meta.sends[1].body, 'Project deposit - ₹25002\nhttps://rzp.io/l/dep');
+});
+
 test('a send_payment_link_id with no matching link sends nothing extra, only the reply', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sure thing.', send_payment_link_id: 999999 }));
   const d = deps({ ai });

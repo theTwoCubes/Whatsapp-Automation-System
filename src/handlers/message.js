@@ -726,7 +726,13 @@ export async function maybeSendPaymentLink(deps, conversationId, to, paymentLink
     const link = await getPaymentLink(pool, paymentLinkId);
     if (!link) return;
 
-    const body = `${link.label}${link.amount_inr ? ` - ₹${link.amount_inr}` : ''}\n${link.url}`;
+    // The note, when the service has one, always rides underneath the url in
+    // the same message - it is the "what to do next" the client wants every
+    // payer to see, so it is not left to the model to remember.
+    const note = (link.note ?? '').trim();
+    const body =
+      `${link.label}${link.amount_inr ? ` - ₹${link.amount_inr}` : ''}\n${link.url}` +
+      (note ? `\n\n${note}` : '');
     const { wamid, waId } = await meta.sendText(to, body);
     if (wamid) {
       await recordOutbound(pool, { conversationId, waMessageId: wamid, body });

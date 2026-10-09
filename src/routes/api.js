@@ -1585,6 +1585,7 @@ export function registerApi(app, deps) {
       amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,
       url,
       description: (req.body?.description ?? '').trim() || null,
+      note: (req.body?.note ?? '').trim() || null,
     });
     await audit(req, 'payment link added', `link ${id}`, label);
     return { id };
@@ -1601,6 +1602,7 @@ export function registerApi(app, deps) {
       amountInr: req.body?.amountInr ? Number(req.body.amountInr) : null,
       url,
       description: (req.body?.description ?? '').trim() || null,
+      note: (req.body?.note ?? '').trim() || null,
       active: req.body?.active !== false,
     });
     await audit(req, 'payment link updated', `link ${req.params.id}`);

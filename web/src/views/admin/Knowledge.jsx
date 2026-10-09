@@ -938,12 +938,15 @@ function PaymentLinkForm({ topics, value, onChange }) {
       <InputField label="When the AI should send this" textarea
         placeholder="Which request this link is for"
         value={value.description} onChange={(e) => onChange({ ...value, description: e.target.value })} />
+      <InputField label="Always send this under the link (optional)" textarea
+        placeholder="e.g. what to email after paying, and how soon you reply"
+        value={value.note} onChange={(e) => onChange({ ...value, note: e.target.value })} />
     </FormStack>
   );
 }
 
 function emptyPaymentLink(topicId = '') {
-  return { topicId: topicId ?? '', label: '', amountInr: '', url: '', description: '' };
+  return { topicId: topicId ?? '', label: '', amountInr: '', url: '', description: '', note: '' };
 }
 
 function PaymentLinksPane({ topics }) {
@@ -974,6 +977,7 @@ function PaymentLinksPane({ topics }) {
         amountInr: form.amountInr || null,
         url: form.url.trim(),
         description: form.description.trim(),
+        note: form.note.trim(),
       });
       setForm(emptyPaymentLink(topicId));
       toast.success('Payment link added');
@@ -991,6 +995,7 @@ function PaymentLinksPane({ topics }) {
         amountInr: editForm.amountInr || null,
         url: editForm.url.trim(),
         description: editForm.description.trim(),
+        note: (editForm.note ?? '').trim(),
         active: editForm.active,
       });
       setEditingId(null);
@@ -1093,7 +1098,7 @@ function PaymentLinksPane({ topics }) {
                           <>
                             <Button variant="secondary" size="sm" onClick={() => {
                               setEditingId(p.id);
-                              setEditForm({ topicId: p.topic_id ?? '', label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', active: p.active });
+                              setEditForm({ topicId: p.topic_id ?? '', label: p.label, amountInr: p.amount_inr ?? '', url: p.url, description: p.description ?? '', note: p.note ?? '', active: p.active });
                             }}>Edit</Button>
                             <Button variant="danger-ghost" size="sm" onClick={() => setDeleteId(p.id)}>Delete</Button>
                           </>

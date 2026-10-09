@@ -1458,10 +1458,10 @@ export async function getMediaAsset(pool, id) {
 // id, never allowed to invent a url.
 export async function addPaymentLink(pool, p) {
   const r = await pool.query(
-    `insert into payment_links (topic_id, label, amount_inr, url, description)
-     values ($1, $2, $3, $4, $5)
+    `insert into payment_links (topic_id, label, amount_inr, url, description, note)
+     values ($1, $2, $3, $4, $5, $6)
      returning id`,
-    [p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null],
+    [p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.note ?? null],
   );
   return r.rows[0].id;
 }
@@ -1469,9 +1469,10 @@ export async function addPaymentLink(pool, p) {
 export async function updatePaymentLink(pool, id, p) {
   await pool.query(
     `update payment_links set
-       topic_id = $2, label = $3, amount_inr = $4, url = $5, description = $6, active = $7, updated_at = now()
+       topic_id = $2, label = $3, amount_inr = $4, url = $5, description = $6, active = $7,
+       note = $8, updated_at = now()
      where id = $1`,
-    [id, p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.active !== false],
+    [id, p.topicId ?? null, p.label, p.amountInr ?? null, p.url, p.description ?? null, p.active !== false, p.note ?? null],
   );
 }
 
@@ -1485,7 +1486,7 @@ export async function listPaymentLinks(pool, { topicId = null } = {}) {
   if (topicId) {
     return (
       await pool.query(
-        `select id, topic_id, label, amount_inr, url, description, active, created_at
+        `select id, topic_id, label, amount_inr, url, description, note, active, created_at
          from payment_links where topic_id = $1 order by id desc`,
         [topicId],
       )
@@ -1493,7 +1494,7 @@ export async function listPaymentLinks(pool, { topicId = null } = {}) {
   }
   return (
     await pool.query(
-      `select id, topic_id, label, amount_inr, url, description, active, created_at
+      `select id, topic_id, label, amount_inr, url, description, note, active, created_at
        from payment_links order by topic_id nulls last, id desc`,
     )
   ).rows;
@@ -1515,9 +1516,12 @@ export async function getPaymentLinkCatalog(pool, topicIds = []) {
   return res.rows;
 }
 
+// note is deliberately absent from getPaymentLinkCatalog above: the AI never
+// sees it, so it cannot paraphrase it into its own reply and end up saying the
+// same thing twice. The sender appends it verbatim instead.
 export async function getPaymentLink(pool, id) {
   return (
-    await pool.query('select id, label, amount_inr, url from payment_links where id = $1', [id])
+    await pool.query('select id, label, amount_inr, url, note from payment_links where id = $1', [id])
   ).rows[0] ?? null;
 }
 

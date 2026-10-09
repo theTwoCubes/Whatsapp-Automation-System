@@ -4,8 +4,18 @@ Base pack policies apply on top. Only `Q:`/`A:` pairs are loaded, so the
 discipline for this service lives inside the approved answers themselves:
 never tell a customer their business problem is caused by their logo, and
 never analyse or critique a logo over WhatsApp. Both entry points are paid -
-the ₹450 existing-logo analysis, or the project deposit - and the answers
+the ₹510 existing-logo analysis, or the project deposit - and the answers
 below always route to one of them rather than offering a free review.
+
+Never ask a customer to list their business problems. The analysis comes from
+studying the logo itself, and what they get back is a written read on 3 to 5
+areas. If a customer volunteers a problem, the answers below engage with it,
+but the bot never goes fishing for one.
+
+The instruction about emailing the logo and business details after paying is
+attached to the payment links themselves, so it always goes out underneath the
+link. Do not repeat it in these answers.
+
 Language handling is governed by the system prompt, not by this file.
 
 # What it is
@@ -40,11 +50,11 @@ A: The comparison isn't really to a logo. The objective is a visual identity car
 
 !verbatim
 Q: Can I negotiate the fee?
-A: It's fixed at ₹50,004, no negotiation - and the ₹450 analysis and the deposit are fixed too. Happy to keep going on anything else you'd like to know first.
+A: It's fixed at ₹50,004, no negotiation.
 
 !verbatim
 Q: Can I get a discount if I pay the full amount upfront?
-A: No, the fee doesn't change either way. What can change is how you start - the project deposit, or the ₹450 analysis of your existing logo if that's a better first step for you.
+A: No, the fee doesn't change either way. What can change is how you start - the project deposit, or the ₹510 analysis of your existing logo if that's a better first step for you.
 
 # Timeline and options
 
@@ -58,43 +68,62 @@ A: A fixed number isn't the objective. We explore many ideas and the final selec
 
 !verbatim
 Q: Can you analyse my existing logo?
-A: Yes - that's a ₹450 service on its own, separate from a full new logo project. Here's the link for that: [send the analysis fee payment link]. Once that's done, share your existing logo if you haven't already, and Maulik will personally connect with you, usually a 15 minute slot the next day.
+A: Yes - that's a ₹510 service on its own, separate from a full new logo project. Here's the link for that: [send the analysis fee payment link].
 
 !verbatim
 Q: I've already sent my logo, is that enough?
-A: Thanks for sending it, that's useful. The ₹450 analysis fee still applies before Maulik reviews it personally - here's the link: [send the analysis fee payment link].
+A: Thanks for sending it, that's useful. The ₹510 analysis fee still applies before Maulik reviews it personally - here's the link: [send the analysis fee payment link].
 
+!verbatim
+Q: What do I actually get for the ₹510 analysis?
+A: Maulik studies your logo himself and sends you a written analysis of 3 to 5 areas - the areas your business is being supported well in, and the areas where the identity is working against you. You don't have to explain your problems to us; it comes from the logo, your business category and the scientific parameters.
+
+!verbatim
+Q: Do you need me to explain the problems in my business first?
+A: Not at all, and we won't ask you to. Maulik studies the logo against your business category and the scientific parameters, and the 3 to 5 areas come out of that. If you want to share something you've noticed you're welcome to, but nothing is needed from you beyond the logo and your business details.
+
+!verbatim
 Q: I've paid for the analysis, now what?
-A: Perfect, thank you. Maulik will personally connect with you, usually a 15 minute slot the next day. Nothing further needed from you for now.
+A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting. If you haven't emailed your logo and business details yet, please do that in the meantime so he has everything in front of him.
 
 !verbatim
 Q: I don't want the analysis, I want a full new logo made.
-A: Great - the full Scientific Logo Design project is ₹50,004. To get started we take a deposit first, roughly 15-25% of that. Here's the link: [send the project deposit payment link].
+A: Great - the full Scientific Logo Design project is ₹50,004. To get started we take a 50% deposit, which is ₹25,002. Here's the link: [send the project deposit payment link].
 
+!verbatim
 Q: I've paid the deposit, what happens next?
-A: Thank you, that's received. Maulik will connect with you directly to take the project forward.
+A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting, and he'll take the project forward with you from there.
 
 !verbatim
 Q: Can I book a call with Maulik without paying anything?
-A: The 15 minute call happens after the ₹450 analysis, if you want your existing logo reviewed, or after the project deposit for a new one - whichever fits what you're looking for. Once that's done, Maulik reaches out directly.
+A: The call happens after the ₹510 analysis, if you want your existing logo reviewed, or after the project deposit for a new one - whichever fits what you're looking for. Once that's done, Maulikbhai calls you within 24 hours to fix a time.
 
 !verbatim
 Q: Can you just tell me what's wrong with my logo here on WhatsApp?
-A: That's exactly what the ₹450 analysis is for - Maulik looks at it properly against your business category and birth chart rather than giving a quick opinion in chat. Here's the link: [send the analysis fee payment link].
+A: That's exactly what the ₹510 analysis is for - Maulik looks at it properly against your business category and birth chart rather than giving a quick opinion in chat. Here's the link: [send the analysis fee payment link].
+
+!verbatim
+Q: How soon will I hear back after paying?
+A: You'll get a reply within 24 to 48 hours of sending your details across, and Maulikbhai calls you on your phone within 24 hours to fix a time for the meeting.
 
 # When a customer describes a business problem
 
+These answers engage with a problem the customer raised themselves. They
+explain what the framework looks at and stop there - they do not ask the
+customer to detail their problems, and most of them deliberately do not end on
+the paid analysis, so a volunteered problem is not met with an immediate sell.
+
 Q: My sales aren't growing. Is my logo the reason?
-A: I wouldn't put it down to the logo, but it's worth looking at from that angle. Sometimes the owner's vision has grown while the identity still represents the older direction. In Scientific Logo Design we check whether the logo is aligned with sales, customer attraction, communication, and the growth objective. The ₹450 existing-logo analysis is how that gets looked at properly, with Maulik reviewing it personally.
+A: I wouldn't put it down to the logo, but it's worth looking at from that angle. Sometimes the owner's vision has grown while the identity still represents the older direction. In Scientific Logo Design we check whether the logo is aligned with sales, customer attraction, communication, and the growth objective. The ₹510 existing-logo analysis is how that gets looked at properly, with Maulik reviewing it personally.
 
 Q: Payments keep getting stuck. Is my logo connected?
-A: I can't tell you the logo is the cause. But if payment issues recur, the identity is worth examining from the perspective of money flow, stability, customer relationship, and business structure - which is what the ₹450 existing-logo analysis covers.
+A: I can't tell you the logo is the cause. But if payment issues recur, the identity is worth examining from the perspective of money flow, stability, customer relationship, and business structure.
 
 Q: Clients delay payments. How does this help?
-A: Payment delays aren't only a collection issue. The visual identity can be examined from the angle of payment flow, stability, and customer relationship. The ₹450 analysis is where that actually gets looked at against your business category and existing logo.
+A: Payment delays aren't only a collection issue. The visual identity can be examined from the angle of payment flow, stability, and customer relationship.
 
 Q: My deals break at the last moment. Any connection to the logo?
-A: If it keeps happening, the pattern is worth examining from the identity's perspective - communication, customer relationship, stability, direction, and conversion signals. The ₹450 existing-logo analysis is where Maulik looks at that personally.
+A: If it keeps happening, the pattern is worth examining from the identity's perspective - communication, customer relationship, stability, direction, and conversion signals.
 
 Q: Customers say yes and then cancel.
 A: A recurring pattern like that is worth analysing. A logo communicates subconsciously, so we check whether the visual identity is properly supporting trust, communication, customer connection, and stability.
