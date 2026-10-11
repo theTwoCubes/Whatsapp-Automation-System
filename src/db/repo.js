@@ -252,6 +252,16 @@ export async function setLastTopicId(pool, conversationId, topicId) {
   await pool.query('update conversations set last_topic_id = $2 where id = $1', [conversationId, topicId]);
 }
 
+// The service this lead is recorded against - what the console shows for them
+// and what a per-service follow up is configured for. Unlike the pack list it
+// is not rebuilt per message, so it survives a turn whose text matches no
+// keyword.
+export async function getLastTopicId(pool, conversationId) {
+  const res = await pool.query('select last_topic_id from conversations where id = $1', [conversationId]);
+  const id = res.rows[0]?.last_topic_id;
+  return id === null || id === undefined ? null : Number(id);
+}
+
 export async function updateStatus(pool, s) {
   await pool.query(
     `update messages set status = $2 

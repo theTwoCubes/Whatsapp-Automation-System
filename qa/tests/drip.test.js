@@ -195,3 +195,60 @@ test('due follow ups are skipped once a human owns the conversation', async () =
   assert.equal(processed, 0, 'nothing sent while a human owns it');
   assert.equal(meta.templates.length, 0);
 });
+
+// Regression: a keyword match makes its pack sticky, so resolving the drip
+// sequence off the pack list works for those leads. The ai naming the service
+// through lead_service does NOT make it sticky - it only records it on the
+// conversation. So for a lead the ai classified rather than keyword matched,
+// the pack list is just ['base'], and resolving off it alone fell through to
+// the general sequence. A client running purely per-service follow ups has
+// that empty, which meant the console showed the lead under a service with a
+// follow up configured while nothing was ever scheduled for them.
+test("a service the ai named is still followed up, even though it is not a sticky pack", async () => {
+  const topic = await upsertTopic(pool, {
+    slug: 'scientific-logo-design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific logo',
+    dripSteps: 'any_update:1',
+  });
+  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Yantra.' });
+
+  // No keyword in the text - the service comes purely from the ai's own read.
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'Happy to help with that.',
+    lead_service: 'Scientific Logo Design',
+  }));
+  const emptyGeneral = { ...testConfig, dripSteps: [] };
+  await processWebhook(
+    inboundText({ id: 'wamid.SVC1', body: 'i need help with my brand identity' }),
+    { ...deps({ ai }), config: emptyGeneral },
+  );
+
+  const conv = await firstConversation();
+  const row = (await pool.query('select last_topic_id, active_pack_ids from conversations where id = $1', [conv])).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(topic.id), 'recorded against the service the ai named');
+  assert.ok(
+    !(row.active_pack_ids || []).map(Number).includes(Number(topic.id)),
+    'and deliberately not sticky - that is the condition this test exists for',
+  );
+
+  const jobs = (
+    await pool.query("select template_name, run_at, created_at from drip_jobs where status = 'pending' order by step")
+  ).rows;
+  assert.equal(jobs.length, 1, 'the service follow up was still scheduled');
+  assert.equal(jobs[0].template_name, 'any_update');
+  const gapHours = (new Date(jobs[0].run_at) - new Date(jobs[0].created_at)) / 3600000;
+  assert.ok(gapHours > 23 && gapHours < 25, `scheduled ~1 day out, got ${gapHours}h`);
+});
+
+test('with no service follow ups configured the general sequence still applies', async () => {
+  const topic = await upsertTopic(pool, {
+    slug: 'scientific-logo-design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific logo',
+  });
+  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Yantra.' });
+  await processWebhook(inboundText({ id: 'wamid.SVC3', body: 'i want a scientific logo' }), deps());
+  assert.equal(await pending(), 3, 'falls back to the three general steps');
+});

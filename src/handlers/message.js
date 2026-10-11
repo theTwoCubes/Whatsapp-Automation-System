@@ -9,6 +9,7 @@ import {
   getActivePackIds,
   addActivePackIds,
   setLastTopicId,
+  getLastTopicId,
   setReplyLanguage,
   setLockedLanguage,
   setLeadProfile,
@@ -544,7 +545,7 @@ async function respondToLead(deps, conversationId, items) {
       }
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
-        const dripSteps = await resolveDripSteps(pool, settings, packs);
+        const dripSteps = await resolveDripSteps(pool, conversationId, settings, packs);
         await scheduleDrips(pool, conversationId, dripSteps);
       }
       // The AI gave us nothing usable (parseFailed) and the lead is not
@@ -625,18 +626,29 @@ async function respondToLead(deps, conversationId, items) {
   }
 
   if (sent && !(await isContactOptedOut(pool, conversationId))) {
-    const dripSteps = await resolveDripSteps(pool, settings, packs);
+    const dripSteps = await resolveDripSteps(pool, conversationId, settings, packs);
     await scheduleDrips(pool, conversationId, dripSteps);
   }
 }
 
-// Picks the drip sequence to schedule: the specific service pack in play for
-// this reply, if it has its own follow ups configured, otherwise the general
-// sequence from settings. packs[0] is always 'base', so the first numeric
-// entry (if any) is the most relevant service topic for this conversation.
-async function resolveDripSteps(pool, settings, packs) {
-  const topicId = packs.find((p) => p !== 'base');
-  if (topicId != null) {
+// Picks the drip sequence to schedule: the lead's service if it has its own
+// follow ups configured, otherwise the general sequence from settings.
+//
+// The conversation's recorded service is checked first, before the packs in
+// play for this reply. It is the one the console shows for this lead and the
+// one a per-service follow up is configured against, and it is set both by
+// the strongest keyword match and by the ai naming the service outright. The
+// pack list is rebuilt from scratch on every message, so a turn like "ok
+// thanks" matches no keyword and would otherwise fall through to the general
+// sequence - which is empty whenever a client runs purely per-service follow
+// ups, meaning the lead silently got no follow up at all.
+async function resolveDripSteps(pool, conversationId, settings, packs) {
+  const candidates = [];
+  const recorded = await getLastTopicId(pool, conversationId);
+  if (recorded != null) candidates.push(recorded);
+  for (const p of packs) if (p !== 'base' && !candidates.includes(p)) candidates.push(p);
+
+  for (const topicId of candidates) {
     const topic = await getTopic(pool, topicId);
     if (topic?.drip_steps) return parseDripSteps(topic.drip_steps);
   }
