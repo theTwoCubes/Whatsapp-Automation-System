@@ -54,6 +54,11 @@ A: The comparison isn't really to a logo. The objective is a visual identity car
 
 !verbatim
 !pinned
+Q: Is GST extra on ₹50,004?
+A: No. ₹50,004 is the complete amount, GST included. The ₹510 existing-logo analysis and the ₹25,002 deposit work the same way - what you see is what you pay.
+
+!verbatim
+!pinned
 Q: Can I negotiate the fee?
 A: It's fixed at ₹50,004, no negotiation.
 

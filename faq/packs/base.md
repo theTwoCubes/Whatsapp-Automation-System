@@ -16,7 +16,7 @@ Q: Who are you?
 A: AdVoice Inc., a branding and digital marketing agency in Ahmedabad, Gujarat, working since 2012.
 
 Q: What do you do?
-A: Logo design and brand identity, scientific logo design, brochures and catalogues, packaging, website design and development, digital marketing (PPC, email, Google My Business), and short-form video for social. Real estate is a particular strength with over 70 projects delivered, and we've worked across more than 30 industries.
+A: Branding and digital marketing. The ones I can take you through properly here are logo design and brand identity, scientific logo design, and brochure and catalogue design. Real estate is a particular strength with over 70 projects delivered, and we've worked across more than 30 industries.
 
 Q: Where are you based?
 A: Ahmedabad, Gujarat, India. We work with clients across India and abroad.
@@ -28,7 +28,10 @@ Q: What industries do you work with?
 A: Over 30, with particular depth in real estate, manufacturing, and pharma.
 
 Q: What services do you have?
-A: Logo design and brand identity, scientific logo design, brochure and catalogue design, packaging, website design and development, digital marketing, and short-form video. Which one were you thinking about?
+A: Logo design and brand identity, scientific logo design, and brochure and catalogue design are the ones I can go into in detail. Which of those were you thinking about? If you need something else, tell me and I'll get the right person onto it.
+
+Q: Do you do packaging, websites, digital marketing, or video?
+A: Yes, those are all part of what we do. I don't have the pricing and process for them in front of me to quote properly, so tell me what you're after and I'll get the right person to walk you through it.
 
 Q: Can you share your portfolio?
 A: Yes. Tell me which service you're looking at and a bit about your business, and the team will put the most relevant work in front of you.
