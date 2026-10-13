@@ -495,6 +495,32 @@ test('a payment link with no note is sent exactly as before', async () => {
   assert.equal(d.meta.sends[1].body, 'Project deposit - ₹25002\nhttps://rzp.io/l/dep');
 });
 
+// The exact failure seen in production: the model wrote its own razorpay-ish
+// url into the reply AND set send_payment_link_id, so the lead got two links -
+// one real, one invented and dead. A dead payment link in front of a paying
+// customer is the worst output this bot has, so it is enforced, not requested.
+test('an invented payment url in the reply never reaches the lead, only the real link does', async () => {
+  const linkId = (
+    await pool.query(
+      "insert into payment_links (label, amount_inr, url, description) values ('Existing logo analysis', 510, 'https://rzp.io/l/real', 'For reviewing an existing logo') returning id",
+    )
+  ).rows[0].id;
+
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: "Sure Akshat, here's the link: https://razorpay.com/payment-link/plink_invented",
+    send_payment_link_id: Number(linkId),
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.FAKEURL', body: 'send me the payment link' }), d);
+
+  assert.equal(d.meta.sends.length, 2, 'the reply and the one real link');
+  assert.ok(!d.meta.sends[0].body.includes('plink_invented'), 'the invented url is gone from the reply');
+  assert.ok(!d.meta.sends[0].body.includes('http'), 'and no url survives in the reply at all');
+  assert.equal(d.meta.sends[0].body, "Sure Akshat, here's the link");
+  assert.match(d.meta.sends[1].body, /https:\/\/rzp\.io\/l\/real/, 'the real link is still sent');
+});
+
 test('a send_payment_link_id with no matching link sends nothing extra, only the reply', async () => {
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Sure thing.', send_payment_link_id: 999999 }));
   const d = deps({ ai });

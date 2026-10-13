@@ -1,7 +1,7 @@
 import { getConversationHistory, getConversationContext, getMediaCatalog, getRecentMediaSends, getPaymentLinkCatalog, getHostedLinkCatalog } from '../db/repo.js';
 import { buildFaqContext, estimateTokens } from '../knowledge/context.js';
 import { packCatalog } from '../knowledge/packs.js';
-import { humanize } from './sanitize.js';
+import { humanize, stripUnapprovedLinks } from './sanitize.js';
 import { REACTION_EMOJIS } from './reactions.js';
 
 // How far back the model can see in the conversation. Raised from 14 to 30 -
@@ -68,7 +68,7 @@ export function categorizeHandoffReason(reason) {
 }
 
 export async function buildReply(pool, ai, config, conversationId, opts = {}) {
-  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [] } = opts;
+  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [], log } = opts;
 
   const topicIds = packs.filter((p) => p !== 'base');
   const [faqs, catalog, media, paymentLinks, hostedLinks, recentSends, history, context] = await Promise.all([
@@ -110,8 +110,22 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   const validHostedLinkIdSet = new Set(hostedLinks.map((l) => Number(l.id)));
   const sendHostedLinkId = validHostedLinkIdSet.has(Number(parsed.sendHostedLinkId)) ? Number(parsed.sendHostedLinkId) : null;
 
+  // Links the business does share in conversation survive; a url the model
+  // typed itself does not. Logged when it happens, because a model reaching
+  // for an invented payment link is worth knowing about rather than silently
+  // papering over.
+  const linkCheck = parsed.reply
+    ? stripUnapprovedLinks(humanize(parsed.reply), [config.websiteUrl, config.instagramUrl])
+    : { text: '', stripped: [] };
+  if (linkCheck.stripped.length > 0) {
+    log?.warn?.(
+      { conversationId, stripped: linkCheck.stripped },
+      'removed a link the ai wrote into its own reply - links are only ever sent by id from the configured list',
+    );
+  }
+
   return {
-    reply: parsed.reply ? humanize(parsed.reply) : '',
+    reply: linkCheck.text,
     handoff: parsed.handoff,
     warn: parsed.warn || false,
     block: parsed.block || false,

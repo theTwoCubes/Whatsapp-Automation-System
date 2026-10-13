@@ -68,11 +68,11 @@ A: A fixed number isn't the objective. We explore many ideas and the final selec
 
 !verbatim
 Q: Can you analyse my existing logo?
-A: Yes - that's a ₹510 service on its own, separate from a full new logo project. Here's the link for that: [send the analysis fee payment link].
+A: Yes - that's a ₹510 service on its own, separate from a full new logo project. Sending you the payment link for it now.
 
 !verbatim
 Q: I've already sent my logo, is that enough?
-A: Thanks for sending it, that's useful. The ₹510 analysis fee still applies before Maulik reviews it personally - here's the link: [send the analysis fee payment link].
+A: Thanks for sending it, that's useful. The ₹510 analysis fee still applies before Maulik reviews it personally, and I'm sending you the payment link now.
 
 !verbatim
 Q: What do I actually get for the ₹510 analysis?
@@ -88,7 +88,7 @@ A: Thank you, that's received. Maulikbhai will call you on your phone within 24 
 
 !verbatim
 Q: I don't want the analysis, I want a full new logo made.
-A: Great - the full Scientific Logo Design project is ₹50,004. To get started we take a 50% deposit, which is ₹25,002. Here's the link: [send the project deposit payment link].
+A: Great - the full Scientific Logo Design project is ₹50,004. To get started we take a 50% deposit, which is ₹25,002. Sending you the payment link for it now.
 
 !verbatim
 Q: I've paid the deposit, what happens next?
@@ -100,7 +100,7 @@ A: The call happens after the ₹510 analysis, if you want your existing logo re
 
 !verbatim
 Q: Can you just tell me what's wrong with my logo here on WhatsApp?
-A: That's exactly what the ₹510 analysis is for - Maulik looks at it properly against your business category and birth chart rather than giving a quick opinion in chat. Here's the link: [send the analysis fee payment link].
+A: That's exactly what the ₹510 analysis is for - Maulik looks at it properly against your business category and birth chart rather than giving a quick opinion in chat. Sending you the payment link now.
 
 !verbatim
 Q: How soon will I hear back after paying?

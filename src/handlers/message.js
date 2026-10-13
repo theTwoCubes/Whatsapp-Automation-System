@@ -428,6 +428,7 @@ async function respondToLead(deps, conversationId, items) {
       packs,
       faqBudgetTokens: config.faqBudgetTokens,
       text,
+      log,
     });
     // The model asked for extra packs. Add them, mark them sticky for the rest
     // of the conversation, and call back once with pack requests disabled so a
@@ -440,12 +441,26 @@ async function respondToLead(deps, conversationId, items) {
         packs: [...packs, ...decision.requestedPackIds],
         faqBudgetTokens: config.faqBudgetTokens,
         allowPackRequests: false,
+        log,
       });
     }
     const aiMs = Date.now() - aiStart;
     recordAiSuccess(aiMs);
     aiSucceeded = true;
-    log.info({ conversationId, aiMs, handoff: decision?.handoff }, 'ai reply built');
+    // Which provider answered is worth logging: buildReply already knows, and
+    // without it there is no way to confirm from the outside that switching
+    // provider in the console actually took effect, or to notice that the
+    // primary is quietly erroring and the failover is carrying every reply.
+    log.info(
+      {
+        conversationId,
+        aiMs,
+        handoff: decision?.handoff,
+        provider: decision?.aiProvider,
+        failedOver: decision?.aiProviderFallback?.length ? decision.aiProviderFallback : undefined,
+      },
+      'ai reply built',
+    );
   } catch (err) {
     const aiMs = Date.now() - aiStart;
     recordAiError();

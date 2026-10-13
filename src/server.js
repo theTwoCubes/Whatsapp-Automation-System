@@ -19,6 +19,29 @@ import { captureError } from './monitoring.js';
 
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web', 'dist');
 
+// Query params whose value is a credential and must never be written to a log.
+const SECRET_QUERY_PARAMS = new Set(['hub.verify_token', 'ticket', 'token', 'access_token']);
+
+// Replaces the value of any sensitive query param with [redacted], leaving the
+// rest of the url readable. Exported for the test that pins this behaviour.
+export function maskSensitiveQuery(url) {
+  if (typeof url !== 'string') return url;
+  const q = url.indexOf('?');
+  if (q === -1) return url;
+  const path = url.slice(0, q);
+  const masked = url
+    .slice(q + 1)
+    .split('&')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      const key = eq === -1 ? pair : pair.slice(0, eq);
+      if (!SECRET_QUERY_PARAMS.has(decodeURIComponent(key))) return pair;
+      return `${key}=[redacted]`;
+    })
+    .join('&');
+  return `${path}?${masked}`;
+}
+
 export function buildServer(config, pool, realtime = createRealtime()) {
   const app = Fastify({
     // Caddy sits directly in front of the app as the only proxy hop, so trust
@@ -32,6 +55,22 @@ export function buildServer(config, pool, realtime = createRealtime()) {
       redact: {
         paths: ['req.headers.authorization', 'req.headers.cookie', 'req.body.password'],
         remove: true,
+      },
+      // Credentials also travel in query strings, and the default request log
+      // writes req.url verbatim - so every Meta webhook verification was
+      // putting WEBHOOK_VERIFY_TOKEN into the logs in full, and every console
+      // websocket its one-use ticket. redact cannot reach inside a url, so the
+      // url is rewritten before it is ever logged. The path and any harmless
+      // params are kept, since those are what make the log useful.
+      serializers: {
+        req(req) {
+          return {
+            method: req.method,
+            url: maskSensitiveQuery(req.url),
+            hostname: req.hostname,
+            remoteAddress: req.ip,
+          };
+        },
       },
       transport:
         process.env.NODE_ENV === 'production'

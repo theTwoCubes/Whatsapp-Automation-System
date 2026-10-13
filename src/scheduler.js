@@ -221,6 +221,7 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
       packs,
       faqBudgetTokens: config.faqBudgetTokens,
       allowPackRequests: false,
+      log,
     });
   } catch {
     // fall back below
