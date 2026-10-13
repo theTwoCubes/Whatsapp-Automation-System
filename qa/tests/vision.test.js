@@ -121,7 +121,14 @@ test('the per-hour cap stops further vision calls without blocking the reply', a
   };
   try {
     const config = { ...testConfig, geminiApiKey: 'test-key', geminiModel: 'gemini-2.5-flash', mediaAnalysisMaxPerHour: 1 };
-    const d = { meta: new FakeMeta(), ai: new FakeAi(), pool, config, log: silentLog };
+    // Distinct replies per turn: a bot that answers two images with the exact
+    // same sentence is caught by the repeat guard, which is not what this
+    // test is about.
+    const ai = new FakeAi().queueReplies(
+      JSON.stringify({ action: 'answer', reply: 'Got the first one.' }),
+      JSON.stringify({ action: 'answer', reply: 'Got the second one too.' }),
+    );
+    const d = { meta: new FakeMeta(), ai, pool, config, log: silentLog };
     await processWebhook(inboundImage({ id: 'wamid.V2' }), d);
     await processWebhook(inboundImage({ id: 'wamid.V3' }), d);
 
@@ -147,6 +154,80 @@ test('a failed vision call is swallowed and the bot still replies', async () => 
     assert.equal(d.meta.sends.length, 1, 'the reply still goes out even though vision failed');
     const row = await pool.query("select attachment_context from messages where type = 'image'");
     assert.equal(row.rows[0].attachment_context, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+// The configured gemini model is a thinking model, and its reasoning tokens
+// are spent out of the same output budget as the visible answer. At the old
+// 120 token ceiling an inbound logo came back described as "A logo with an",
+// and that fragment then went into the reply prompt as the only thing the bot
+// knew about the file.
+test('gemini is told not to spend the output budget on thinking', async () => {
+  let sentBody;
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, init) => {
+    sentBody = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'a logo with a blue circle' }] } }] }) };
+  };
+  try {
+    const note = await describeAttachment(
+      { geminiApiKey: 'k', geminiModel: 'gemini-2.5-flash' },
+      Buffer.from('x'),
+      'image/png',
+      silentLog,
+    );
+    assert.equal(note, 'a logo with a blue circle');
+    assert.equal(sentBody.generationConfig.thinkingConfig.thinkingBudget, 0);
+    assert.ok(sentBody.generationConfig.maxOutputTokens >= 512, 'and the ceiling is not left tight enough to truncate');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('a description cut off by the token ceiling is thrown away, not recorded as fact', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    // Gemini truncates, then the openai fallback answers properly.
+    if (calls === 1) {
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'A logo with an' }] } }] }),
+      };
+    }
+    return { ok: true, json: async () => ({ choices: [{ message: { content: 'a logo for a steel bar manufacturer' } }] }) };
+  };
+  try {
+    const note = await describeAttachment(
+      { geminiApiKey: 'k', geminiModel: 'gemini-2.5-flash', openaiApiKey: 'o' },
+      Buffer.from('x'),
+      'image/png',
+      silentLog,
+    );
+    assert.equal(note, 'a logo for a steel bar manufacturer', 'the fallback answer is used instead of the fragment');
+    assert.equal(calls, 2, 'the truncated primary counts as a failure so the fallback runs');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('a truncated description with no fallback available is dropped rather than stored', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'A logo with an' }] } }] }),
+  });
+  try {
+    const note = await describeAttachment(
+      { geminiApiKey: 'k', geminiModel: 'gemini-2.5-flash', openaiApiKey: '' },
+      Buffer.from('x'),
+      'image/png',
+      silentLog,
+    );
+    assert.equal(note, null, 'no note at all beats half a sentence presented as a fact');
   } finally {
     global.fetch = originalFetch;
   }

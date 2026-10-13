@@ -31,6 +31,11 @@ const OPENAI_VISION_MODEL = 'gpt-4o-mini';
 // perceived "AI is typing" wait inside the typical attention span.
 const VISION_PRIMARY_TIMEOUT_MS = 12000;
 const VISION_FALLBACK_TIMEOUT_MS = 8000;
+// Generous for a one-sentence answer that is then hard capped at 200 chars
+// anyway. The output ceiling is not a cost control here - the prompt is what
+// keeps the answer short - so there is no reason to run it tight enough that
+// a model's own overhead can truncate the description.
+const VISION_MAX_OUTPUT_TOKENS = 512;
 
 function isGeminiSupported(mimeType) {
   return Boolean(mimeType) && (mimeType.startsWith('image/') || GEMINI_SUPPORTED_NON_IMAGE.has(mimeType));
@@ -52,7 +57,18 @@ async function describeViaGemini(config, buffer, mimeType) {
         { inlineData: { mimeType, data: buffer.toString('base64') } },
       ],
     }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 120 },
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: VISION_MAX_OUTPUT_TOKENS,
+      // The configured model is a thinking model by default, and reasoning
+      // tokens are billed against maxOutputTokens before a single visible
+      // character is produced. At the old budget of 120 the thinking ate
+      // nearly all of it and descriptions came back chopped mid-word - one
+      // image was recorded as "A logo with an", which then went into the
+      // reply prompt as the only thing the bot knew about the file. This is a
+      // one-line factual description; it needs no reasoning at all.
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   };
 
   const res = await fetch(url, {
@@ -64,6 +80,12 @@ async function describeViaGemini(config, buffer, mimeType) {
   const data = await res.json();
   if (!res.ok || data.error) {
     throw new Error(data.error?.message ?? `Gemini vision returned HTTP ${res.status}`);
+  }
+  // A description cut off by the token ceiling is worse than none: it reads
+  // as a fact to whatever sees it next. Treat it as a failure so the OpenAI
+  // fallback gets its turn, and so it shows up in the logs.
+  if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    throw new Error('Gemini vision hit the output token ceiling, description would be truncated');
   }
   const text = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('').trim();
   return text ? text.slice(0, 200) : null;
@@ -80,7 +102,7 @@ async function describeViaOpenAi(config, buffer, mimeType) {
         { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
       ],
     }],
-    max_tokens: 120,
+    max_tokens: VISION_MAX_OUTPUT_TOKENS,
     temperature: 0.2,
   };
 
