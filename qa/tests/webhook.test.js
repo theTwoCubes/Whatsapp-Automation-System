@@ -8,6 +8,7 @@ import { inboundText, inboundImage, inboundReaction, inboundButtonReply, inbound
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { createFaq } from '../../src/knowledge/faqs.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
+import { isLeadQualifiedEnough } from '../../src/db/repo.js';
 
 let pool;
 
@@ -685,6 +686,39 @@ test('address, requirement, budget, and timeline learned by the ai are saved to 
   );
   assert.equal(row.rows[0].address, '221B Baker Street, Ahmedabad');
   assert.deepEqual(row.rows[0].lead_details, { requirement: 'A new logo for a bakery', budget: '10-15k', timeline: 'next month' });
+});
+
+// A real lead answered "Mera business software development ka hain delhi main"
+// and the bot recorded the city and the email decline off that same sentence
+// but not the business, so the lead could never satisfy the handoff gate. The
+// pipeline was fine; the prompt asked for "a sentence or two, concrete" and a
+// two word answer did not look like one. A terse business has to be accepted,
+// because it is a true answer and the gate depends on it.
+test('a two word business answer is recorded and is enough to qualify the lead', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Got it, software development in Delhi.', reply_language: 'English',
+    lead_business: 'Software development', lead_address: 'Delhi',
+    lead_requirement: 'Rebrand of the existing logo', lead_email_declined: true,
+  }));
+  const d = deps({ ai });
+  await processWebhook(
+    inboundText({ id: 'wamid.TERSE1', body: 'Mera business software development ka hain delhi main, email address to ni h merepe' }),
+    d,
+  );
+
+  const row = (
+    await pool.query('select ct.id, ct.business, ct.address, ct.lead_details from conversations c join contacts ct on ct.id = c.contact_id limit 1')
+  ).rows[0];
+  assert.equal(row.business, 'Software development', 'the short business answer is stored, not discarded');
+  assert.equal(row.address, 'Delhi');
+  assert.equal(row.lead_details.email_declined, true);
+
+  const conv = (await pool.query('select id from conversations limit 1')).rows[0];
+  assert.equal(
+    await isLeadQualifiedEnough(pool, conv.id),
+    true,
+    'business + address + requirement + declined email is a qualified lead',
+  );
 });
 
 test('a mark_as_bot decision silently blocks the conversation without pushing or replying', async () => {
