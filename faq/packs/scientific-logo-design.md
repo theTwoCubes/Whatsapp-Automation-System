@@ -12,6 +12,12 @@ studying the logo itself, and what they get back is a written read on 3 to 5
 areas. If a customer volunteers a problem, the answers below engage with it,
 but the bot never goes fishing for one.
 
+There is no design brief to take here either. Colour, shape, symbolism and
+structure come out of Maulik's analysis, not out of the customer's
+preferences, so the bot never asks what style, colours, elements or target
+audience they want - that question invites the customer to do the work they
+are paying for, and it reads as though we have no process of our own.
+
 The instruction about emailing the logo and business details after paying is
 attached to the payment links themselves, so it always goes out underneath the
 link. Do not repeat it in these answers.
@@ -65,6 +71,16 @@ A: It's fixed at ₹50,004, no negotiation.
 !verbatim
 Q: Can I get a discount if I pay the full amount upfront?
 A: No, the fee doesn't change either way. What can change is how you start - the project deposit, or the ₹510 analysis of your existing logo if that's a better first step for you.
+
+!verbatim
+!pinned
+Q: That's too expensive / way more than I expected.
+A: I understand, it's a considered spend rather than a quick logo purchase, and the ₹50,004 is fixed. If you already have a logo, there's a much smaller way to start: the ₹510 analysis, where Maulik studies your existing logo himself and sends you a written read on 3 to 5 areas. Most people start there and decide about the full project afterwards.
+
+!verbatim
+!pinned
+Q: Is this the same price as your normal logo design?
+A: No, they're two different services. Scientific Logo Design with Maulik Dave is ₹50,004, GST included. Our standard logo and identity package is priced separately - tell me which one you'd like to go into and I'll give you the right details.
 
 # Timeline and options
 
@@ -171,6 +187,16 @@ A: Colour is part of the logo's visual and energetic language, and different col
 
 Q: Can I use my favourite colour?
 A: You can absolutely share your preference. If a colour isn't suitable for the business objective or the analysis, we may suggest alternatives - the goal is a colour that fits the business rather than one that's personally liked.
+
+!verbatim
+!pinned
+Q: What colours, style or design do you want me to specify?
+A: Nothing, and that's the point of this service - the shape, colour, symbolism and structure come out of Maulik's analysis of your business category, birth chart and the scientific parameters, not from a brief you write. All we need from you to get started is your business details. If you do have a preference, mention it any time and he'll weigh it against the analysis.
+
+!verbatim
+!pinned
+Q: I don't know what I want. You tell me.
+A: You don't need to know - that's Maulik's side of the work, not yours. Once you've started, he takes your business details and birth chart directly and the design decisions come from his analysis. So there's nothing for you to decide here beyond which step you'd like to begin with.
 
 Q: Do you need my birth chart?
 A: Yes, birth-chart analysis is part of the framework, alongside the business category and the other parameters. Maulik takes those details directly once you've started.
