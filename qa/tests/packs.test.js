@@ -83,3 +83,39 @@ test('packs already included in this reply are not offered to the model either',
   assert.ok(ids.includes(Number(poster.id)));
   assert.ok(ids.includes(Number(web.id)));
 });
+
+// A real opening message that matched the wrong service and nothing else:
+// "logo design" is a two word phrase in the plain Logo Design pack, while the
+// scientific pack's narrowest term was the phrase "scientific logo", which
+// never appears in this word order. Adding the bare word earns the pack a
+// score instead of zero.
+test('"scientific" on its own is enough to pull in the scientific pack', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo-design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific-logo-design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific, scientific logo, vedic, yantra',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+
+  const hits = await keywordPacks(pool, 'need logo design for scientific');
+  assert.ok(
+    hits.map(Number).includes(Number(sci.id)),
+    'the scientific pack is loaded rather than scoring nothing at all',
+  );
+});
+
+test('a plain logo enquiry still does not drag the scientific pack in', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo-design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific-logo-design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific, scientific logo, vedic, yantra',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+
+  const hits = (await keywordPacks(pool, 'i want a logo for my shop')).map(Number);
+  assert.deepEqual(hits, [Number(logo.id)], 'only the service they actually asked about');
+});

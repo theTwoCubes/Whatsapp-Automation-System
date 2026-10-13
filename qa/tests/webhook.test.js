@@ -192,7 +192,13 @@ test('handback catch-up does nothing when the human already replied before handi
 });
 
 test('a human-owned conversation (including one an agent just rejected) stays quiet until handed back', async () => {
-  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi there' }));
+  // Distinct replies per turn, otherwise the reply after handback is word for
+  // word the one from before it and the repeat guard holds it back - which is
+  // correct behaviour, but not what this test is checking.
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'hi there' }),
+    JSON.stringify({ action: 'answer', reply: 'welcome back' }),
+  );
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.R1', body: 'hello' }), d);
   const conversationId = (await pool.query('select id from conversations limit 1')).rows[0].id;
@@ -877,4 +883,185 @@ test('lead_service matches on the slug and tolerates casing and punctuation', as
 
   const row = await pool.query('select last_topic_id from conversations limit 1');
   assert.equal(Number(row.rows[0].last_topic_id), Number(sci.id), 'slug form resolves too');
+});
+
+// The production failure this group exists for: a lead opened with "need logo
+// design for scientific", which scores the plain Logo Design pack on the
+// phrase "logo design" and the Scientific pack on nothing. The service was
+// filed correctly from lead_service but the knowledge was not, so the whole
+// conversation was answered out of the wrong pack and the lead was quoted
+// 20000 + GST for a 50004 service.
+test('the service the ai names replaces the keyword guess as the conversation pack', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
+
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'That is our Scientific Logo Design service.',
+    lead_service: 'Scientific Logo Design',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.PK1', body: 'need logo design for scientific' }), deps({ ai }));
+
+  const row = (await pool.query('select last_topic_id, active_pack_ids from conversations limit 1')).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(sci.id));
+  assert.deepEqual(
+    (row.active_pack_ids || []).map(Number),
+    [Number(sci.id)],
+    'the wrong keyword pack is replaced, not left sitting alongside the right one',
+  );
+});
+
+test('the turn where the service is identified is answered again with that service pack', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
+
+  const ai = new FakeAi().queueReplies(
+    // First pass: written without the scientific pack, but it names the service.
+    JSON.stringify({ action: 'answer', reply: 'It is 20000 + GST.', lead_service: 'Scientific Logo Design' }),
+    // Second pass, now that the pack is loaded.
+    JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PK2', body: 'need logo design for scientific, kya charge hai' }), d);
+
+  assert.equal(ai.calls, 2, 'the reply is built a second time once the right pack is known');
+  assert.equal(
+    d.meta.sends[d.meta.sends.length - 1].body,
+    'It is 50004 all in.',
+    'the lead sees the answer from the correct pack, not the one written without it',
+  );
+});
+
+test("a later turn still loads the recorded service's pack when nothing matches by keyword", async () => {
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'yantra, vedic',
+  });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
+
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'Sure, happy to help.', lead_service: 'Scientific Logo Design' }),
+    JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PK3', body: 'i need a new mark for my firm' }), d);
+  // Nothing in this message matches any keyword at all.
+  await processWebhook(inboundText({ id: 'wamid.PK4', body: 'kya charge hai' }), d);
+
+  const row = (await pool.query('select active_pack_ids from conversations limit 1')).rows[0];
+  assert.deepEqual((row.active_pack_ids || []).map(Number), [Number(sci.id)]);
+});
+
+// The loop that was most visible to leads in production: the bot answered an
+// image by asking for the image, word for word the message it had sent on the
+// previous turn, and did it twice in one conversation.
+test('a reply that repeats the previous one word for word is rewritten', async () => {
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'Could you share your logo?' }),
+    // Second turn: the model repeats itself...
+    JSON.stringify({ action: 'answer', reply: 'Could you share your logo?' }),
+    // ...and on being told, writes something that actually moves on.
+    JSON.stringify({ action: 'answer', reply: 'Got it, thanks - what does the business do?' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.LP1', body: 'hello' }), d);
+  await processWebhook(inboundText({ id: 'wamid.LP2', body: 'here it is' }), d);
+
+  assert.equal(ai.calls, 3, 'the repeat triggers one more attempt');
+  assert.equal(d.meta.sends.length, 2);
+  assert.equal(d.meta.sends[1].body, 'Got it, thanks - what does the business do?');
+});
+
+test('a repeat the model insists on is not sent at all, but the follow up is still booked', async () => {
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Could you share your logo?' }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.LP3', body: 'hello' }), d);
+  await processWebhook(inboundText({ id: 'wamid.LP4', body: 'here it is' }), d);
+
+  assert.equal(d.meta.sends.length, 1, 'the customer never sees the same message twice in a row');
+  const outbound = await pool.query("select count(*) as n from messages where direction = 'outbound'");
+  assert.equal(Number(outbound.rows[0].n), 1, 'and nothing phantom is recorded as sent');
+  assert.ok(await count('drip_jobs') > 0, 'a lead who now goes quiet is still followed up');
+});
+
+test('the repeat guard never swallows a handoff', async () => {
+  // Same reply text both turns, but the second is a handoff: the state change
+  // has to land regardless of how the message reads.
+  const handoff = JSON.stringify({
+    action: 'handoff',
+    reply: 'Let me get someone on this.',
+    reason: 'wants a person',
+    lead_business: 'steel bars',
+    lead_requirement: 'new scientific logo for a steel bar business',
+    lead_address: 'Ahmedabad',
+    lead_email_declined: true,
+  });
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'Let me get someone on this.' }),
+    handoff,
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.LP5', body: 'hello' }), d);
+  await processWebhook(inboundText({ id: 'wamid.LP6', body: 'i want to talk to a person' }), d);
+
+  const state = (await pool.query('select state from conversations limit 1')).rows[0].state;
+  assert.equal(state, 'pending', 'the handoff landed even though the text repeated');
+});
+
+test('a lead who asks the same question twice in a row still gets the answer', async () => {
+  // The guard only ever fires on a repeat that survived an explicit
+  // correction, so a genuine repeat answer is not held back.
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'The fee is 50004, GST included.' }),
+    JSON.stringify({ action: 'answer', reply: 'The fee is 50004, GST included.' }),
+    JSON.stringify({ action: 'answer', reply: 'Same as before - 50004, GST included.' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.LP7', body: 'kya charge hai' }), d);
+  await processWebhook(inboundText({ id: 'wamid.LP8', body: 'kya charge hai' }), d);
+
+  assert.equal(d.meta.sends.length, 2, 'they are answered both times');
+  assert.equal(d.meta.sends[1].body, 'Same as before - 50004, GST included.');
+});
+
+test('saying "logo" again does not move an established scientific lead onto the plain logo service', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
+  const sci = await upsertTopic(pool, {
+    slug: 'scientific_logo_design',
+    name: 'Scientific Logo Design',
+    keywords: 'scientific, yantra, vedic',
+  });
+  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+
+  // Turn 1 settles the service. Turn 2 says "logo", which matches the plain
+  // pack on a keyword - the weakest evidence there is, and not enough to move
+  // a lead onto a service with a completely different price.
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'That is Scientific Logo Design.', lead_service: 'Scientific Logo Design' }),
+    JSON.stringify({ action: 'answer', reply: 'Of course.' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.KW1', body: 'i want a scientific one' }), d);
+  await processWebhook(inboundText({ id: 'wamid.KW2', body: 'mujhe naya logo chahiye' }), d);
+
+  const row = (await pool.query('select last_topic_id from conversations limit 1')).rows[0];
+  assert.equal(
+    Number(row.last_topic_id),
+    Number(sci.id),
+    'the service stays where the ai put it until the ai itself moves it',
+  );
 });

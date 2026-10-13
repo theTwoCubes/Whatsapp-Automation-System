@@ -204,7 +204,7 @@ test('due follow ups are skipped once a human owns the conversation', async () =
 // the general sequence. A client running purely per-service follow ups has
 // that empty, which meant the console showed the lead under a service with a
 // follow up configured while nothing was ever scheduled for them.
-test("a service the ai named is still followed up, even though it is not a sticky pack", async () => {
+test('a service the ai named becomes the conversation\'s pack, and is followed up', async () => {
   const topic = await upsertTopic(pool, {
     slug: 'scientific-logo-design',
     name: 'Scientific Logo Design',
@@ -228,9 +228,13 @@ test("a service the ai named is still followed up, even though it is not a stick
   const conv = await firstConversation();
   const row = (await pool.query('select last_topic_id, active_pack_ids from conversations where id = $1', [conv])).rows[0];
   assert.equal(Number(row.last_topic_id), Number(topic.id), 'recorded against the service the ai named');
-  assert.ok(
-    !(row.active_pack_ids || []).map(Number).includes(Number(topic.id)),
-    'and deliberately not sticky - that is the condition this test exists for',
+  // The service the ai named has to carry its knowledge too, not just the
+  // filing. Leaving the pack out is what let a Scientific Logo Design lead be
+  // answered out of the plain Logo Design pack for a whole conversation.
+  assert.deepEqual(
+    (row.active_pack_ids || []).map(Number),
+    [Number(topic.id)],
+    "the named service is the conversation's pack, on its own",
   );
 
   const jobs = (

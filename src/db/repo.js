@@ -243,6 +243,33 @@ export async function addActivePackIds(pool, conversationId, ids) {
   );
 }
 
+// Replaces the sticky pack set with the single service the conversation has
+// been confirmed to be about, used when the AI names the service outright.
+// Deliberately a replace and not an add: the keyword guess that ran first is
+// a guess, and leaving a wrong sibling pack in place is what let a Scientific
+// Logo Design lead be quoted the plain Logo Design price. The AI only sets
+// the field when it is sure of one service, and re-sets it if the
+// conversation genuinely moves, so the set follows the confirmed service.
+export async function setActiveServicePack(pool, conversationId, topicId) {
+  await pool.query(
+    'update conversations set active_pack_ids = $2::bigint[] where id = $1',
+    [conversationId, [topicId]],
+  );
+}
+
+// The text of the most recent thing the bot said, for the loop guard. Only
+// outbound text messages count - a payment link follow up or a media caption
+// is not the bot repeating itself.
+export async function getLastOutboundBody(pool, conversationId) {
+  const res = await pool.query(
+    `select body from messages
+     where conversation_id = $1 and direction = 'outbound' and type = 'text' and body is not null
+     order by id desc limit 1`,
+    [conversationId],
+  );
+  return res.rows[0]?.body ?? null;
+}
+
 // Overwritten, never merged - unlike active_pack_ids (a deduplicated,
 // id-sorted set with no notion of order), this always reflects whichever
 // service the conversation most recently engaged, for the console's service
@@ -317,12 +344,14 @@ export async function getConversationContext(pool, conversationId) {
             ct.address as contact_address, ct.lead_details as contact_lead_details,
             c.created_at, c.reply_language, c.locked_language, c.introduced_at,
             t.name as topic_name,
+            lt.name as recorded_service_name,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
              and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
      from conversations c
      join contacts ct on ct.id = c.contact_id
      left join campaigns ca on ca.id = c.campaign_id
      left join topics t on t.id = ca.topic_id
+     left join topics lt on lt.id = c.last_topic_id
      where c.id = $1`,
     [conversationId],
   );

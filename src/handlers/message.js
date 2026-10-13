@@ -8,8 +8,10 @@ import {
   getConversationState,
   getActivePackIds,
   addActivePackIds,
+  setActiveServicePack,
   setLastTopicId,
   getLastTopicId,
+  getLastOutboundBody,
   setReplyLanguage,
   setLockedLanguage,
   setLeadProfile,
@@ -422,6 +424,7 @@ async function respondToLead(deps, conversationId, items) {
   const packs = await assemblePacks(pool, conversationId, topicId, text);
   let decision;
   let aiSucceeded = false;
+  let repeatedAfterRetry = false;
   const aiStart = Date.now();
   try {
     decision = await buildReply(pool, ai, settings, conversationId, {
@@ -444,6 +447,78 @@ async function respondToLead(deps, conversationId, items) {
         log,
       });
     }
+
+    // The model named the service outright. That is better information than
+    // the keyword guess, so it decides both the filing AND the knowledge: the
+    // pack becomes the conversation's one sticky service pack, replacing a
+    // wrong guess rather than sitting next to it. If the pack was not in this
+    // turn's context the answer was written without it, so the reply is built
+    // again with it before anything is sent - otherwise the turn where the
+    // service is finally identified is still answered out of the wrong pack,
+    // which is how a ₹50,004 service got quoted at the plain logo price.
+    const namedTopic = decision?.leadService
+      ? await resolveTopicByServiceName(pool, decision.leadService)
+      : null;
+    if (decision?.leadService && !namedTopic) {
+      log.info({ conversationId, leadService: decision.leadService }, 'ai named a service that matches no topic, keeping the keyword match');
+    }
+    if (namedTopic) {
+      await setLastTopicId(pool, conversationId, namedTopic.id);
+      await setActiveServicePack(pool, conversationId, namedTopic.id);
+      if (!packs.includes(Number(namedTopic.id))) {
+        log.info(
+          { conversationId, service: namedTopic.name, topicId: namedTopic.id },
+          'ai identified a service whose pack was not loaded, rebuilding the reply with it',
+        );
+        decision = await buildReply(pool, ai, settings, conversationId, {
+          packs: [...packs, Number(namedTopic.id)],
+          faqBudgetTokens: config.faqBudgetTokens,
+          allowPackRequests: false,
+          log,
+        });
+      }
+    }
+
+    // The model wrote its previous message again word for word. This was the
+    // most visible failure in production - the same question asked twice in a
+    // row, or the lead asked to resend a file they had just sent. Show it
+    // what it just tried to say and give it one more go.
+    //
+    // Only plain answers go through this. A handoff, block, opt out or
+    // peer-bot call is a state change that has to land, and the reply text
+    // attached to it is often a fixed line that legitimately repeats - those
+    // must never be held back over how the message reads.
+    const plainAnswer = !decision?.handoff && !decision?.block && !decision?.optOut && !decision?.markBot;
+    if (plainAnswer && decision?.reply && sameText(decision.reply, await getLastOutboundBody(pool, conversationId))) {
+      log.warn({ conversationId }, 'ai repeated its previous reply word for word, retrying once');
+      const retry = await buildReply(pool, ai, settings, conversationId, {
+        packs: namedTopic && !packs.includes(Number(namedTopic.id)) ? [...packs, Number(namedTopic.id)] : packs,
+        faqBudgetTokens: config.faqBudgetTokens,
+        allowPackRequests: false,
+        avoidRepeating: decision.reply,
+        log,
+      });
+      // A retry that came back as a handoff (or any other state change) is
+      // taken as-is: the model changing its mind about what this turn needs
+      // outranks the repeat it was asked to fix.
+      if (retry?.reply && (!sameText(retry.reply, decision.reply) || retry.handoff || retry.block || retry.optOut || retry.markBot)) {
+        decision = retry;
+      } else {
+        // The model was shown its own repeat, told to write something
+        // different, and produced the same thing again. Send nothing: an
+        // identical message arriving twice in a row is the single most
+        // visible way this looks broken to a customer, and silence here is
+        // recoverable - their next message gets a fresh turn, and the drip
+        // still goes out if they go quiet.
+        //
+        // Deliberately narrow. A repeat is only ever suppressed once the
+        // model has refused an explicit correction, so a lead who genuinely
+        // asks the same question twice in a row still gets their answer.
+        log.warn({ conversationId }, 'ai repeated itself again after being corrected, sending nothing this turn');
+        repeatedAfterRetry = true;
+      }
+    }
+
     const aiMs = Date.now() - aiStart;
     recordAiSuccess(aiMs);
     aiSucceeded = true;
@@ -472,6 +547,15 @@ async function respondToLead(deps, conversationId, items) {
     };
   }
 
+  // Nothing worth sending this turn (see the loop guard above). A follow up
+  // is still scheduled so a lead who now goes quiet is not simply dropped.
+  if (repeatedAfterRetry) {
+    if (!(await isContactOptedOut(pool, conversationId))) {
+      await scheduleDrips(pool, conversationId, await resolveDripSteps(pool, conversationId, settings, packs));
+    }
+    return;
+  }
+
   // Carried into the next reply's prompt as a running anchor for which
   // language the conversation is in, so the model has a memory of it instead
   // of re-guessing from a limited history window every single turn.
@@ -492,21 +576,6 @@ async function respondToLead(deps, conversationId, items) {
   }
   if (decision?.leadProfile) {
     await setLeadProfile(pool, conversationId, decision.leadProfile);
-  }
-
-  // The service the model says this is about, which overrides the keyword
-  // guess assemblePacks already recorded. Keywords only see literal words, so
-  // a lead who describes a service without naming it leaves the conversation
-  // filed under nothing or under whichever generic pack matched. An
-  // unrecognised name resolves to null and is ignored rather than clearing a
-  // good value, so a hallucinated service cannot blank the real one.
-  if (decision?.leadService) {
-    const topic = await resolveTopicByServiceName(pool, decision.leadService);
-    if (topic) {
-      await setLastTopicId(pool, conversationId, topic.id);
-    } else {
-      log.info({ conversationId, leadService: decision.leadService }, 'ai named a service that matches no topic, keeping the keyword match');
-    }
   }
 
   // The AI decided the other side is another automated system, not a real
@@ -671,10 +740,11 @@ async function resolveDripSteps(pool, conversationId, settings, packs) {
 }
 
 // The packs going into this reply: base is always there, the lead's own
-// campaign pack if any, anything the conversation has already pulled in, and
-// anything whose name or keywords match the current message. Duplicates are
-// collapsed later by the context builder, so ordering just controls which
-// entries survive if the budget is exceeded: campaign pack first, then
+// campaign pack if any, the service the conversation is recorded under,
+// anything the conversation has already pulled in, and anything whose name or
+// keywords match the current message. Duplicates are collapsed later by the
+// context builder, so ordering just controls which entries survive if the
+// budget is exceeded: campaign pack first, then the recorded service, then
 // sticky picks in the order they were added, then keyword matches on this
 // turn last.
 async function assemblePacks(pool, conversationId, campaignTopicId, text) {
@@ -690,6 +760,14 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
 
   if (campaignTopicId) add(campaignTopicId);
 
+  // The service the lead is filed under, which is not necessarily in the
+  // sticky set: the AI can name a service the keywords never matched, and
+  // that used to update the filing without pulling in the knowledge. A
+  // Scientific Logo Design lead was left carrying the plain Logo Design pack
+  // for a whole conversation and was quoted its price.
+  const recordedTopicId = await getLastTopicId(pool, conversationId);
+  add(recordedTopicId);
+
   const sticky = await getActivePackIds(pool, conversationId);
   for (const id of sticky) add(id);
 
@@ -704,7 +782,17 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
     // want a scientific logo", which matches the scientific pack on
     // "scientific logo" and the plain logo pack on "logo", filed the lead
     // under the wrong service.
-    await setLastTopicId(pool, conversationId, keyword[0]);
+    //
+    // Only ever sets the service, never changes one that is already there. A
+    // keyword hit on a later turn is the weakest evidence we have, and once a
+    // Scientific Logo Design lead has been identified, their saying "logo"
+    // again must not quietly move them onto the plain Logo Design service and
+    // its very different price. Moving an established lead to another service
+    // is the AI's call (lead_service), which is set from a reading of the
+    // whole conversation rather than one word in one message.
+    if (recordedTopicId == null) {
+      await setLastTopicId(pool, conversationId, keyword[0]);
+    }
   }
 
   return packs;
@@ -812,6 +900,15 @@ export async function maybeSendReaction(deps, conversationId, to, wamid, emoji) 
   } catch (err) {
     log.warn({ conversationId, wamid, err }, 'failed to send ai reaction');
   }
+}
+
+// Normalised for comparison only - a model that repeats itself tends to do it
+// exactly, but trailing whitespace or a stray double space should not be what
+// lets a duplicate through.
+function sameText(a, b) {
+  const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const left = norm(a);
+  return left.length > 0 && left === norm(b);
 }
 
 async function sendAndRecord(deps, to, conversationId, body, { aiMs = null } = {}) {

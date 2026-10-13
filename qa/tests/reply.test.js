@@ -487,3 +487,38 @@ test('a need_packs response is treated as a handoff when pack requests are disab
   });
   assert.equal(decision.handoff, true, 'no catalog to draw from, so it cannot request anything');
 });
+
+// With several service packs in one prompt and nothing saying which service
+// governs, "kya charge hai" got answered out of whichever pack was loaded.
+test('the prompt names the service the conversation is recorded under', async () => {
+  const sci = await upsertTopic(pool, { slug: 'scientific-logo-design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+  const id = await conversation('kya charge hai');
+  await pool.query('update conversations set last_topic_id = $2 where id = $1', [id, sci.id]);
+
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }));
+  await buildReply(pool, ai, testConfig, id, { packs: ['base', Number(sci.id)] });
+
+  const leadBlock = ai.lastMessages[1].content;
+  assert.match(leadBlock, /THIS CONVERSATION IS ABOUT: Scientific Logo Design/);
+  assert.match(leadBlock, /never answer from another service's pack/);
+});
+
+test('a conversation with no service recorded gets no governing-service line', async () => {
+  const id = await conversation('hi');
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Hello.' }));
+  await buildReply(pool, ai, testConfig, id, {});
+
+  assert.doesNotMatch(ai.lastMessages[1].content, /THIS CONVERSATION IS ABOUT/);
+});
+
+test('being shown its own repeat is passed to the model as a correction', async () => {
+  const id = await conversation('here it is');
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Something new.' }));
+  await buildReply(pool, ai, testConfig, id, { avoidRepeating: 'Could you share your logo?' });
+
+  const correction = ai.lastMessages[ai.lastMessages.length - 1];
+  assert.equal(correction.role, 'system');
+  assert.match(correction.content, /word for word what you already sent/);
+  assert.match(correction.content, /Could you share your logo\?/);
+});

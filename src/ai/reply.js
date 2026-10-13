@@ -68,7 +68,7 @@ export function categorizeHandoffReason(reason) {
 }
 
 export async function buildReply(pool, ai, config, conversationId, opts = {}) {
-  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [], log } = opts;
+  const { packs = ['base'], faqBudgetTokens, allowPackRequests = true, extraTurns = [], avoidRepeating = null, log } = opts;
 
   const topicIds = packs.filter((p) => p !== 'base');
   const [faqs, catalog, media, paymentLinks, hostedLinks, recentSends, history, context] = await Promise.all([
@@ -96,6 +96,20 @@ export async function buildReply(pool, ai, config, conversationId, opts = {}) {
   }
   for (const t of extraTurns) {
     messages.push({ role: t.direction === 'inbound' ? 'user' : 'assistant', content: capMessageLength(t.body) });
+  }
+
+  // Second pass after the model emitted its previous message word for word.
+  // Spelling it out as its own turn rather than burying it in the system
+  // prompt, because the thing being corrected is the text immediately above.
+  if (avoidRepeating) {
+    messages.push({
+      role: 'system',
+      content:
+        'You just tried to send this, which is word for word what you already sent on your previous turn:\n' +
+        `"${capMessageLength(avoidRepeating)}"\n` +
+        'Sending it again would read as broken. The customer has already seen it, so repeating the same question or the same acknowledgement is not an option. ' +
+        'Move the conversation forward instead: pick up what they actually just said, ask for something different, or answer the next thing they need. Write a genuinely different reply.',
+    });
   }
 
   const { text: raw, provider: aiProvider, failedProviders } = await ai.complete(messages, { json: true });
@@ -563,6 +577,8 @@ function instructions(config, faqText, catalog, media, paymentLinks, hostedLinks
     '- Fill the lead_* fields the moment they volunteer each one - that is how the system knows you have all four. If a field is still blank in the "About the customer" section above, you do not have it yet, no matter what you remember.',
     '- Record first, refine later. If an answer is brief but genuine, write it to its lead_* field on that turn anyway. Acknowledging something in your reply text is NOT the same as recording it - only the lead_* field counts, and a field you left out because you wanted a fuller answer is a field the team never sees and a lead who can never qualify.',
     '- Collect naturally over 4-6 turns. Never dump the four questions in one message - that reads like a form. Weave each one in: answer their question first, add the next ask on a new line, one at a time.',
+    '- You are NOT taking a design brief. Do not ask what colours, fonts, style, elements, concepts or "look and feel" they want, and do not ask who their target audience is - none of that is one of the four fields, the team decides it with the customer later, and for some services the approved answers say outright that the design choices are not the customer\'s to specify. Asking a customer to design their own logo is how a lead gets talked out of buying one. If they offer a preference unprompted, acknowledge it warmly and move on; if they ask you to decide ("aap bataie", "you suggest"), say the team will take them through it after the next step and go back to the four fields or the service\'s own starting step.',
+    '- Never invent what a service includes or how it runs. Deliverables, stages, number of options, what happens in what order: if it is not in the approved answers for THIS service, you do not know it, so say the team will confirm rather than describing a plausible process.',
     '- The ONLY exception is a GENUINE SPECIFIC COMPLAINT (something is broken, something did not arrive, they are unhappy with delivered work). Those escalate immediately even without the four fields - a real issue does not wait on a checklist.',
     '',
     'When the customer asks for a human before (1) and (2) are both met:',
@@ -626,6 +642,13 @@ function leadContext(config, context) {
     context?.topic_name
       ? `They came in through the "${context.topic_name}" service, so the answers for that service are the ones most likely to apply.`
       : 'No specific service or ad campaign is linked to them, so treat this as a general enquiry.',
+    // Without this the model was handed several service packs and no way to
+    // tell which one the conversation was actually about, so a question like
+    // "what is the charge?" got answered out of whichever pack happened to be
+    // loaded. Services here have different prices for similar-sounding names.
+    context?.recorded_service_name
+      ? `THIS CONVERSATION IS ABOUT: ${context.recorded_service_name}. If you were given approved answers for more than one service, the ones for ${context.recorded_service_name} are the only ones that apply here - prices, timelines and process differ between services even when their names are similar, so never answer from another service's pack. If you have no approved answer for ${context.recorded_service_name} on what they asked, say you will check with the team rather than reaching for a similar service's answer.`
+      : null,
     context?.locked_language
       ? `LANGUAGE LOCK: the customer earlier asked you to use ${context.locked_language}, so you MUST reply in ${context.locked_language} on every turn from here, regardless of what language they write to you. If they explicitly ask to switch again, update "language_lock" to the new language on that one reply. If they explicitly ask to go back to free-flowing ("whatever you prefer", "koi bhi language"), set "language_lock": null on that reply.`
       : context?.reply_language

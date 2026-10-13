@@ -11,6 +11,7 @@ import {
   latestMessageId,
   getConversationState,
   setLastTopicId,
+  setActiveServicePack,
 } from './db/repo.js';
 import { resolveTopicByServiceName } from './knowledge/topics.js';
 import { handToBot, handToPending } from './handoff.js';
@@ -262,10 +263,17 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
     await setLeadProfile(pool, row.id, decision.leadProfile);
   }
   // Same as respondToLead: the model's own read of the service wins over the
-  // keyword guess, and an unrecognised name is ignored rather than applied.
+  // keyword guess, and an unrecognised name is ignored rather than applied. It
+  // takes the pack with it, so the knowledge for that service is loaded from
+  // the next turn on and not just the label on the lead. No rebuild of this
+  // reply, unlike respondToLead - a catch up or resume is not answering a
+  // question the customer is waiting on right now.
   if (decision?.leadService) {
     const topic = await resolveTopicByServiceName(pool, decision.leadService);
-    if (topic) await setLastTopicId(pool, row.id, topic.id);
+    if (topic) {
+      await setLastTopicId(pool, row.id, topic.id);
+      await setActiveServicePack(pool, row.id, topic.id);
+    }
   }
 
   // Mirrors respondToLead in handlers/message.js - the model's decision here

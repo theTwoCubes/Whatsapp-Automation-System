@@ -41,7 +41,11 @@ const PACKS = {
   'scientific-logo-design': {
     name: 'Scientific Logo Design',
     description: 'Consultative logo design with Maulik Dave using birth chart and Vedic Yantra framework.',
-    keywords: 'scientific logo, vedic, yantra, maulik, birth chart, astrology logo, muhurat',
+    // "scientific" earns its place as a bare single word: a lead writing
+    // "logo design for scientific" matched the plain Logo Design pack on the
+    // phrase "logo design" and this pack on nothing at all, and was quoted
+    // the wrong service's price for a whole conversation.
+    keywords: 'scientific, scientific logo, scientific logo design, vignanik, vedic, yantra, maulik, maulikbhai, birth chart, astrology logo, muhurat',
   },
   'packaging-design': {
     name: 'Packaging Design',
