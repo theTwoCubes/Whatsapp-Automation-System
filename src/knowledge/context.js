@@ -16,7 +16,7 @@ export function estimateTokens(text) {
 // everything does not fit, entries are dropped from the least important pack
 // first and from the end of that pack, since the client controls the order and
 // puts what matters at the top. Pinned entries are never dropped.
-export async function buildFaqContext(pool, { packs = ['base'], budgetTokens = 6000 } = {}) {
+export async function buildFaqContext(pool, { packs = ['base'], budgetTokens = 12000 } = {}) {
   // De-dupe while preserving order, then load every pack's rows in parallel
   // instead of awaiting them one after another.
   const seen = new Set();

@@ -67,12 +67,15 @@ const PACKS = {
 
 function parsePack(text) {
   // Splits the file into Q/A pairs. Recognises `Q:` and `A:` prefixes.
-  // A line "!verbatim" immediately before the Q flags the answer as verbatim.
+  // Flag lines immediately before a Q, in any order, apply to that answer:
+  //   !verbatim  quote this answer word for word
+  //   !pinned    never drop this answer, even if the prompt budget is tight
   const lines = text.split('\n');
   const items = [];
   let current = null;
   let mode = null; // 'q' or 'a'
   let verbatimNext = false;
+  let pinnedNext = false;
 
   const flush = () => {
     if (current && current.question.trim() && current.answer.trim()) {
@@ -80,6 +83,7 @@ function parsePack(text) {
         question: current.question.trim(),
         answer: current.answer.trim(),
         verbatim: current.verbatim,
+        pinned: current.pinned,
       });
     }
     current = null;
@@ -89,13 +93,15 @@ function parsePack(text) {
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, '');
     if (/^!verbatim\s*$/i.test(line)) { verbatimNext = true; continue; }
+    if (/^!pinned\s*$/i.test(line)) { pinnedNext = true; continue; }
     if (/^#\s/.test(line)) { flush(); continue; }
     const qm = line.match(/^Q:\s?(.*)$/);
     const am = line.match(/^A:\s?(.*)$/);
     if (qm) {
       flush();
-      current = { question: qm[1], answer: '', verbatim: verbatimNext };
+      current = { question: qm[1], answer: '', verbatim: verbatimNext, pinned: pinnedNext };
       verbatimNext = false;
+      pinnedNext = false;
       mode = 'q';
       continue;
     }
@@ -142,9 +148,9 @@ async function replaceFaqs(client, topicId, items) {
   let position = 1;
   for (const item of items) {
     const inserted = await client.query(
-      `insert into faqs (topic_id, question, answer, verbatim, active, source, position)
-       values ($1, $2, $3, $4, true, 'seed', $5) returning id`,
-      [topicId, item.question, item.answer, item.verbatim, position++],
+      `insert into faqs (topic_id, question, answer, verbatim, pinned, active, source, position)
+       values ($1, $2, $3, $4, $5, true, 'seed', $6) returning id`,
+      [topicId, item.question, item.answer, item.verbatim, item.pinned, position++],
     );
     await client.query(
       `insert into faq_versions (faq_id, question, answer, verbatim, actor)

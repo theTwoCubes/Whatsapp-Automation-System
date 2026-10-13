@@ -56,7 +56,7 @@ export function loadConfig() {
     // How much room the approved answers get in a prompt. The whole pack goes
     // in, so this is a ceiling rather than a target, and going over it drops
     // the least important entries rather than searching for the best ones.
-    faqBudgetTokens: Number(process.env.FAQ_BUDGET_TOKENS || 6000),
+    faqBudgetTokens: Number(process.env.FAQ_BUDGET_TOKENS || 12000),
 
     // How often the weekly learning pass runs, scanning new conversation
     // transcripts for facts to queue for review.

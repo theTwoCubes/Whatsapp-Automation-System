@@ -2,29 +2,35 @@
 
 Pricing, page rules, timelines, deliverables, and print for brochure and
 catalogue projects. Base pack policies (billing, payment structure, refund,
-fixed pricing) apply on top. Only `Q:`/`A:` pairs are loaded.
+fixed pricing) apply on top. Only `Q:`/`A:` pairs are loaded. `!verbatim`
+means quote the answer word for word, `!pinned` means never drop it.
 
 # Pricing
 
 !verbatim
+!pinned
 Q: What does brochure or catalogue design cost?
 A: ₹2,500 per page + 18% GST.
 
 !verbatim
+!pinned
 Q: What is the starting price for a catalogue?
 A: ₹2,500 per page + 18% GST, with a minimum of 2 pages.
 
 !verbatim
+!pinned
 Q: Is there a better rate for larger projects?
 A: Yes - above 20 pages the rate is 20% lower. That volume rate is part of our price list, so it applies automatically rather than being something negotiated, and we don't go below it whatever the page count.
 
 !verbatim
+!pinned
 Q: Can you give me a discount on the per-page rate?
 A: The per-page rate is fixed at ₹2,500 + 18% GST, and the 20% volume rate above 20 pages is already the best rate we do. Happy to talk through the page count so the quote fits the project properly.
 
 Q: Does complexity affect the price?
 A: It can. We discuss the specifics at briefing stage and adjust the estimate accordingly.
 
+!verbatim
 Q: What is the minimum number of pages?
 A: 2 pages.
 
@@ -38,6 +44,7 @@ A: ₹2,500 per page + 18% GST, at the same rate as the original quote.
 # Page-count rule for printing
 
 !verbatim
+!pinned
 Q: Why do pages come in multiples of 4?
 A: For printing with centre pinning we design in sets of 2, 4, 8, 12, 16, 20 pages. If you ask for 7 pages we'd recommend 8 - for example, 8 × ₹2,500 = ₹20,000 + 18% GST = ₹23,600.
 
@@ -46,12 +53,14 @@ A: We'd suggest rounding up to the next print-friendly count (2, 4, 8, 12, 16, 2
 
 # What you get
 
+!pinned
 Q: What's included per page?
 A: Page design, image sourcing from our stock subscription, background removal and retouching, and up to 2 infographics or diagrams per page.
 
 Q: How many design directions do you present first?
 A: Two cover-and-back-page options based on the brief. Once the cover theme is approved, the inner pages are designed to match.
 
+!verbatim
 Q: How many revision rounds are included?
 A: 3 rounds of revisions per page. Beyond that, revisions are charged based on the effort involved.
 
@@ -158,12 +167,15 @@ A: No. References help us understand the category and the direction you like, bu
 
 # Timelines
 
+!verbatim
 Q: How long does a 10-page brochure take?
 A: 4 days after all final content is received.
 
+!verbatim
 Q: How long does a 20-page brochure take?
 A: 6 days after all final content is received.
 
+!verbatim
 Q: How long does a 50+ page catalogue take?
 A: 12-15 days after all final content is received.
 

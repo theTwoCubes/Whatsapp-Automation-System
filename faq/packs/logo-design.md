@@ -2,19 +2,23 @@
 
 Fee, process, deliverables, and boundaries for the standard logo design
 service. Base pack policies (billing, payment structure, refund, fixed
-pricing) apply on top. Only `Q:`/`A:` pairs are loaded.
+pricing) apply on top. Only `Q:`/`A:` pairs are loaded. `!verbatim` means
+quote the answer word for word, `!pinned` means never drop it.
 
 # Pricing
 
 !verbatim
+!pinned
 Q: How much does logo design cost?
 A: ₹20,000 + GST for the complete logo and identity package.
 
 !verbatim
+!pinned
 Q: Is GST included in that?
 A: No, GST is on top of ₹20,000.
 
 !verbatim
+!pinned
 Q: Can I get a logo for ₹5,000 or ₹10,000?
 A: Our logo package is ₹20,000 + GST and the rate is fixed. That fee covers the full process, not just the graphic - briefing, mind mapping, sketching, three developed directions, typography, identity development, mockups, and a professional presentation.
 
@@ -23,15 +27,18 @@ A: The value is in the process. We spend time understanding the business, explor
 
 # What you get
 
+!pinned
 Q: What is included in the logo package?
 A: A 40-question briefing, mind mapping, hand sketching, three developed logo directions, colour and black-and-white versions, line-drawing versions, typography development, brand identity treatment, mockups, and a professional presentation.
 
+!verbatim
 Q: How many logo concepts do I receive?
 A: Three developed directions, each distinct.
 
 Q: Can I get more than three concepts?
 A: Three is the standard scope. Anything beyond that is discussed separately.
 
+!verbatim
 Q: How many revisions are included?
 A: Two rounds of revisions on the selected direction.
 

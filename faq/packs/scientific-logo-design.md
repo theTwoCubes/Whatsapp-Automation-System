@@ -16,6 +16,9 @@ The instruction about emailing the logo and business details after paying is
 attached to the payment links themselves, so it always goes out underneath the
 link. Do not repeat it in these answers.
 
+`!verbatim` means quote the answer word for word, `!pinned` means never
+drop it even when the prompt is tight on space.
+
 Language handling is governed by the system prompt, not by this file.
 
 # What it is
@@ -38,6 +41,7 @@ A: No, and we won't claim that. Growth depends on marketing, sales, product or s
 # Fee
 
 !verbatim
+!pinned
 Q: What is the fee for scientific logo design?
 A: ₹50,004.
 
@@ -49,6 +53,7 @@ Q: A normal logo is much cheaper. Why so much for this?
 A: The comparison isn't really to a logo. The objective is a visual identity carefully aligned to the business's growth objective, not an attractive graphic.
 
 !verbatim
+!pinned
 Q: Can I negotiate the fee?
 A: It's fixed at ₹50,004, no negotiation.
 
@@ -67,6 +72,7 @@ A: A fixed number isn't the objective. We explore many ideas and the final selec
 # Starting: the two paid entry points
 
 !verbatim
+!pinned
 Q: Can you analyse my existing logo?
 A: Yes - that's a ₹510 service on its own, separate from a full new logo project. Sending you the payment link for it now.
 
@@ -75,6 +81,7 @@ Q: I've already sent my logo, is that enough?
 A: Thanks for sending it, that's useful. The ₹510 analysis fee still applies before Maulik reviews it personally, and I'm sending you the payment link now.
 
 !verbatim
+!pinned
 Q: What do I actually get for the ₹510 analysis?
 A: Maulik studies your logo himself and sends you a written analysis of 3 to 5 areas - the areas your business is being supported well in, and the areas where the identity is working against you. You don't have to explain your problems to us; it comes from the logo, your business category and the scientific parameters.
 
@@ -83,14 +90,17 @@ Q: Do you need me to explain the problems in my business first?
 A: Not at all, and we won't ask you to. Maulik studies the logo against your business category and the scientific parameters, and the 3 to 5 areas come out of that. If you want to share something you've noticed you're welcome to, but nothing is needed from you beyond the logo and your business details.
 
 !verbatim
+!pinned
 Q: I've paid for the analysis, now what?
 A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting. If you haven't emailed your logo and business details yet, please do that in the meantime so he has everything in front of him.
 
 !verbatim
+!pinned
 Q: I don't want the analysis, I want a full new logo made.
 A: Great - the full Scientific Logo Design project is ₹50,004. To get started we take a 50% deposit, which is ₹25,002. Sending you the payment link for it now.
 
 !verbatim
+!pinned
 Q: I've paid the deposit, what happens next?
 A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting, and he'll take the project forward with you from there.
 

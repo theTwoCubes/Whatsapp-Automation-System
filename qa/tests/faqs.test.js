@@ -1,6 +1,8 @@
 import test, { before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { buildFaqContext } from '../../src/knowledge/context.js';
+
 import {
   listFaqs,
   getFaq,
@@ -187,4 +189,50 @@ test('bulk with no ids or an unknown action is rejected without touching anythin
 test('a faq needs both a question and an answer', async () => {
   await assert.rejects(() => createFaq(pool, { question: '  ', answer: 'x' }), /question and answer/);
   await assert.rejects(() => createFaq(pool, { question: 'x', answer: '' }), /question and answer/);
+});
+
+// The whole point of pinning: a commercially binding answer (the price, the
+// payment terms, the no-negotiation line) must still reach the model when the
+// prompt is tight on space, because a lead being quoted from a half-loaded
+// pack is worse than a longer prompt. Packs are sticky, so a lead who mentions
+// two services carries both and the budget does get hit in practice.
+test('a pinned answer survives a budget far too small for the pack, unpinned ones do not', async () => {
+  const topic = await upsertTopic(pool, { slug: 'pin-svc', name: 'Pin Service' });
+  await createFaq(pool, {
+    topicId: topic.id,
+    question: 'How much does it cost?',
+    answer: 'It is 20,000 rupees plus GST, and that rate is fixed.',
+    verbatim: true,
+    pinned: true,
+  });
+  // Plenty of filler so the budget cannot possibly fit everything.
+  for (let i = 0; i < 12; i += 1) {
+    await createFaq(pool, {
+      topicId: topic.id,
+      question: `Filler question number ${i}?`,
+      answer: `Filler answer number ${i}. ${'padding '.repeat(40)}`,
+    });
+  }
+
+  const ctx = await buildFaqContext(pool, { packs: [topic.id], budgetTokens: 120 });
+
+  assert.match(ctx.text, /20,000 rupees plus GST/, 'the pinned price answer is still there');
+  assert.ok(ctx.dropped > 0, 'and unpinned filler was dropped to make room');
+  assert.ok(!ctx.text.includes('Filler answer number 11'), 'dropping starts from the end');
+  assert.match(ctx.text, /quote this answer exactly, word for word/, 'verbatim marker rides along');
+});
+
+test('every pack file ships its pinned and verbatim flags, so a reseed cannot silently lose them', async () => {
+  const fs = await import('node:fs');
+  const dir = new URL('../../faq/packs/', import.meta.url);
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  assert.ok(files.length >= 4, 'all four packs present');
+
+  for (const file of files) {
+    const text = fs.readFileSync(new URL(file, dir), 'utf8');
+    assert.ok(/^!pinned$/m.test(text), `${file} marks at least one answer !pinned`);
+    assert.ok(/^!verbatim$/m.test(text), `${file} marks at least one answer !verbatim`);
+    // A stray placeholder is what made the ai invent its own payment url.
+    assert.ok(!text.includes('[send '), `${file} has no leftover [send ...] placeholder`);
+  }
 });
