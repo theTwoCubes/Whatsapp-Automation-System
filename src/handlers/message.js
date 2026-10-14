@@ -374,7 +374,15 @@ async function handleMessage(value, message, deps) {
   const leader = items[items.length - 1];
   if (leader.wamid !== message.id) return;
 
-  await respondToLead(deps, result.conversationId, items);
+  // Claimed before the reply starts and released when it is finished, so
+  // anything the lead sends while this reply is being written waits and joins
+  // the next batch instead of earning its own reply a few seconds later.
+  const doneReplying = getBatcher(config).beginReply(result.conversationId);
+  try {
+    await respondToLead(deps, result.conversationId, items);
+  } finally {
+    doneReplying();
+  }
 }
 
 // Cheap defensive check before every AI call: if we've sent a lot of bot

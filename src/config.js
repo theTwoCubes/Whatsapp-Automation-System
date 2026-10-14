@@ -91,8 +91,12 @@ export function loadConfig() {
 
     // Message batching. Rapid fire messages from the same lead are coalesced
     // into a single AI call instead of replying to each one separately.
-    messageBatchDebounceMs: Number(process.env.MESSAGE_BATCH_DEBOUNCE_MS || 2500),
-    messageBatchMaxWaitMs: Number(process.env.MESSAGE_BATCH_MAX_WAIT_MS || 8000),
+    // 2500 was short enough that two messages a normal typing pause apart
+    // ("mera steel bar ka manufacturing hai" ... "ye mera website hai") were
+    // treated as two separate turns and answered twice. 4000 covers an
+    // ordinary pause while still starting on a single message quickly.
+    messageBatchDebounceMs: Number(process.env.MESSAGE_BATCH_DEBOUNCE_MS || 4000),
+    messageBatchMaxWaitMs: Number(process.env.MESSAGE_BATCH_MAX_WAIT_MS || 12000),
 
     // Drip follow ups. Each entry is templateName:days. The template names must
     // match approved templates in WhatsApp Manager.

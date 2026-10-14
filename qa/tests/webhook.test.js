@@ -1065,3 +1065,40 @@ test('saying "logo" again does not move an established scientific lead onto the 
     'the service stays where the ai put it until the ai itself moves it',
   );
 });
+
+// The "it replied to me three times" complaint. The debounce only covers the
+// gap between messages; the AI call itself takes seconds, and a message
+// landing during it used to open its own batch and earn its own reply a few
+// seconds behind the first.
+//
+// The timings matter. The two later messages are spaced further apart than the
+// debounce (30ms in tests) so the debounce alone could NOT batch them - the
+// only thing that can is the in-flight hold. Both still land inside the 250ms
+// the first reply takes. Distinct replies on purpose, so this is proven by the
+// batching and not papered over by the repeat guard.
+test('messages that land while a reply is being written join one batch, not one reply each', async () => {
+  class SlowAi extends FakeAi {
+    async complete(messages, options) {
+      await new Promise((r) => setTimeout(r, 250));
+      return super.complete(messages, options);
+    }
+  }
+  const ai = new SlowAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'First answer.' }),
+    JSON.stringify({ action: 'answer', reply: 'Second answer.' }),
+    JSON.stringify({ action: 'answer', reply: 'Third answer.' }),
+  );
+  const d = deps({ ai });
+
+  const p1 = processWebhook(inboundText({ id: 'wamid.BT1', body: 'mera steel bar ka manufacturing hai' }), d);
+  await new Promise((r) => setTimeout(r, 80));
+  const p2 = processWebhook(inboundText({ id: 'wamid.BT2', body: 'ye mera website hai' }), d);
+  await new Promise((r) => setTimeout(r, 100));
+  const p3 = processWebhook(inboundText({ id: 'wamid.BT3', body: 'naya logo chahiye' }), d);
+  await Promise.all([p1, p2, p3]);
+
+  assert.equal(ai.calls, 2, 'one call for the first message, one for the two that arrived during it');
+  assert.equal(d.meta.sends.length, 2, 'two replies for three messages, not three');
+  assert.equal(d.meta.sends[1].body, 'Second answer.');
+  assert.equal(await count('messages'), 5, 'three inbound, two outbound - every message still recorded');
+});
