@@ -25,8 +25,6 @@ import {
   isConversationBlocked,
   setConversationBlocked,
   deadLetterWebhook,
-  countRecentAttachments,
-  saveAttachmentContext,
   optOutContact,
   isContactOptedOut,
   recordPaymentClaimed,
@@ -36,7 +34,6 @@ import {
   scheduleRetry,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
-import { describeAttachment } from '../ai/vision.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
 import { keywordPacks } from '../knowledge/packs.js';
 import { getTopic, resolveTopicByServiceName } from '../knowledge/topics.js';
@@ -318,47 +315,26 @@ async function handleMessage(value, message, deps) {
     return;
   }
 
-  // Anything the lead sends that is not plain text or a quick-reply tap
-  // (image, document, voice note, location, and so on) is no longer an
-  // automatic handoff - only a qualified lead gets passed to a person, and
-  // a file on its own says nothing about that either way. It goes through
-  // the exact same AI pipeline as a text message. Caption text (if any)
-  // becomes effectiveText so the AI reads what the lead typed; vision runs
-  // IN ADDITION (not instead) and the factual note is stored on the message
-  // as attachment_context so the prompt sees "caption text - what the
-  // image shows" together. If there's no caption, effectiveText falls back
-  // to a generic "Sent a <type>" label.
-  const isAttachment = message.type === 'image' || message.type === 'document'
+  // A file the lead sends goes through the same AI pipeline as text. What the
+  // bot is told is simply THAT a file arrived and of what kind - nothing reads
+  // the file itself. That is a deliberate trade: the fact of arrival is known
+  // for certain and instantly, so acknowledging it can never be wrong and
+  // never be late. Guessing at the contents meant the acknowledgement waited
+  // on an API call, and when that call was slow the bot answered without it
+  // and asked the lead to send a file they had already sent.
+  //
+  // Caption text, if the lead attached any, is their actual words and is used
+  // as the message text with the file noted alongside it.
+  const isFile = message.type === 'image' || message.type === 'document'
     || message.type === 'video' || message.type === 'audio' || message.type === 'sticker';
-  if (isAttachment) {
-    if (!effectiveText) effectiveText = `Sent a ${message.type}`;
-
-    if (message.type === 'image' || message.type === 'document') {
-      const recentCount = await countRecentAttachments(pool, result.conversationId, 60);
-      if (recentCount > config.mediaAnalysisMaxPerHour) {
-        log.info({ conversationId: result.conversationId, recentCount }, 'attachment analysis rate limit hit, skipping vision');
-      } else {
-        try {
-          const mediaId = message[message.type]?.id;
-          if (mediaId) {
-            const url = await meta.getMediaUrl(mediaId);
-            const { buffer, contentType } = await meta.downloadMedia(url);
-            // Read the live Gemini key from settings, not the boot env config -
-            // otherwise an admin rotating the key from the console silently
-            // keeps using the old one for every inbound image/PDF.
-            const visionSettings = await getSettings(pool, config);
-            const note = await describeAttachment(visionSettings, buffer, contentType, log);
-            if (note) {
-              await saveAttachmentContext(pool, result.messageId, note);
-            }
-          }
-        } catch (err) {
-          log.warn({ err, conversationId: result.conversationId }, 'attachment analysis failed, continuing without it');
-        }
-      }
-    }
+  if (isFile) {
+    const fileNote = `[the customer sent a ${message.type}; it has arrived and is on their record, but you cannot see what is in it]`;
+    effectiveText = attachmentCaption ? `${attachmentCaption}\n${fileNote}` : fileNote;
   } else if (!effectiveText) {
-    effectiveText = `Sent a ${message.type}`;
+    // Location, a contact card, an order, a system notice: these carry no
+    // file, and what they are is already known, so the plain description is
+    // the most the bot needs.
+    effectiveText = describeInboundBody(message, quickReplyText) ?? `[the customer sent a ${message.type}]`;
   }
 
   const items = await getBatcher(config).enqueueMessage(result.conversationId, {

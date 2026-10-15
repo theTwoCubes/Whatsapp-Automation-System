@@ -30,7 +30,6 @@ Every file under `tests/` runs. The main ones:
 - `reply.test.js` / `ai.test.js` prompt building, decision parsing, provider
   failover
 - `packs.test.js` / `faqs.test.js` / `ingestion.test.js` the knowledge base
-- `vision.test.js` reading an inbound image, Gemini first with OpenAI fallback
 - `handoff.test.js` the qualification gate and the handoff lifecycle
 - `bulk-send.test.js`, `realtime.test.js`, `hardening.test.js`,
   `ratelimit.test.js`, `scale.test.js`, `monitoring.test.js` the operational

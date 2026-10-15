@@ -162,7 +162,6 @@ export const testConfig = {
   messageBatchDebounceMs: 30,
   messageBatchMaxWaitMs: 200,
   mediaResendCooldownMinutes: 180,
-  mediaAnalysisMaxPerHour: 6,
   dripSteps: [
     { step: 1, template: 'drip_day3', days: 3 },
     { step: 2, template: 'drip_day5', days: 5 },

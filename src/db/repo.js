@@ -325,7 +325,7 @@ export async function deleteMessages(pool, conversationId, messageIds) {
 
 export async function getConversationHistory(pool, conversationId, limit = 12) {
   const res = await pool.query(
-    `select direction, body, attachment_context from messages
+    `select direction, body from messages
      where conversation_id = $1 and body is not null
        and created_at > coalesce((select cleared_at from conversations where id = $1), '1970-01-01')
      order by created_at desc, id desc
@@ -1628,29 +1628,6 @@ export async function getHostedLink(pool, id) {
   return (
     await pool.query('select id, label, url from hosted_links where id = $1', [id])
   ).rows[0] ?? null;
-}
-
-// Records a factual, extraction-only note about an inbound image/PDF against
-// that exact message, so a human reading the thread and the AI's next turn
-// both have it without re-opening the file.
-export async function saveAttachmentContext(pool, messageId, note) {
-  if (!messageId || !note) return;
-  await pool.query('update messages set attachment_context = $2 where id = $1', [messageId, note]);
-}
-
-// How many images/documents this lead has sent in the last N minutes - the
-// throttle that keeps someone from running up the vision API bill by
-// spamming files. Counts inbound image/document messages regardless of
-// whether they were actually analysed (a skipped one still counts, so the
-// window can't be dodged by sending faster than the analysis takes).
-export async function countRecentAttachments(pool, conversationId, minutes) {
-  const res = await pool.query(
-    `select count(*)::int as n from messages
-     where conversation_id = $1 and direction = 'inbound' and type in ('image', 'document')
-       and created_at > now() - make_interval(mins => $2)`,
-    [conversationId, minutes],
-  );
-  return res.rows[0]?.n ?? 0;
 }
 
 // Ops panel stats: DB-side counters for the admin health panel.

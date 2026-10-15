@@ -66,12 +66,14 @@ a new client, see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
   so using that answer sends the file with it. A cooldown keeps the bot
   from repeatedly resending the same file to the same conversation without
   hard blocking a lead who genuinely asks again.
-- Media a lead sends is never silently dropped. An inbound photo or PDF is
-  read once with Gemini vision for a short, factual, non-judgemental
-  description (never a critique or analysis of the file itself, which stays
-  a paid, human step where that applies) - rate limited per conversation so
-  it cannot be used to run up the vision bill. Sending a file is never, on
-  its own, a reason to hand a conversation to a person.
+- Media a lead sends is never silently dropped, and never read either. The
+  bot is told that a file arrived and of what kind - nothing opens it. That
+  is known for certain the instant the webhook lands, so acknowledging a
+  file can never be wrong and never be late; reading it meant the
+  acknowledgement waited on an API call, and a slow call had the bot asking
+  for a file the lead had already sent. Judging a design stays a paid, human
+  step where that applies. Sending a file is never, on its own, a reason to
+  hand a conversation to a person.
 - A human agent can also browse the library by Topic from the chat composer
   and send any file directly, independent of the bot.
 
@@ -226,9 +228,7 @@ targets.
 - A Meta app with the WhatsApp product enabled: a phone number id, a
   WhatsApp Business Account id, an access token, and the app secret
 - An OpenAI API key, a Gemini API key, or both. Either one is enough to
-  run the bot; configuring both buys automatic failover. A Gemini key is
-  what reads an inbound photo or PDF, with OpenAI used only as the vision
-  fallback, so set Gemini even if OpenAI is the primary chat provider
+  run the bot; configuring both buys automatic failover between them
 - A way to expose the local server to Meta during development, such as
   ngrok or cloudflared
 - To compile the Android APK: the Android SDK and a Firebase project 
