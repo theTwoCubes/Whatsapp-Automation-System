@@ -110,7 +110,11 @@ test('the prompt carries the pack answers and the rule against inventing figures
   assert.match(system, /20000 rupees plus GST/, 'the answer itself is in the prompt');
   assert.match(system, /Monday to Saturday/, 'the base pack is there too');
   assert.match(system, /quote this answer exactly/, 'the verbatim marker survives into the prompt');
-  assert.match(system, /do not make them up/, 'the rule against inventing specifics is there');
+  assert.match(
+    system,
+    /Specific numbers.*only give if they are in the approved answers/s,
+    'the rule against inventing specifics is there',
+  );
   assert.match(system, /"action": "handoff"/, 'the contract is spelled out');
 });
 
