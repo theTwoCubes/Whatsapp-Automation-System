@@ -2,7 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildServer, maskSensitiveQuery } from '../../src/server.js';
-import { setupPool, resetTables, testConfig } from './support/harness.js';
+import { setupPool, resetTables, testConfig, silentLog } from './support/harness.js';
 
 let pool;
 const config = {
@@ -80,4 +80,35 @@ test('a websocket ticket is redacted too, and ordinary params are left alone', (
   assert.match(maskSensitiveQuery('/api/stream?ticket=abc123'), /ticket=\[redacted\]/);
   assert.equal(maskSensitiveQuery('/api/conversations?topicId=3&state=bot'), '/api/conversations?topicId=3&state=bot');
   assert.equal(maskSensitiveQuery('/health'), '/health');
+});
+
+// A blunt ceiling that does not care why the bot is replying too much. Every
+// other guard is specific to a known failure; this one is the backstop for
+// the ones nobody has thought of yet.
+test('a conversation has a hard ceiling on replies per window, whatever else happens', async () => {
+  const { processWebhook } = await import('../../src/handlers/message.js');
+  const { inboundText } = await import('./support/fixtures.js');
+  const { FakeMeta, FakeAi } = await import('./support/harness.js');
+
+  const meta = new FakeMeta();
+  // Distinct replies each turn so neither the repeat guard nor the peer-bot
+  // net is what stops it - this has to be the cap and nothing else.
+  const ai = new FakeAi();
+  let n = 0;
+  ai.complete = async () => {
+    n += 1;
+    return {
+      text: JSON.stringify({ action: 'answer', reply: `Reply number ${n} about your project.`, lead_business: 'steel bars' }),
+      provider: 'fake',
+      failedProviders: [],
+    };
+  };
+  const d = { meta, ai, pool, config: testConfig, log: silentLog };
+
+  for (let i = 0; i < 20; i += 1) {
+    await processWebhook(inboundText({ id: `wamid.CAP${i}`, body: `question ${i}` }), d);
+  }
+
+  assert.ok(meta.sends.length <= 12, `capped, got ${meta.sends.length} replies`);
+  assert.ok(meta.sends.length >= 10, `but not strangling a normal chat, got ${meta.sends.length}`);
 });

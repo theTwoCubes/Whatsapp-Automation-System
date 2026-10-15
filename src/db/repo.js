@@ -257,17 +257,41 @@ export async function setActiveServicePack(pool, conversationId, topicId) {
   );
 }
 
-// The text of the most recent thing the bot said, for the loop guard. Only
+// The last few things the bot said, newest first, for the loop guard. Only
 // outbound text messages count - a payment link follow up or a media caption
-// is not the bot repeating itself.
-export async function getLastOutboundBody(pool, conversationId) {
+// is not the bot repeating itself. More than one because the reworded repeat
+// it is looking for sometimes skips a turn.
+export async function getRecentOutboundBodies(pool, conversationId, limit = 3) {
   const res = await pool.query(
     `select body from messages
      where conversation_id = $1 and direction = 'outbound' and type = 'text' and body is not null
-     order by id desc limit 1`,
+     order by id desc limit $2`,
+    [conversationId, limit],
+  );
+  return res.rows.map((r) => r.body);
+}
+
+// The service a conversation is filed under, together with why - see
+// migration 057 and resolveService in src/ai/reconcile.js. Read and written
+// as a pair, because the service on its own cannot tell a guess from a fact.
+export async function getRecordedService(pool, conversationId) {
+  const res = await pool.query(
+    'select last_topic_id, service_basis from conversations where id = $1',
     [conversationId],
   );
-  return res.rows[0]?.body ?? null;
+  const row = res.rows[0];
+  if (!row) return { topicId: null, basis: null };
+  return {
+    topicId: row.last_topic_id == null ? null : Number(row.last_topic_id),
+    basis: row.service_basis ?? null,
+  };
+}
+
+export async function setRecordedService(pool, conversationId, topicId, basis) {
+  await pool.query(
+    'update conversations set last_topic_id = $2, service_basis = $3 where id = $1',
+    [conversationId, topicId, basis],
+  );
 }
 
 // Overwritten, never merged - unlike active_pack_ids (a deduplicated,
@@ -325,8 +349,13 @@ export async function deleteMessages(pool, conversationId, messageIds) {
 
 export async function getConversationHistory(pool, conversationId, limit = 12) {
   const res = await pool.query(
-    `select direction, body from messages
-     where conversation_id = $1 and body is not null
+    // A file with no caption has a null body, and filtering those out meant
+    // the model never saw that a file had arrived at all - which is why it
+    // asked a lead to send a logo they had just sent. The type comes back so
+    // the prompt can say what arrived; see historyBody in ai/reply.js.
+    `select direction, body, type from messages
+     where conversation_id = $1
+       and (body is not null or type in ('image', 'document', 'video', 'audio', 'sticker'))
        and created_at > coalesce((select cleared_at from conversations where id = $1), '1970-01-01')
      order by created_at desc, id desc
      limit $2`,
@@ -344,7 +373,7 @@ export async function getConversationContext(pool, conversationId) {
             ct.address as contact_address, ct.lead_details as contact_lead_details,
             c.created_at, c.reply_language, c.locked_language, c.introduced_at,
             t.name as topic_name,
-            lt.name as recorded_service_name,
+            lt.name as recorded_service_name, c.service_basis,
             (select count(*) from messages m where m.conversation_id = c.id and m.direction = 'inbound'
              and m.created_at > coalesce(c.cleared_at, '1970-01-01')) as turn_count
      from conversations c
@@ -900,10 +929,7 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
   const res = await pool.query(
     `select
        nullif(btrim(coalesce(ct.business, '')), '') as business,
-       nullif(btrim(coalesce(ct.email, '')), '')    as email,
-       nullif(btrim(coalesce(ct.address, '')), '')  as address,
-       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement,
-       (ct.lead_details->'email_declined') = 'true'::jsonb              as email_declined
+       nullif(btrim(coalesce(ct.lead_details->>'requirement', '')), '') as requirement
      from contacts ct
      join conversations c on c.contact_id = ct.id
      where c.id = $1`,
@@ -911,11 +937,17 @@ export async function isLeadQualifiedEnough(pool, conversationId) {
   );
   const row = res.rows[0];
   if (!row) return false;
-  // Email is soft-required: the ask has to be made, but a lead who says
-  // "I don't have an email" can still qualify. The AI sets email_declined
-  // to true on the turn the lead says so. The other three are hard-required.
-  const emailOk = Boolean(row.email) || row.email_declined === true;
-  return Boolean(row.business && row.address && row.requirement) && emailOk;
+  // What a person needs in order to pick this conversation up without making
+  // the customer start again: what their business is, and what they want.
+  //
+  // Email and address used to be in here too, which had the bot asking for
+  // both within four turns of "hi" - and it had to, because "can I talk to a
+  // human" could not be honoured until it had them. Worse, a lead answering
+  // "Matlb?" to the email question was read as declining it, which satisfied
+  // the gate on a misunderstanding. Those details belong to the step where
+  // an invoice or a brief is actually being sent, not to the question of
+  // whether a human should be involved.
+  return Boolean(row.business && row.requirement);
 }
 
 export async function recentOutboundStats(pool, conversationId, minutes = 15) {

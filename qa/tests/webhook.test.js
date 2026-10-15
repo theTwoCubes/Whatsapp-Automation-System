@@ -261,21 +261,35 @@ test('unparseable ai output on an unqualified lead sends a neutral holding line,
   assert.match(d.meta.sends[0].body, /moment|second|check/i, 'uses a neutral "one moment" line');
 });
 
-test('a lead with every other field but no email AND no decline does NOT qualify', async () => {
-  // Negative gate: business + address + requirement all set, but email is
-  // null and email_declined is absent. Handoff must be downgraded. Proves
-  // the gate reads email specifically, not "any lead_details key present".
-  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
+// Email used to be part of this gate, which forced the bot to ask a stranger
+// for their email within a few messages of hello - it could not honour "let me
+// talk to a person" until it had one. Worse, a lead answering "Matlb?" to the
+// email question was read as declining it, and a decline satisfied the gate.
+// A person needs to know what the business is and what they want; they can ask
+// for an email themselves.
+test('business and requirement are enough to qualify - no email needed', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Got it.',
+    lead_business: 'Steel bar manufacturing', lead_requirement: 'New scientific logo for the firm',
+  }));
   const d = deps({ ai });
-  await processWebhook(inboundText({ id: 'wamid.NO_EMAIL1', body: 'hi' }), d);
-  await pool.query(
-    "update contacts set business = 'ACME Studio', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')",
-  );
-  ai.reply = JSON.stringify({ action: 'handoff', reply: 'Great, team se connect karvate hain.', reason: 'qualified and ready to proceed' });
-  await processWebhook(inboundText({ id: 'wamid.NO_EMAIL2', body: 'ok lets proceed' }), d);
+  await processWebhook(inboundText({ id: 'wamid.GATE1', body: 'steel bars, need a new scientific logo' }), d);
 
-  const conv = await pool.query('select state from conversations limit 1');
-  assert.equal(conv.rows[0].state, 'bot', 'missing email with no decline blocks the handoff');
+  const conv = (await pool.query('select id from conversations limit 1')).rows[0];
+  assert.equal(await isLeadQualifiedEnough(pool, conv.id), true, 'qualified without an email on file');
+});
+
+test('a lead with no business recorded does not qualify, however much else is known', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Got it.',
+    lead_name: 'Akshat', lead_email: 'a@b.com', lead_address: 'Delhi',
+    lead_requirement: 'New scientific logo',
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.GATE2', body: 'hi, akshat here, delhi' }), d);
+
+  const conv = (await pool.query('select id from conversations limit 1')).rows[0];
+  assert.equal(await isLeadQualifiedEnough(pool, conv.id), false, 'no business means no handoff');
 });
 
 test('a lead who says they have no email can still qualify when email_declined is set', async () => {
@@ -353,44 +367,22 @@ test('status callbacks update the stored message status', async () => {
   assert.equal(row.rows[0].status, 'read');
 });
 
-test('the model asking for another pack pulls it in and answers on the second call', async () => {
-  const { upsertTopic } = await import('../../src/knowledge/topics.js');
-  const { createFaq } = await import('../../src/knowledge/faqs.js');
-  // No keywords, so only the model can pull this pack in.
-  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
-  await createFaq(pool, { topicId: poster.id, question: 'Poster price?', answer: 'From 3000 rupees.' });
-  await createFaq(pool, { question: 'Hours?', answer: 'Monday to Saturday.' });
-
-  // First call asks for the poster pack, second call answers from it.
-  const replies = [
-    JSON.stringify({ action: 'need_packs', pack_ids: [Number(poster.id)] }),
-    JSON.stringify({ action: 'answer', reply: 'Posters start from 3000 rupees.' }),
-  ];
-  const ai = { enabled: true, calls: 0, async complete() { const r = replies[this.calls]; this.calls += 1; return { text: r, provider: 'fake', failedProviders: [] }; } };
-
-  const d = deps({ ai });
-  await processWebhook(inboundText({ id: 'wamid.PKR1', body: 'hi, do you also do print stuff' }), d);
-
-  assert.equal(ai.calls, 2, 'exactly one extra round trip');
-  assert.equal(d.meta.sends.length, 1);
-  assert.equal(d.meta.sends[0].body, 'Posters start from 3000 rupees.');
-
-  const conv = await pool.query('select active_pack_ids from conversations limit 1');
-  assert.deepEqual(conv.rows[0].active_pack_ids.map(Number), [Number(poster.id)], 'the pack is sticky for the next turn');
-});
-
-test('a matching keyword pulls a pack in with no extra ai call', async () => {
+test('every service\'s answers are in the prompt, with no keyword match needed', async () => {
   const { upsertTopic } = await import('../../src/knowledge/topics.js');
   const { createFaq } = await import('../../src/knowledge/faqs.js');
   const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', keywords: 'poster' });
   await createFaq(pool, { topicId: poster.id, question: 'Poster price?', answer: 'From 3000 rupees.' });
 
-  const d = deps();
-  await processWebhook(inboundText({ id: 'wamid.KW1', body: 'what does a poster cost?' }), d);
+  class SpyAi extends FakeAi {
+    async complete(messages, options) { this.lastMessages = messages; return super.complete(messages, options); }
+  }
+  const ai = new SpyAi();
+  const d = deps({ ai });
+  // Nothing in this message mentions a poster.
+  await processWebhook(inboundText({ id: 'wamid.KW1', body: 'hi, what do you charge for print work' }), d);
 
-  assert.equal(d.ai.calls, 1, 'no extra call needed, the keyword already pulled the pack in');
-  const conv = await pool.query('select active_pack_ids from conversations limit 1');
-  assert.deepEqual(conv.rows[0].active_pack_ids.map(Number), [Number(poster.id)], 'the keyword match is sticky');
+  assert.equal(ai.calls, 1, 'one call - nothing has to be pulled in afterwards');
+  assert.match(ai.lastMessages[0].content, /From 3000 rupees/, 'the poster answers were loaded anyway');
 });
 
 test('a pack pulled in once stays for the next turn without being renegotiated', async () => {
@@ -704,7 +696,7 @@ test('a two word business answer is recorded and is enough to qualify the lead',
   const ai = new FakeAi(JSON.stringify({
     action: 'answer', reply: 'Got it, software development in Delhi.', reply_language: 'English',
     lead_business: 'Software development', lead_address: 'Delhi',
-    lead_requirement: 'Rebrand of the existing logo', lead_email_declined: true,
+    lead_requirement: 'Rebrand of the existing logo',
   }));
   const d = deps({ ai });
   await processWebhook(
@@ -717,7 +709,6 @@ test('a two word business answer is recorded and is enough to qualify the lead',
   ).rows[0];
   assert.equal(row.business, 'Software development', 'the short business answer is stored, not discarded');
   assert.equal(row.address, 'Delhi');
-  assert.equal(row.lead_details.email_declined, true);
 
   const conv = (await pool.query('select id from conversations limit 1')).rows[0];
   assert.equal(
@@ -769,56 +760,46 @@ test('the safety net blocks a bot-loop even when the ai keeps replying past the 
   assert.equal(d.meta.sends.length, beforeSends, 'no new reply is sent once the safety net trips');
 });
 
-test('the service recorded for a lead is the strongest keyword match, not the weakest', async () => {
-  // Mirrors a real miscategorisation: "scientific logo" matches the scientific
-  // pack on its own two-word keyword AND the plain logo pack on the single word
-  // "logo". keywordPacks ranks the stronger match first, so that is what the
-  // conversation must be filed under. Taking the last element instead filed
-  // these leads under plain Logo Design.
+// Keyword matching used to decide which service a lead was filed under, and
+// it is the single thing that caused the worst production failure: "Need logo
+// for scientific" scored Logo Design and Scientific Logo Design equally, the
+// tie was broken by table order, and the lead was quoted the wrong price for
+// the rest of the conversation. Words in a message no longer file anything.
+test('words in a message never decide which service a lead is filed under', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
   const sci = await upsertTopic(pool, {
     slug: 'scientific_logo_design',
     name: 'Scientific Logo Design',
-    keywords: 'scientific logo, yantra, vedic',
+    keywords: 'scientific, scientific logo, yantra, vedic',
   });
   await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
   await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004.' });
 
-  const d = deps();
-  await processWebhook(inboundText({ id: 'wamid.SVC1', body: 'Scientific logo' }), d);
+  // The ai says nothing about the service, so nothing should be recorded -
+  // however many service keywords the message happens to contain.
+  const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'Happy to help.' }));
+  await processWebhook(inboundText({ id: 'wamid.SVC1', body: 'Need logo for scientific' }), deps({ ai }));
 
-  const row = await pool.query('select last_topic_id, active_pack_ids from conversations limit 1');
-  assert.equal(
-    Number(row.rows[0].last_topic_id),
-    Number(sci.id),
-    'filed under Scientific Logo Design: "scientific logo" outranks a bare "logo"',
-  );
-  // Both packs are still pulled in for context - only the recorded service is ranked.
-  const packs = row.rows[0].active_pack_ids.map(Number);
-  assert.ok(packs.includes(Number(sci.id)), 'scientific pack attached');
+  const row = (await pool.query('select last_topic_id, service_basis from conversations limit 1')).rows[0];
+  assert.equal(row.last_topic_id, null, 'no service guessed from keywords');
+  assert.equal(row.service_basis, null);
 });
 
-test('a plain logo enquiry is still filed under plain Logo Design', async () => {
-  // The other direction of the same ranking: no scientific keyword appears, so
-  // the generic pack must win outright rather than the specific one leaking in.
+test('a plain logo enquiry is filed under plain Logo Design when the ai says so', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
-  const sci = await upsertTopic(pool, {
-    slug: 'scientific_logo_design',
-    name: 'Scientific Logo Design',
-    keywords: 'scientific logo, yantra, vedic',
-  });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra' });
   await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
   await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004.' });
 
-  const d = deps();
-  await processWebhook(inboundText({ id: 'wamid.SVC2', body: 'I want logo design' }), d);
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Our logo and identity package is 20000 plus GST.',
+    lead_service: 'Logo Design', service_basis: 'stated',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.SVC2', body: 'i want a logo for my shop' }), deps({ ai }));
 
-  const row = await pool.query('select last_topic_id, active_pack_ids from conversations limit 1');
-  assert.equal(Number(row.rows[0].last_topic_id), Number(logo.id), 'filed under Logo Design');
-  assert.ok(
-    !row.rows[0].active_pack_ids.map(Number).includes(Number(sci.id)),
-    'the scientific pack is not pulled in at all',
-  );
+  const row = (await pool.query('select last_topic_id, service_basis from conversations limit 1')).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(logo.id));
+  assert.equal(row.service_basis, 'stated');
 });
 
 test('lead_service from the ai overrides the keyword guess', async () => {
@@ -849,23 +830,18 @@ test('lead_service from the ai overrides the keyword guess', async () => {
   );
 });
 
-test('a lead_service the ai invents is ignored rather than wiping the real one', async () => {
+test('a lead_service the ai invents is ignored rather than recorded', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
   await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
 
   const ai = new FakeAi(JSON.stringify({
-    action: 'answer',
-    reply: 'Sure.',
-    lead_service: 'Interpretive Dance Branding',
+    action: 'answer', reply: 'Sure.',
+    lead_service: 'Interpretive Dance Branding', service_basis: 'stated',
   }));
   await processWebhook(inboundText({ id: 'wamid.LS2', body: 'i want a logo' }), deps({ ai }));
 
-  const row = await pool.query('select last_topic_id from conversations limit 1');
-  assert.equal(
-    Number(row.rows[0].last_topic_id),
-    Number(logo.id),
-    'the hallucinated service is discarded and the keyword match survives',
-  );
+  const row = (await pool.query('select last_topic_id from conversations limit 1')).rows[0];
+  assert.equal(row.last_topic_id, null, 'a service that matches no real topic records nothing');
 });
 
 test('lead_service matches on the slug and tolerates casing and punctuation', async () => {
@@ -891,83 +867,46 @@ test('lead_service matches on the slug and tolerates casing and punctuation', as
 // filed correctly from lead_service but the knowledge was not, so the whole
 // conversation was answered out of the wrong pack and the lead was quoted
 // 20000 + GST for a 50004 service.
-test('the service the ai names replaces the keyword guess as the conversation pack', async () => {
+test('the service the ai states is what the conversation is filed under', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
-  const sci = await upsertTopic(pool, {
-    slug: 'scientific_logo_design',
-    name: 'Scientific Logo Design',
-    keywords: 'yantra, vedic',
-  });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra, vedic' });
   await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
   await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
 
   const ai = new FakeAi(JSON.stringify({
-    action: 'answer',
-    reply: 'That is our Scientific Logo Design service.',
-    lead_service: 'Scientific Logo Design',
+    action: 'answer', reply: 'That is our Scientific Logo Design service.',
+    lead_service: 'Scientific Logo Design', service_basis: 'stated',
   }));
   await processWebhook(inboundText({ id: 'wamid.PK1', body: 'need logo design for scientific' }), deps({ ai }));
 
-  const row = (await pool.query('select last_topic_id, active_pack_ids from conversations limit 1')).rows[0];
-  assert.equal(Number(row.last_topic_id), Number(sci.id));
-  assert.deepEqual(
-    (row.active_pack_ids || []).map(Number),
-    [Number(sci.id)],
-    'the wrong keyword pack is replaced, not left sitting alongside the right one',
-  );
+  const row = (await pool.query('select last_topic_id, service_basis from conversations limit 1')).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(sci.id), 'filed under what the customer actually wants');
+  assert.equal(row.service_basis, 'stated');
 });
 
-test('the turn where the service is identified is answered again with that service pack', async () => {
+test('the right price is available on the first call, with no second pass needed', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo, branding' });
-  const sci = await upsertTopic(pool, {
-    slug: 'scientific_logo_design',
-    name: 'Scientific Logo Design',
-    keywords: 'yantra, vedic',
-  });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra, vedic' });
   await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
   await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
 
-  const ai = new FakeAi().queueReplies(
-    // First pass: written without the scientific pack, but it names the service.
-    JSON.stringify({ action: 'answer', reply: 'It is 20000 + GST.', lead_service: 'Scientific Logo Design' }),
-    // Second pass, now that the pack is loaded.
-    JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }),
-  );
+  // The whole reason a second pass used to be needed was that the scientific
+  // answers were not in the prompt. They always are now.
+  class SpyAi extends FakeAi {
+    async complete(messages, options) { this.lastMessages = messages; return super.complete(messages, options); }
+  }
+  const ai = new SpyAi(JSON.stringify({
+    action: 'answer', reply: 'It is 50004 all in.',
+    lead_service: 'Scientific Logo Design', service_basis: 'stated',
+  }));
   const d = deps({ ai });
   await processWebhook(inboundText({ id: 'wamid.PK2', body: 'need logo design for scientific, kya charge hai' }), d);
 
-  assert.equal(ai.calls, 2, 'the reply is built a second time once the right pack is known');
-  assert.equal(
-    d.meta.sends[d.meta.sends.length - 1].body,
-    'It is 50004 all in.',
-    'the lead sees the answer from the correct pack, not the one written without it',
-  );
+  assert.equal(ai.calls, 1, 'one call, because nothing had to be fetched and retried');
+  assert.match(ai.lastMessages[0].content, /50004 all in/, 'the scientific answers were there from the start');
+  assert.match(ai.lastMessages[0].content, /20000 \+ GST/, 'and so were the plain logo ones, to tell apart');
 });
 
-test("a later turn still loads the recorded service's pack when nothing matches by keyword", async () => {
-  const sci = await upsertTopic(pool, {
-    slug: 'scientific_logo_design',
-    name: 'Scientific Logo Design',
-    keywords: 'yantra, vedic',
-  });
-  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
-
-  const ai = new FakeAi().queueReplies(
-    JSON.stringify({ action: 'answer', reply: 'Sure, happy to help.', lead_service: 'Scientific Logo Design' }),
-    JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }),
-  );
-  const d = deps({ ai });
-  await processWebhook(inboundText({ id: 'wamid.PK3', body: 'i need a new mark for my firm' }), d);
-  // Nothing in this message matches any keyword at all.
-  await processWebhook(inboundText({ id: 'wamid.PK4', body: 'kya charge hai' }), d);
-
-  const row = (await pool.query('select active_pack_ids from conversations limit 1')).rows[0];
-  assert.deepEqual((row.active_pack_ids || []).map(Number), [Number(sci.id)]);
-});
-
-// The loop that was most visible to leads in production: the bot answered an
-// image by asking for the image, word for word the message it had sent on the
-// previous turn, and did it twice in one conversation.
 test('a reply that repeats the previous one word for word is rewritten', async () => {
   const ai = new FakeAi().queueReplies(
     JSON.stringify({ action: 'answer', reply: 'Could you share your logo?' }),
@@ -1101,4 +1040,137 @@ test('messages that land while a reply is being written join one batch, not one 
   assert.equal(d.meta.sends.length, 2, 'two replies for three messages, not three');
   assert.equal(d.meta.sends[1].body, 'Second answer.');
   assert.equal(await count('messages'), 5, 'three inbound, two outbound - every message still recorded');
+});
+
+// The single most dangerous thing this system did: told a customer their
+// payment had arrived. Nothing here can see payments - the only source is the
+// customer saying so - so the claim is always a guess, and a wrong guess
+// tells someone their money is settled when it is not.
+test('a reply claiming the payment arrived is never sent to the lead', async () => {
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({
+      action: 'answer', reply: 'Thank you, payment received! Maulikbhai will call you within 24 hours.',
+      payment_claimed: true, reply_language: 'English',
+    }),
+    // Asked again, the model writes it honestly.
+    JSON.stringify({
+      action: 'answer', reply: 'Thanks for letting me know, I have passed it to the team to check. Maulikbhai will call you within 24 hours.',
+      reply_language: 'English',
+    }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAY1', body: 'maine payment kardi' }), d);
+
+  assert.equal(ai.calls, 2, 'the claim triggers one more attempt');
+  const sent = d.meta.sends[0].body;
+  assert.doesNotMatch(sent, /payment received/i, 'the lead never sees a confirmation');
+  assert.match(sent, /passed it to the team/);
+
+  // The team is still told, which is the part that is actually true.
+  const details = (await pool.query('select lead_details from contacts limit 1')).rows[0].lead_details;
+  assert.ok(details.payment_claimed_at, 'the claim is recorded for the team to check');
+});
+
+test('a model that insists on confirming the payment has the sentence rewritten', async () => {
+  const claim = JSON.stringify({
+    action: 'answer', reply: 'Thank you, payment received! Maulikbhai will call you within 24 hours.',
+    payment_claimed: true, reply_language: 'English',
+  });
+  // Same claim both times - it will not take the correction.
+  const ai = new FakeAi(claim);
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAY2', body: 'payment done' }), d);
+
+  const sent = d.meta.sends[0].body;
+  assert.doesNotMatch(sent, /payment received/i, 'the claim is removed even so');
+  assert.match(sent, /Maulikbhai will call you within 24 hours/, 'the rest of the reply survives');
+
+  const details = (await pool.query('select lead_details from contacts limit 1')).rows[0].lead_details;
+  assert.ok(details.payment_claimed_at, 'and the team is still notified');
+});
+
+test('a reply about what happens after payment is left alone', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer',
+    reply: 'Once your payment is through, Maulikbhai will call you within 24 hours to fix a time.',
+    reply_language: 'English',
+  }));
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.PAY3', body: 'what happens after I pay?' }), d);
+
+  assert.equal(ai.calls, 1, 'no retry - this was never a claim');
+  assert.match(d.meta.sends[0].body, /Once your payment is through/);
+});
+
+test('a lead field that says nothing is not stored, and does not qualify the lead', async () => {
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Got it.',
+    lead_business: 'business', lead_requirement: 'Scientific Logo Design',
+  }));
+  const d = deps({ ai });
+  await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await processWebhook(inboundText({ id: 'wamid.FLD1', body: 'for my business' }), d);
+
+  const row = (await pool.query('select ct.business, ct.lead_details from conversations c join contacts ct on ct.id = c.contact_id limit 1')).rows[0];
+  assert.equal(row.business, null, '"business" is not an answer');
+  assert.equal(row.lead_details?.requirement ?? null, null, 'the service name is not a brief');
+
+  const conv = (await pool.query('select id from conversations limit 1')).rows[0];
+  assert.equal(await isLeadQualifiedEnough(pool, conv.id), false, 'so the lead is not falsely qualified');
+});
+
+test('a passing mention of another service does not re-file an established lead', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo' });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
+
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'Scientific Logo Design it is.', lead_service: 'Scientific Logo Design', service_basis: 'stated' }),
+    // Turn 2: the lead says "logo" and the model names the plain service, but
+    // does not claim they are switching.
+    JSON.stringify({ action: 'answer', reply: 'Of course.', lead_service: 'Logo Design', service_basis: 'inferred' }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.SW1', body: 'i want the scientific one' }), d);
+  await processWebhook(inboundText({ id: 'wamid.SW2', body: 'mujhe naya logo chahiye' }), d);
+
+  const row = (await pool.query('select last_topic_id, service_basis from conversations limit 1')).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(sci.id), 'still on Scientific Logo Design');
+  assert.equal(row.service_basis, 'stated');
+});
+
+test('a lead who genuinely switches service is moved', async () => {
+  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design', keywords: 'logo' });
+  const sci = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await createFaq(pool, { topicId: logo.id, question: 'Logo cost?', answer: '20000 + GST.' });
+  await createFaq(pool, { topicId: sci.id, question: 'Scientific cost?', answer: '50004 all in.' });
+
+  const ai = new FakeAi().queueReplies(
+    JSON.stringify({ action: 'answer', reply: 'Scientific Logo Design it is.', lead_service: 'Scientific Logo Design', service_basis: 'stated' }),
+    JSON.stringify({
+      action: 'answer', reply: 'No problem, our standard logo package then.',
+      lead_service: 'Logo Design', service_basis: 'stated', service_change: true,
+    }),
+  );
+  const d = deps({ ai });
+  await processWebhook(inboundText({ id: 'wamid.SW3', body: 'i want the scientific one' }), d);
+  await processWebhook(inboundText({ id: 'wamid.SW4', body: 'actually forget that, just a normal logo please' }), d);
+
+  const row = (await pool.query('select last_topic_id from conversations limit 1')).rows[0];
+  assert.equal(Number(row.last_topic_id), Number(logo.id), 'moved when they actually asked to move');
+});
+
+test('a file is acknowledged as arrived, and the bot is told it cannot see inside', async () => {
+  class SpyAi extends FakeAi {
+    async complete(messages, options) { this.lastMessages = messages; return super.complete(messages, options); }
+  }
+  const ai = new SpyAi();
+  const d = deps({ ai });
+  await processWebhook(inboundImage({ id: 'wamid.FILE1' }), d);
+
+  const turn = ai.lastMessages[ai.lastMessages.length - 1].content;
+  assert.match(turn, /sent a image/, 'the model is told a file arrived');
+  assert.match(turn, /cannot see what is in it/, 'and told plainly that it cannot read it');
+  assert.equal(d.meta.sends.length, 1, 'and it still replies');
 });

@@ -25,6 +25,13 @@ link. Do not repeat it in these answers.
 `!verbatim` means quote the answer word for word, `!pinned` means never
 drop it even when the prompt is tight on space.
 
+Nothing in this system can see a payment - the only source is the customer
+saying they paid - so no answer here tells them their money has arrived. The
+two "I've paid" answers acknowledge being told and say what happens next,
+which is all that is actually true. The team is notified separately and can
+check. Code enforces this too: a reply asserting a payment was received never
+reaches a customer, whatever these answers say.
+
 Language handling is governed by the system prompt, not by this file.
 
 # What it is
@@ -113,7 +120,7 @@ A: Not at all, and we won't ask you to. Maulik studies the logo against your bus
 !verbatim
 !pinned
 Q: I've paid for the analysis, now what?
-A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting. If you haven't emailed your logo and business details yet, please do that in the meantime so he has everything in front of him.
+A: Thanks for letting us know - I've passed it to the team to check. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting. If you haven't emailed your logo and business details yet, please do that in the meantime so he has everything in front of him.
 
 !verbatim
 !pinned
@@ -123,7 +130,7 @@ A: Great - the full Scientific Logo Design project is ₹50,004. To get started 
 !verbatim
 !pinned
 Q: I've paid the deposit, what happens next?
-A: Thank you, that's received. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting, and he'll take the project forward with you from there.
+A: Thanks for letting us know - I've passed it to the team to check. Maulikbhai will call you on your phone within 24 hours to fix a time for your meeting, and he'll take the project forward with you from there.
 
 !verbatim
 Q: Can I book a call with Maulik without paying anything?

@@ -74,7 +74,13 @@ test('a service pack with its own drip steps overrides the general sequence', as
   });
   await createFaq(pool, { topicId: topic.id, question: 'What is packaging design?', answer: 'We design product packaging.' });
 
-  await processWebhook(inboundText({ id: 'wamid.P1', body: 'I need packaging design for my product' }), deps());
+  // The service has to be recorded for its follow ups to apply, and only the
+  // ai records it now - a word in the message does not.
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Happy to help with packaging.',
+    lead_service: 'Packaging Design', service_basis: 'stated',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.P1', body: 'I need packaging design for my product' }), deps({ ai }));
 
   const names = (await pool.query(
     "select template_name from drip_jobs where status = 'pending' order by step",
@@ -86,7 +92,11 @@ test('a service pack with no drip steps of its own falls back to the general seq
   const topic = await upsertTopic(pool, { slug: 'video_creation', name: 'Video', keywords: 'videoclip' });
   await createFaq(pool, { topicId: topic.id, question: 'Do you make videos?', answer: 'Yes, short videos.' });
 
-  await processWebhook(inboundText({ id: 'wamid.P2', body: 'I want a videoclip made' }), deps());
+  const ai = new FakeAi(JSON.stringify({
+    action: 'answer', reply: 'Yes, we make short videos.',
+    lead_service: 'Video', service_basis: 'stated',
+  }));
+  await processWebhook(inboundText({ id: 'wamid.P2', body: 'I want a videoclip made' }), deps({ ai }));
 
   const names = (await pool.query(
     "select template_name from drip_jobs where status = 'pending' order by step",
@@ -218,6 +228,7 @@ test('a service the ai named becomes the conversation\'s pack, and is followed u
     action: 'answer',
     reply: 'Happy to help with that.',
     lead_service: 'Scientific Logo Design',
+    service_basis: 'stated',
   }));
   const emptyGeneral = { ...testConfig, dripSteps: [] };
   await processWebhook(
@@ -226,16 +237,9 @@ test('a service the ai named becomes the conversation\'s pack, and is followed u
   );
 
   const conv = await firstConversation();
-  const row = (await pool.query('select last_topic_id, active_pack_ids from conversations where id = $1', [conv])).rows[0];
+  const row = (await pool.query('select last_topic_id, service_basis from conversations where id = $1', [conv])).rows[0];
   assert.equal(Number(row.last_topic_id), Number(topic.id), 'recorded against the service the ai named');
-  // The service the ai named has to carry its knowledge too, not just the
-  // filing. Leaving the pack out is what let a Scientific Logo Design lead be
-  // answered out of the plain Logo Design pack for a whole conversation.
-  assert.deepEqual(
-    (row.active_pack_ids || []).map(Number),
-    [Number(topic.id)],
-    "the named service is the conversation's pack, on its own",
-  );
+  assert.equal(row.service_basis, 'stated');
 
   const jobs = (
     await pool.query("select template_name, run_at, created_at from drip_jobs where status = 'pending' order by step")

@@ -1,5 +1,5 @@
 import { buildFaqContext } from './context.js';
-import { keywordPacks, packCatalog } from './packs.js';
+import { listTopics } from './topics.js';
 import { buildReply } from '../ai/reply.js';
 import { getMediaCatalog, getPaymentLinkCatalog, getHostedLinkCatalog } from '../db/repo.js';
 
@@ -16,21 +16,27 @@ export async function simulateReply(pool, ai, config, settings, { text, topicId 
   const query = String(text || '').trim();
   if (!query) throw new Error('a customer message is required');
 
+  // Same pack set the live pipeline builds (see assemblePacks in
+  // handlers/message.js): every active service, with the one being simulated
+  // first so it survives if the budget is tight. Keeping these identical is
+  // the whole point of the simulator - a wording change verified here has to
+  // behave the same way in a real chat.
   const packs = ['base'];
-  if (topicId) packs.push(Number(topicId));
   const seen = new Set(packs.map(String));
-  const keywordHits = await keywordPacks(pool, query, [...seen].filter((k) => k !== 'base').map(Number));
-  for (const id of keywordHits) {
-    if (!seen.has(String(id))) {
+  const add = (id) => {
+    if (id != null && !seen.has(String(id))) {
       seen.add(String(id));
-      packs.push(id);
+      packs.push(Number(id));
     }
+  };
+  add(topicId);
+  for (const topic of await listTopics(pool)) {
+    if (topic.active && Number(topic.faq_count) > 0) add(topic.id);
   }
 
   const topicIds = packs.filter((p) => p !== 'base');
-  const [faqs, catalog, media, paymentLinks, hostedLinks] = await Promise.all([
+  const [faqs, media, paymentLinks, hostedLinks] = await Promise.all([
     buildFaqContext(pool, { packs, budgetTokens: config.faqBudgetTokens }),
-    packCatalog(pool, topicIds),
     getMediaCatalog(pool, topicIds),
     getPaymentLinkCatalog(pool, topicIds),
     getHostedLinkCatalog(pool, topicIds),
@@ -42,8 +48,6 @@ export async function simulateReply(pool, ai, config, settings, { text, topicId 
   // whether the file was scoped to the wrong pack or missing altogether.
   const trace = {
     packsIncluded: faqs.packs,
-    keywordMatches: keywordHits,
-    catalog: catalog.map((c) => ({ id: c.id, name: c.name, description: c.description })),
     media: media.map((m) => ({ id: m.id, filename: m.filename, description: m.description, topic_id: m.topic_id })),
     paymentLinks: paymentLinks.map((p) => ({ id: p.id, label: p.label, amount_inr: p.amount_inr, description: p.description, topic_id: p.topic_id })),
     hostedLinks: hostedLinks.map((h) => ({ id: h.id, label: h.label, description: h.description, topic_id: h.topic_id })),

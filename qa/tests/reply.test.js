@@ -137,49 +137,6 @@ test('with no answers written yet the bot is told to hand everything over', asyn
   assert.match(ai.lastMessages[0].content, /No specific FAQ answers have been added yet/);
 });
 
-test('the catalog of other packs the model can ask for is in the prompt', async () => {
-  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', description: 'Print and digital posters' });
-  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
-  await createFaq(pool, { topicId: poster.id, question: 'Turnaround?', answer: '3 days.' });
-
-  const id = await conversation();
-  const ai = new SpyAi();
-  await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
-
-  const system = ai.lastMessages[0].content;
-  assert.match(system, new RegExp(`Pack ${poster.id}: Poster`));
-  assert.match(system, /need_packs/);
-  assert.doesNotMatch(system, new RegExp(`Pack ${logo.id}: Logo Design`), 'a pack already in the reply is not offered again');
-});
-
-test('a need_packs response returns the requested ids for the caller to include', async () => {
-  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
-  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
-  await createFaq(pool, { topicId: poster.id, question: 'Turnaround?', answer: '3 days.' });
-
-  const id = await conversation();
-  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [Number(poster.id)] }));
-  const decision = await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
-
-  assert.equal(decision.handoff, false);
-  assert.equal(decision.reply, '');
-  assert.deepEqual(decision.requestedPackIds, [Number(poster.id)]);
-});
-
-test('a request for a pack the catalog does not offer is treated as a handoff, not obeyed', async () => {
-  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
-
-  const id = await conversation();
-  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [99999] }));
-  const decision = await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
-
-  assert.equal(decision.handoff, true, 'a pack id we did not offer is a handoff, not a retry');
-  assert.deepEqual(decision.requestedPackIds, []);
-});
-
 test('with pack requests disabled the need_packs action is not offered', async () => {
   await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
   const id = await conversation();
@@ -475,33 +432,36 @@ test('once the lead\'s business and email are known, the model is shown them and
   assert.match(leadSystem, /priya@example\.com/);
 });
 
-test('a need_packs response is treated as a handoff when pack requests are disabled', async () => {
-  const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  await createFaq(pool, { topicId: logo.id, question: 'Cost?', answer: '20000.' });
-
-  const id = await conversation();
-  const ai = new SpyAi(JSON.stringify({ action: 'need_packs', pack_ids: [Number(logo.id)] }));
-  const decision = await buildReply(pool, ai, testConfig, id, {
-    packs: ['base'],
-    allowPackRequests: false,
-  });
-  assert.equal(decision.handoff, true, 'no catalog to draw from, so it cannot request anything');
-});
-
-// With several service packs in one prompt and nothing saying which service
-// governs, "kya charge hai" got answered out of whichever pack was loaded.
 test('the prompt names the service the conversation is recorded under', async () => {
   const sci = await upsertTopic(pool, { slug: 'scientific-logo-design', name: 'Scientific Logo Design', keywords: 'yantra' });
   await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
   const id = await conversation('kya charge hai');
-  await pool.query('update conversations set last_topic_id = $2 where id = $1', [id, sci.id]);
+  await pool.query("update conversations set last_topic_id = $2, service_basis = 'stated' where id = $1", [id, sci.id]);
 
   const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }));
   await buildReply(pool, ai, testConfig, id, { packs: ['base', Number(sci.id)] });
 
   const leadBlock = ai.lastMessages[1].content;
-  assert.match(leadBlock, /THIS CONVERSATION IS ABOUT: Scientific Logo Design/);
-  assert.match(leadBlock, /never answer from another service's pack/);
+  assert.match(leadBlock, /SERVICE: Scientific Logo Design/);
+  assert.match(leadBlock, /the customer told you themselves/);
+});
+
+// A guess must never be presented as a decision. Stating a coin-flip back to
+// the model as settled both misled it and discouraged it from correcting the
+// value, which is how one lead stayed filed under the wrong service for a
+// whole conversation.
+test('a guessed service is labelled as a guess, not stated as fact', async () => {
+  const sci = await upsertTopic(pool, { slug: 'scientific-logo-design', name: 'Scientific Logo Design', keywords: 'yantra' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+  const id = await conversation('kya charge hai');
+  await pool.query("update conversations set last_topic_id = $2, service_basis = 'inferred' where id = $1", [id, sci.id]);
+
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Let me check which one you need.' }));
+  await buildReply(pool, ai, testConfig, id, { packs: ['base', Number(sci.id)] });
+
+  const leadBlock = ai.lastMessages[1].content;
+  assert.match(leadBlock, /only a guess so far/);
+  assert.match(leadBlock, /do not quote a price until you are sure/);
 });
 
 test('a conversation with no service recorded gets no governing-service line', async () => {
@@ -509,7 +469,7 @@ test('a conversation with no service recorded gets no governing-service line', a
   const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Hello.' }));
   await buildReply(pool, ai, testConfig, id, {});
 
-  assert.doesNotMatch(ai.lastMessages[1].content, /THIS CONVERSATION IS ABOUT/);
+  assert.match(ai.lastMessages[1].content, /SERVICE: not established yet/);
 });
 
 test('being shown its own repeat is passed to the model as a correction', async () => {

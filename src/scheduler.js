@@ -1,7 +1,7 @@
 import {
   claimDueDrips, markDrip, markDripStuck, reclaimStuckDrips, recordOutbound, conversationsToResume,
-  getActivePackIds, purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage, setLockedLanguage,
-  setLeadProfile, markIntroduced, reconcileContactWaId,
+  purgeDeletedConversations, recordHandoff, cancelDrips, setConversationBlocked, setReplyLanguage, setLockedLanguage,
+  markIntroduced, reconcileContactWaId,
   claimBulkSendJobs, markBulkSendJob, reclaimStuckBulkSendJobs, findOrCreateComposeConversation,
   optOutContact,
   recordPaymentClaimed,
@@ -10,15 +10,12 @@ import {
   clearRetryAt,
   latestMessageId,
   getConversationState,
-  setLastTopicId,
-  setActiveServicePack,
 } from './db/repo.js';
-import { resolveTopicByServiceName } from './knowledge/topics.js';
 import { handToBot, handToPending } from './handoff.js';
 import { buildReply, categorizeHandoffReason } from './ai/reply.js';
 import { getSettings } from './settings.js';
 import { getRefinementCursor, runWeeklyRefinement } from './knowledge/refinement.js';
-import { pushHandoff, maybeSendMedia, maybeSendPaymentLink, maybeSendReaction } from './handlers/message.js';
+import { pushHandoff, maybeSendMedia, maybeSendPaymentLink, maybeSendReaction, assemblePacks, applyServiceDecision, storeLeadProfile } from './handlers/message.js';
 import { MetaApiError } from './meta/client.js';
 
 // Runs the recurring background work: drip follow ups, the auto resume that
@@ -211,17 +208,12 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
 
   let decision;
   try {
-    // Reuse whatever packs the conversation already had, plus the campaign's
-    // own if any. Resume has no new message text to run keyword matching
-    // against, so this is what the last live turn had.
-    const sticky = await getActivePackIds(pool, row.id);
-    const packs = ['base'];
-    if (row.topic_id) packs.push(Number(row.topic_id));
-    for (const id of sticky) if (!packs.includes(id)) packs.push(id);
+    // Same pack set a live turn gets: every service's answers, ordered so the
+    // recorded service survives if the budget is tight.
+    const packs = await assemblePacks(pool, row.id, row.topic_id ? Number(row.topic_id) : null);
     decision = await buildReply(pool, ai, settings, row.id, {
       packs,
       faqBudgetTokens: config.faqBudgetTokens,
-      allowPackRequests: false,
       log,
     });
   } catch {
@@ -259,22 +251,10 @@ async function processResumeReplyForRow(deps, settings, row, context, options = 
   if (decision) {
     await markIntroduced(pool, row.id);
   }
-  if (decision?.leadProfile) {
-    await setLeadProfile(pool, row.id, decision.leadProfile);
-  }
-  // Same as respondToLead: the model's own read of the service wins over the
-  // keyword guess, and an unrecognised name is ignored rather than applied. It
-  // takes the pack with it, so the knowledge for that service is loaded from
-  // the next turn on and not just the label on the lead. No rebuild of this
-  // reply, unlike respondToLead - a catch up or resume is not answering a
-  // question the customer is waiting on right now.
-  if (decision?.leadService) {
-    const topic = await resolveTopicByServiceName(pool, decision.leadService);
-    if (topic) {
-      await setLastTopicId(pool, row.id, topic.id);
-      await setActiveServicePack(pool, row.id, topic.id);
-    }
-  }
+  await storeLeadProfile(pool, row.id, decision?.leadProfile, log);
+  // Exactly the same service rules a live turn uses - shared on purpose, so a
+  // resume or catch up can never file a lead differently than a reply would.
+  await applyServiceDecision(pool, row.id, decision, log);
 
   // Mirrors respondToLead in handlers/message.js - the model's decision here
   // carries exactly the same handoff/block/reaction meaning as it does on a

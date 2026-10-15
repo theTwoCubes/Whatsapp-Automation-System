@@ -43,17 +43,23 @@ test('the trace reports the packs and answers the model would have seen', async 
   assert.equal(trace.decision, null, 'no ai call was made');
 });
 
-test('keyword matches on the typed message pull packs in and are surfaced', async () => {
+// The simulator has to assemble packs exactly the way a live turn does, or a
+// client verifies a change here and gets different behaviour in a real chat.
+// Live loads every service regardless of what the message says, so this does.
+test('every service is loaded, matching what a live turn gets', async () => {
   const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster', keywords: 'poster, banner' });
   await createFaq(pool, { topicId: poster.id, question: 'Poster cost?', answer: '3000.' });
 
   const trace = await simulateReply(pool, null, testConfig, testConfig, {
-    text: 'do you also make posters?',
+    text: 'hello, what do you charge',
     callAi: false,
   });
 
-  assert.deepEqual(trace.keywordMatches, [Number(poster.id)]);
-  assert.ok(trace.packsIncluded.includes(Number(poster.id)));
+  assert.ok(
+    trace.packsIncluded.includes(Number(poster.id)),
+    'the poster answers are there even though the message never mentions posters',
+  );
+  assert.match(trace.context, /3000/);
 });
 
 test('with the ai configured, the decision is what the pipeline would actually send', async () => {

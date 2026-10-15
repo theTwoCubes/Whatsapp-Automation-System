@@ -6,12 +6,9 @@ import {
   scheduleDrips,
   cancelDrips,
   getConversationState,
-  getActivePackIds,
-  addActivePackIds,
-  setActiveServicePack,
-  setLastTopicId,
-  getLastTopicId,
-  getLastOutboundBody,
+  getRecordedService,
+  setRecordedService,
+  getRecentOutboundBodies,
   setReplyLanguage,
   setLockedLanguage,
   setLeadProfile,
@@ -34,9 +31,15 @@ import {
   scheduleRetry,
 } from '../db/repo.js';
 import { buildReply, categorizeHandoffReason } from '../ai/reply.js';
+import {
+  findPaymentAssertions,
+  redactPaymentAssertions,
+  isRepeatOf,
+  resolveService,
+  validateLeadProfile,
+} from '../ai/reconcile.js';
 import { recordWebhook, recordAiSuccess, recordAiError, recordMetaLatency } from '../ai/telemetry.js';
-import { keywordPacks } from '../knowledge/packs.js';
-import { getTopic, resolveTopicByServiceName } from '../knowledge/topics.js';
+import { getTopic, listTopics, resolveTopicByServiceName } from '../knowledge/topics.js';
 import { parseDripSteps } from '../config.js';
 import { handToPending } from '../handoff.js';
 import { notifyAgentsOfHandoff } from '../push.js';
@@ -189,28 +192,44 @@ function describeInboundBody(message, quickReplyText) {
   }
 }
 
-// Hard, deterministic opt-out phrases - checked before the AI ever sees the
-// message, so honouring a stop request never depends on a model call
-// succeeding or interpreting it correctly. Anchored to (close to) the whole
-// message rather than "contains stop" anywhere, since that word shows up in
-// plenty of unrelated sentences. Deliberately narrow and English-only - softer
-// phrasing, other languages, and anything more conversational than this is
-// still caught by the AI's own "opt_out" action (see ai/reply.js), this is
-// only the unambiguous fast path.
+// The deterministic opt-out net, and it is deliberately as small as it can
+// be. Judging whether someone wants to stop hearing from us is a reading
+// comprehension problem and belongs to the AI's own "opt_out" action, which
+// handles every phrasing and every language. "my clients usually unsubscribe
+// from my promotions" is a sentence about their business, not a request.
+//
+// What stays here is the case where the entire message is a bare opt-out
+// command and nothing else. Nobody sends a message consisting only of the
+// word "STOP" to mean anything other than stop. This exists for one reason:
+// honouring an opt-out is a compliance obligation that cannot depend on an
+// API call succeeding, so there has to be a path that works when the model is
+// unreachable.
+//
+// Phrases were removed from this list, not added to it. "please stop" used to
+// be here and matched a customer saying "please stop asking me so many
+// questions", which is a complaint about the conversation, not a request to
+// never be contacted again.
 const OPT_OUT_PATTERNS = [
   /^stop$/i,
   /^unsubscribe$/i,
   /^unsub$/i,
   /^opt.?out$/i,
   /^remove me$/i,
-  /^stop (messaging|texting|contacting)( me)?$/i,
-  /^please stop( messaging| texting| contacting)?( me)?$/i,
-  /^do(n'?t| not) (message|text|contact) me( again)?$/i,
 ];
 
-function isOptOutRequest(text) {
+export function isOptOutRequest(text) {
   const trimmed = (text || '').trim().replace(/[.!]+$/, '');
   return OPT_OUT_PATTERNS.some((re) => re.test(trimmed));
+}
+
+// Looser: "this might be an opt-out". Never acts on its own - it is only
+// consulted when the AI is unreachable, where guessing either way is wrong.
+// A lead who may have just asked us to stop must not be guessed at, and must
+// not be ignored either, so the conversation goes to a person instead.
+const MAYBE_OPT_OUT = /\b(?:unsubscribe|opt\s?out|remove me|stop (?:messaging|texting|contacting)|don'?t (?:message|text|contact) me|band karo|mat bhejo|message mat)\b/i;
+
+export function looksLikeOptOut(text) {
+  return MAYBE_OPT_OUT.test(String(text || ''));
 }
 
 async function handleMessage(value, message, deps) {
@@ -325,16 +344,15 @@ async function handleMessage(value, message, deps) {
   //
   // Caption text, if the lead attached any, is their actual words and is used
   // as the message text with the file noted alongside it.
-  const isFile = message.type === 'image' || message.type === 'document'
-    || message.type === 'video' || message.type === 'audio' || message.type === 'sticker';
-  if (isFile) {
-    const fileNote = `[the customer sent a ${message.type}; it has arrived and is on their record, but you cannot see what is in it]`;
-    effectiveText = attachmentCaption ? `${attachmentCaption}\n${fileNote}` : fileNote;
-  } else if (!effectiveText) {
+  // The prompt learns about the file from the conversation history, which now
+  // includes file messages whether or not they carry a caption (see
+  // historyBody in ai/reply.js). What is needed here is only a non-empty
+  // label, so the batch has something to carry.
+  if (!effectiveText) {
     // Location, a contact card, an order, a system notice: these carry no
     // file, and what they are is already known, so the plain description is
     // the most the bot needs.
-    effectiveText = describeInboundBody(message, quickReplyText) ?? `[the customer sent a ${message.type}]`;
+    effectiveText = describeInboundBody(message, quickReplyText) ?? `Sent a ${message.type}`;
   }
 
   const items = await getBatcher(config).enqueueMessage(result.conversationId, {
@@ -367,6 +385,14 @@ async function handleMessage(value, message, deps) {
 // as a peer bot and skip the AI call entirely, so a stuck loop caps at
 // whatever the threshold is instead of eating the API bill.
 const PEER_BOT_LOOP_MAX_REPLIES = 6;
+
+// The unconditional ceiling, separate from the peer-bot net above because it
+// applies to real leads too. Generous enough that a genuinely chatty exchange
+// never touches it - a real customer and a real salesperson do not trade
+// twelve messages in five minutes - and low enough that any runaway stops
+// being the customer's problem quickly.
+const REPLY_CAP_WINDOW_MIN = 5;
+const REPLY_CAP_MAX = 12;
 const PEER_BOT_LOOP_WINDOW_MIN = 15;
 
 async function tripPeerBotSafetyNet(pool, conversationId, log) {
@@ -396,16 +422,26 @@ async function respondToLead(deps, conversationId, items) {
   // burn through another round of tokens.
   if (await tripPeerBotSafetyNet(pool, conversationId, log)) return;
 
+  // A blunt ceiling on how fast this conversation can be replied to, whatever
+  // else goes wrong. Every other guard here is specific - this one does not
+  // care why. It is the difference between a bug being embarrassing and a bug
+  // sending a lead forty messages before anyone notices.
+  const { recentOutbound } = await recentOutboundStats(pool, conversationId, REPLY_CAP_WINDOW_MIN);
+  if (recentOutbound >= REPLY_CAP_MAX) {
+    log.warn(
+      { conversationId, recentOutbound, windowMinutes: REPLY_CAP_WINDOW_MIN },
+      'reply cap reached for this conversation, sending nothing until the window clears',
+    );
+    return;
+  }
+
   const to = items[items.length - 1].to;
   const topicId = items[items.length - 1].topicId;
   const text = items.map((i) => i.text).join('\n');
   const settings = await getSettings(pool, config);
 
-  // AI reply. The bot is given the base pack, the lead's own service pack, any
-  // packs the conversation has previously pulled in, and any pack whose name or
-  // keywords match the text of this message. It can also ask for one more pack
-  // by name from the catalog, in which case we pull it in and call back once.
-  const packs = await assemblePacks(pool, conversationId, topicId, text);
+  // Every active service's answers go in - see assemblePacks.
+  const packs = await assemblePacks(pool, conversationId, topicId);
   let decision;
   let aiSucceeded = false;
   let repeatedAfterRetry = false;
@@ -414,58 +450,12 @@ async function respondToLead(deps, conversationId, items) {
     decision = await buildReply(pool, ai, settings, conversationId, {
       packs,
       faqBudgetTokens: config.faqBudgetTokens,
-      text,
       log,
     });
-    // The model asked for extra packs. Add them, mark them sticky for the rest
-    // of the conversation, and call back once with pack requests disabled so a
-    // stubborn model can never loop asking for pack after pack.
-    if (decision?.requestedPackIds?.length) {
-      log.info({ conversationId, packs: decision.requestedPackIds }, 'ai requested more packs');
-      await addActivePackIds(pool, conversationId, decision.requestedPackIds);
-      await setLastTopicId(pool, conversationId, decision.requestedPackIds[decision.requestedPackIds.length - 1]);
-      decision = await buildReply(pool, ai, settings, conversationId, {
-        packs: [...packs, ...decision.requestedPackIds],
-        faqBudgetTokens: config.faqBudgetTokens,
-        allowPackRequests: false,
-        log,
-      });
-    }
+    await applyServiceDecision(pool, conversationId, decision, log);
 
-    // The model named the service outright. That is better information than
-    // the keyword guess, so it decides both the filing AND the knowledge: the
-    // pack becomes the conversation's one sticky service pack, replacing a
-    // wrong guess rather than sitting next to it. If the pack was not in this
-    // turn's context the answer was written without it, so the reply is built
-    // again with it before anything is sent - otherwise the turn where the
-    // service is finally identified is still answered out of the wrong pack,
-    // which is how a ₹50,004 service got quoted at the plain logo price.
-    const namedTopic = decision?.leadService
-      ? await resolveTopicByServiceName(pool, decision.leadService)
-      : null;
-    if (decision?.leadService && !namedTopic) {
-      log.info({ conversationId, leadService: decision.leadService }, 'ai named a service that matches no topic, keeping the keyword match');
-    }
-    if (namedTopic) {
-      await setLastTopicId(pool, conversationId, namedTopic.id);
-      await setActiveServicePack(pool, conversationId, namedTopic.id);
-      if (!packs.includes(Number(namedTopic.id))) {
-        log.info(
-          { conversationId, service: namedTopic.name, topicId: namedTopic.id },
-          'ai identified a service whose pack was not loaded, rebuilding the reply with it',
-        );
-        decision = await buildReply(pool, ai, settings, conversationId, {
-          packs: [...packs, Number(namedTopic.id)],
-          faqBudgetTokens: config.faqBudgetTokens,
-          allowPackRequests: false,
-          log,
-        });
-      }
-    }
-
-    // The model wrote its previous message again word for word. This was the
-    // most visible failure in production - the same question asked twice in a
-    // row, or the lead asked to resend a file they had just sent. Show it
+    // The model wrote its previous message again - word for word, or reworded
+    // into the same turn twice, which is what the client kept seeing. Show it
     // what it just tried to say and give it one more go.
     //
     // Only plain answers go through this. A handoff, block, opt out or
@@ -473,33 +463,62 @@ async function respondToLead(deps, conversationId, items) {
     // attached to it is often a fixed line that legitimately repeats - those
     // must never be held back over how the message reads.
     const plainAnswer = !decision?.handoff && !decision?.block && !decision?.optOut && !decision?.markBot;
-    if (plainAnswer && decision?.reply && sameText(decision.reply, await getLastOutboundBody(pool, conversationId))) {
-      log.warn({ conversationId }, 'ai repeated its previous reply word for word, retrying once');
+    const previousReplies = await getRecentOutboundBodies(pool, conversationId, 3);
+    const repeat = plainAnswer && decision?.reply ? isRepeatOf(decision.reply, previousReplies) : null;
+    if (repeat) {
+      log.warn({ conversationId, similarity: Number(repeat.score.toFixed(2)) }, 'ai repeated a reply it has already sent, retrying once');
       const retry = await buildReply(pool, ai, settings, conversationId, {
-        packs: namedTopic && !packs.includes(Number(namedTopic.id)) ? [...packs, Number(namedTopic.id)] : packs,
+        packs,
         faqBudgetTokens: config.faqBudgetTokens,
-        allowPackRequests: false,
-        avoidRepeating: decision.reply,
+        avoidRepeating: repeat.previous,
         log,
       });
       // A retry that came back as a handoff (or any other state change) is
       // taken as-is: the model changing its mind about what this turn needs
       // outranks the repeat it was asked to fix.
-      if (retry?.reply && (!sameText(retry.reply, decision.reply) || retry.handoff || retry.block || retry.optOut || retry.markBot)) {
+      const stateChange = retry?.handoff || retry?.block || retry?.optOut || retry?.markBot;
+      if (retry?.reply && (stateChange || !isRepeatOf(retry.reply, previousReplies))) {
         decision = retry;
       } else {
         // The model was shown its own repeat, told to write something
-        // different, and produced the same thing again. Send nothing: an
-        // identical message arriving twice in a row is the single most
-        // visible way this looks broken to a customer, and silence here is
-        // recoverable - their next message gets a fresh turn, and the drip
-        // still goes out if they go quiet.
+        // different, and produced the same thing again. Send nothing: the
+        // same message arriving twice in a row is the single most visible way
+        // this looks broken to a customer, and silence here is recoverable -
+        // their next message gets a fresh turn, and the drip still goes out
+        // if they go quiet.
         //
         // Deliberately narrow. A repeat is only ever suppressed once the
         // model has refused an explicit correction, so a lead who genuinely
         // asks the same question twice in a row still gets their answer.
         log.warn({ conversationId }, 'ai repeated itself again after being corrected, sending nothing this turn');
         repeatedAfterRetry = true;
+      }
+    }
+
+    // Nothing here can see a payment, so nothing here may claim one arrived.
+    // The model is asked once to say it differently and, if it will not, the
+    // sentence is replaced outright - this is the one invariant where being
+    // wrong costs the client real money and real trust.
+    if (decision?.reply) {
+      const claims = findPaymentAssertions(decision.reply);
+      if (claims.length > 0) {
+        log.warn({ conversationId, claims }, 'ai claimed a payment was received, retrying once');
+        const retry = await buildReply(pool, ai, settings, conversationId, {
+          packs,
+          faqBudgetTokens: config.faqBudgetTokens,
+          avoidClaimingPayment: claims,
+          log,
+        });
+        if (retry?.reply && findPaymentAssertions(retry.reply).length === 0) {
+          decision = { ...retry, paymentClaimed: decision.paymentClaimed || retry.paymentClaimed };
+        } else {
+          const safe = redactPaymentAssertions(decision.reply, decision.replyLanguage);
+          log.warn(
+            { conversationId, redacted: safe.redacted },
+            'ai insisted on confirming a payment it cannot see, rewrote the reply',
+          );
+          decision = { ...decision, reply: safe.text };
+        }
       }
     }
 
@@ -524,18 +543,30 @@ async function respondToLead(deps, conversationId, items) {
     const aiMs = Date.now() - aiStart;
     recordAiError();
     log.warn({ conversationId, aiMs, err }, 'ai reply unavailable, using fallback');
+    // A message that might be an opt-out, arriving while the model is down,
+    // is the one case where neither guess is acceptable: honour it wrongly
+    // and a real lead is silently dropped; ignore it wrongly and we keep
+    // messaging someone who asked us to stop, which is a compliance problem.
+    // So it goes to a person, flagged, and no follow ups are scheduled.
+    const maybeOptOut = looksLikeOptOut(text);
     decision = {
       handoff: true,
-      reason: 'AI service unavailable',
+      reason: maybeOptOut
+        ? 'AI unavailable and this message may be a request to stop contacting them - please read it and opt them out if so'
+        : 'AI service unavailable',
       reply: settings.fallbackMessage,
     };
+    if (maybeOptOut) {
+      log.warn({ conversationId }, 'possible opt-out arrived while the ai was unavailable, handing to a person rather than guessing');
+      await cancelDrips(pool, conversationId);
+    }
   }
 
   // Nothing worth sending this turn (see the loop guard above). A follow up
   // is still scheduled so a lead who now goes quiet is not simply dropped.
   if (repeatedAfterRetry) {
     if (!(await isContactOptedOut(pool, conversationId))) {
-      await scheduleDrips(pool, conversationId, await resolveDripSteps(pool, conversationId, settings, packs));
+      await scheduleDrips(pool, conversationId, await resolveDripSteps(pool, conversationId, settings));
     }
     return;
   }
@@ -558,9 +589,11 @@ async function respondToLead(deps, conversationId, items) {
   if (aiSucceeded) {
     await markIntroduced(pool, conversationId);
   }
-  if (decision?.leadProfile) {
-    await setLeadProfile(pool, conversationId, decision.leadProfile);
-  }
+  // Validated before it is stored. A field that looks filled and says nothing
+  // is worse than an empty one: it reads as complete to the qualification gate
+  // and as useless to the person who picks the lead up. "For my business"
+  // became lead_business = "business", which satisfied the gate on nothing.
+  await storeLeadProfile(pool, conversationId, decision?.leadProfile, log);
 
   // The AI decided the other side is another automated system, not a real
   // customer. Silently mark the conversation as a peer bot and drop it. No
@@ -613,7 +646,7 @@ async function respondToLead(deps, conversationId, items) {
       }
       const holdingSent = await sendAndRecord(deps, to, conversationId, holding);
       if (holdingSent && !(await isContactOptedOut(pool, conversationId))) {
-        const dripSteps = await resolveDripSteps(pool, conversationId, settings, packs);
+        const dripSteps = await resolveDripSteps(pool, conversationId, settings);
         await scheduleDrips(pool, conversationId, dripSteps);
       }
       // The AI gave us nothing usable (parseFailed) and the lead is not
@@ -694,7 +727,7 @@ async function respondToLead(deps, conversationId, items) {
   }
 
   if (sent && !(await isContactOptedOut(pool, conversationId))) {
-    const dripSteps = await resolveDripSteps(pool, conversationId, settings, packs);
+    const dripSteps = await resolveDripSteps(pool, conversationId, settings);
     await scheduleDrips(pool, conversationId, dripSteps);
   }
 }
@@ -704,34 +737,125 @@ async function respondToLead(deps, conversationId, items) {
 //
 // The conversation's recorded service is checked first, before the packs in
 // play for this reply. It is the one the console shows for this lead and the
-// one a per-service follow up is configured against, and it is set both by
-// the strongest keyword match and by the ai naming the service outright. The
-// pack list is rebuilt from scratch on every message, so a turn like "ok
-// thanks" matches no keyword and would otherwise fall through to the general
-// sequence - which is empty whenever a client runs purely per-service follow
-// ups, meaning the lead silently got no follow up at all.
-async function resolveDripSteps(pool, conversationId, settings, packs) {
-  const candidates = [];
-  const recorded = await getLastTopicId(pool, conversationId);
-  if (recorded != null) candidates.push(recorded);
-  for (const p of packs) if (p !== 'base' && !candidates.includes(p)) candidates.push(p);
-
-  for (const topicId of candidates) {
-    const topic = await getTopic(pool, topicId);
+// one a per-service follow up is configured against. Every service's pack is
+// now loaded on every turn, so the pack list alone cannot say which service a
+// follow up belongs to - the recorded service is the only thing that can.
+async function resolveDripSteps(pool, conversationId, settings) {
+  // Only the recorded service, and nothing else. This used to fall back to
+  // scanning the packs in play, which was harmless while packs were selected
+  // per message but is actively wrong now that every service is loaded on
+  // every turn: it would have sent a lead with no recorded service whichever
+  // service's follow ups happened to sort first.
+  const recorded = (await getRecordedService(pool, conversationId)).topicId;
+  if (recorded != null) {
+    const topic = await getTopic(pool, recorded);
     if (topic?.drip_steps) return parseDripSteps(topic.drip_steps);
   }
   return settings.dripSteps;
 }
 
-// The packs going into this reply: base is always there, the lead's own
-// campaign pack if any, the service the conversation is recorded under,
-// anything the conversation has already pulled in, and anything whose name or
-// keywords match the current message. Duplicates are collapsed later by the
-// context builder, so ordering just controls which entries survive if the
-// budget is exceeded: campaign pack first, then the recorded service, then
-// sticky picks in the order they were added, then keyword matches on this
-// turn last.
-async function assemblePacks(pool, conversationId, campaignTopicId, text) {
+// The packs going into this reply. Every active service's answers go in, not
+// a selected subset: for this client all of them together come to well under
+// the token budget, and the entire category of bug where the bot answered
+// from the wrong service's pack came from trying to choose. There is nothing
+// to get wrong if it can see all of them.
+//
+// Order is what matters now, because order decides which entries survive if
+// the budget ever is exceeded: base, then the service this conversation is
+// actually about, then its campaign, then everything else. Entries marked
+// pinned are never dropped regardless.
+//
+// Keyword matching used to both load packs AND decide which service the lead
+// was filed under. It no longer does either. It could only see literal words,
+// so "need logo design for scientific" scored the plain Logo Design pack and
+// the Scientific one equally and the tie went to whichever came first in the
+// table - which is how a ₹50,004 lead was quoted ₹20,000. Deciding the
+// service is now the model's job, held to the rules in src/ai/reconcile.js.
+// Files the conversation under a service, or declines to. The model proposes;
+// resolveService decides, and the rules it applies are the ones the client
+// asked for: a guess never overwrites a certainty, and a service the customer
+// mentions in passing never replaces the one they are actually here for.
+// Validated before it is stored. A field that looks filled and says nothing
+// is worse than an empty one: it reads as complete to the qualification gate
+// and as useless to the person who picks the lead up. "For my business"
+// became lead_business = "business", which satisfied the gate on nothing.
+export async function storeLeadProfile(pool, conversationId, leadProfile, log) {
+  if (!leadProfile) return;
+  const services = (await listTopics(pool)).map((t) => t.name).filter(Boolean);
+  const checked = validateLeadProfile(flattenLeadProfile(leadProfile), { serviceNames: services });
+  if (checked.rejected.length > 0) {
+    log?.warn?.({ conversationId, rejected: checked.rejected }, 'discarded lead fields that do not say anything');
+  }
+  if (checked.profile) {
+    await setLeadProfile(pool, conversationId, unflattenLeadProfile(checked.profile));
+  }
+}
+
+// setLeadProfile takes { name, business, email, address, details: {...} }
+// while the validator works on one flat set of fields, since "says nothing"
+// is the same question whether the field lives on the contact row or inside
+// lead_details. These two convert between the shapes.
+function flattenLeadProfile(profile) {
+  return {
+    ...(profile.name ? { name: profile.name } : {}),
+    ...(profile.business ? { business: profile.business } : {}),
+    ...(profile.email ? { email: profile.email } : {}),
+    ...(profile.address ? { address: profile.address } : {}),
+    ...(profile.details ?? {}),
+  };
+}
+
+function unflattenLeadProfile(flat) {
+  const { name, business, email, address, ...details } = flat;
+  return {
+    name: name ?? null,
+    business: business ?? null,
+    email: email ?? null,
+    address: address ?? null,
+    details,
+  };
+}
+
+// Files the conversation under a service, or declines to. The model proposes;
+// resolveService decides, and the rules it applies are the ones the client
+// asked for: a guess never overwrites a certainty, and a service the customer
+// mentions in passing never replaces the one they are actually here for.
+export async function applyServiceDecision(pool, conversationId, decision, log) {
+  if (!decision?.leadService) return;
+
+  const topic = await resolveTopicByServiceName(pool, decision.leadService);
+  if (!topic) {
+    log.info(
+      { conversationId, leadService: decision.leadService },
+      'ai named a service that matches no topic, leaving the recorded service alone',
+    );
+    return;
+  }
+
+  const recorded = await getRecordedService(pool, conversationId);
+  const outcome = resolveService({
+    current: recorded.topicId == null ? null : String(recorded.topicId),
+    currentBasis: recorded.basis ?? 'unset',
+    proposed: String(topic.id),
+    proposedBasis: decision.serviceBasis ?? 'inferred',
+    isChange: decision.serviceChange === true,
+  });
+
+  if (outcome.changed || outcome.basis !== recorded.basis) {
+    await setRecordedService(pool, conversationId, Number(outcome.service), outcome.basis);
+    log.info(
+      { conversationId, service: outcome.service, basis: outcome.basis, why: outcome.why },
+      'recorded service updated',
+    );
+  } else if (outcome.why === 'passing mention, not a switch') {
+    log.info(
+      { conversationId, mentioned: topic.name, recorded: recorded.topicId },
+      'ai mentioned another service but did not call it a switch, service left as it was',
+    );
+  }
+}
+
+export async function assemblePacks(pool, conversationId, campaignTopicId) {
   const packs = ['base'];
   const seen = new Set();
   const add = (id) => {
@@ -742,41 +866,11 @@ async function assemblePacks(pool, conversationId, campaignTopicId, text) {
     }
   };
 
+  const recorded = await getRecordedService(pool, conversationId);
+  add(recorded.topicId);
   if (campaignTopicId) add(campaignTopicId);
-
-  // The service the lead is filed under, which is not necessarily in the
-  // sticky set: the AI can name a service the keywords never matched, and
-  // that used to update the filing without pulling in the knowledge. A
-  // Scientific Logo Design lead was left carrying the plain Logo Design pack
-  // for a whole conversation and was quoted its price.
-  const recordedTopicId = await getLastTopicId(pool, conversationId);
-  add(recordedTopicId);
-
-  const sticky = await getActivePackIds(pool, conversationId);
-  for (const id of sticky) add(id);
-
-  const excluded = [...seen];
-  const keyword = await keywordPacks(pool, text, excluded);
-  for (const id of keyword) add(id);
-  if (keyword.length > 0) {
-    await addActivePackIds(pool, conversationId, keyword);
-    // keywordPacks returns the best match first (most terms matched), so the
-    // service recorded for the conversation is keyword[0]. This used to take
-    // the last element, which is the WEAKEST match - so a message like "I
-    // want a scientific logo", which matches the scientific pack on
-    // "scientific logo" and the plain logo pack on "logo", filed the lead
-    // under the wrong service.
-    //
-    // Only ever sets the service, never changes one that is already there. A
-    // keyword hit on a later turn is the weakest evidence we have, and once a
-    // Scientific Logo Design lead has been identified, their saying "logo"
-    // again must not quietly move them onto the plain Logo Design service and
-    // its very different price. Moving an established lead to another service
-    // is the AI's call (lead_service), which is set from a reading of the
-    // whole conversation rather than one word in one message.
-    if (recordedTopicId == null) {
-      await setLastTopicId(pool, conversationId, keyword[0]);
-    }
+  for (const topic of await listTopics(pool)) {
+    if (topic.active && Number(topic.faq_count) > 0) add(topic.id);
   }
 
   return packs;
@@ -884,15 +978,6 @@ export async function maybeSendReaction(deps, conversationId, to, wamid, emoji) 
   } catch (err) {
     log.warn({ conversationId, wamid, err }, 'failed to send ai reaction');
   }
-}
-
-// Normalised for comparison only - a model that repeats itself tends to do it
-// exactly, but trailing whitespace or a stray double space should not be what
-// lets a duplicate through.
-function sameText(a, b) {
-  const norm = (s) => (s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const left = norm(a);
-  return left.length > 0 && left === norm(b);
 }
 
 async function sendAndRecord(deps, to, conversationId, body, { aiMs = null } = {}) {
