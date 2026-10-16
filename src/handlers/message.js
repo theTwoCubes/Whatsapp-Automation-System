@@ -9,6 +9,7 @@ import {
   getRecordedService,
   setRecordedService,
   getRecentOutboundBodies,
+  getConversationContext,
   setReplyLanguage,
   setLockedLanguage,
   setLeadProfile,
@@ -342,8 +343,6 @@ async function handleMessage(value, message, deps) {
   // on an API call, and when that call was slow the bot answered without it
   // and asked the lead to send a file they had already sent.
   //
-  // Caption text, if the lead attached any, is their actual words and is used
-  // as the message text with the file noted alongside it.
   // The prompt learns about the file from the conversation history, which now
   // includes file messages whether or not they carry a caption (see
   // historyBody in ai/reply.js). What is needed here is only a non-empty
@@ -512,7 +511,14 @@ async function respondToLead(deps, conversationId, items) {
         if (retry?.reply && findPaymentAssertions(retry.reply).length === 0) {
           decision = { ...retry, paymentClaimed: decision.paymentClaimed || retry.paymentClaimed };
         } else {
-          const safe = redactPaymentAssertions(decision.reply, decision.replyLanguage);
+          // The language for the stand-in sentence: what this turn is written
+          // in if the model said, otherwise what the conversation has been in.
+          // Falling straight through to English would have handed a Hinglish
+          // lead an English line on the one turn that matters most to them.
+          const language = decision.replyLanguage
+            ?? (await getConversationContext(pool, conversationId))?.reply_language
+            ?? null;
+          const safe = redactPaymentAssertions(decision.reply, language);
           log.warn(
             { conversationId, redacted: safe.redacted },
             'ai insisted on confirming a payment it cannot see, rewrote the reply',

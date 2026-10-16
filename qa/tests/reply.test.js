@@ -342,7 +342,8 @@ test('reply_language is in the contract and the model gets told it has not settl
   assert.match(system, /reply_language/);
   assert.match(system, /Language \(the client/);
   const leadSystem = ai.lastMessages[1].content;
-  assert.match(leadSystem, /not settled on a language/i);
+  assert.match(leadSystem, /LANGUAGE: nothing settled for this chat yet/);
+  assert.match(leadSystem, /whatever language the customer just wrote to you in/);
 });
 
 test('the model is shown the language it has been using so far, once one is set', async () => {
@@ -485,4 +486,52 @@ test('being shown its own repeat is passed to the model as a correction', async 
   assert.equal(correction.role, 'system');
   assert.match(correction.content, /word for word what you already sent/);
   assert.match(correction.content, /Could you share your logo\?/);
+});
+
+// A lead opened in English, then switched to Hinglish ("Mera kaam steel
+// manufacturing ka hai") and got an English reply back. The model had
+// detected correctly - it returned reply_language "Hinglish" - so the problem
+// was the prompt, in two places.
+test('the running language is given as history, not as an instruction', async () => {
+  const id = await conversation('Mera kaam steel manufacturing ka hai');
+  await pool.query("update conversations set reply_language = 'English' where id = $1", [id]);
+
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Samajh gaya.', reply_language: 'Hinglish' }));
+  await buildReply(pool, ai, testConfig, id, {});
+
+  const leadBlock = ai.lastMessages[1].content;
+  assert.match(leadBlock, /write this reply in whatever language the customer's most recent message is in/);
+  assert.match(leadBlock, /that is history, not an instruction/);
+  assert.match(leadBlock, /switch with them on THIS reply/, 'the mid-chat switch is called out explicitly');
+});
+
+test('no contract example hands the model a specific language to copy', async () => {
+  const id = await conversation();
+  const ai = new SpyAi();
+  await buildReply(pool, ai, testConfig, id, {});
+
+  const system = ai.lastMessages[0].content;
+  // Six examples all showed "reply_language": "English". A model copies what
+  // the examples show - that is how a prompt example once went out verbatim
+  // as a reply - so none of them name a language any more.
+  assert.doesNotMatch(system, /"reply_language": "English"/);
+  assert.match(system, /"reply_language": "<the language you are writing this reply in>"/);
+});
+
+test('both retry prompts tell the model to keep the language it was using', async () => {
+  const id = await conversation('kitna hai');
+
+  const repeat = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Kuch aur?' }));
+  await buildReply(pool, repeat, testConfig, id, { avoidRepeating: 'Aap apna logo bhej sakte hain.' });
+  assert.match(
+    repeat.lastMessages[repeat.lastMessages.length - 1].content,
+    /same language as the customer's most recent message/,
+  );
+
+  const payment = new SpyAi(JSON.stringify({ action: 'answer', reply: 'Noted.' }));
+  await buildReply(pool, payment, testConfig, id, { avoidClaimingPayment: ['Payment received!'] });
+  assert.match(
+    payment.lastMessages[payment.lastMessages.length - 1].content,
+    /same language as the customer's most recent message/,
+  );
 });
