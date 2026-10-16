@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { AI_TEMPERATURE, AI_MAX_OUTPUT_TOKENS } from '../tuning.js';
 
 // OpenAI chat completions. complete() takes the shared message shape [{ role, content }] and returns the raw text, throwing on any error so the AiClient can fail over to another provider.
 export class OpenAIProvider {
@@ -13,8 +14,8 @@ export class OpenAIProvider {
     const body = {
       model: options.model ?? this.model,
       messages,
-      temperature: 0.6,
-      max_tokens: 4096,
+      temperature: AI_TEMPERATURE,
+      max_tokens: AI_MAX_OUTPUT_TOKENS,
     };
     if (options.json) body.response_format = { type: 'json_object' };
 

@@ -1,3 +1,5 @@
+import { AI_TEMPERATURE, AI_MAX_OUTPUT_TOKENS, GEMINI_THINKING_BUDGET } from '../tuning.js';
+
 // Google Gemini via the REST API, so no extra SDK dependency. Takes the same message shape as the OpenAI provider and returns raw text, throwing on error.
 export class GeminiProvider {
   constructor(apiKey, model) {
@@ -19,17 +21,24 @@ export class GeminiProvider {
         .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content ?? '' }] })),
     );
 
+    const model = options.model ?? this.model;
+
     const body = {
       contents,
       generationConfig: {
-        temperature: 0.6,
-        maxOutputTokens: 4096,
+        temperature: AI_TEMPERATURE,
+        maxOutputTokens: AI_MAX_OUTPUT_TOKENS,
+        // See tuning.js: reasoning tokens are billed against maxOutputTokens,
+        // and this task gains nothing from deliberation that a lead would pay
+        // for in waiting. Only sent to models that have the setting - the
+        // model name is free text in the console, and an unknown field in
+        // generationConfig is rejected outright rather than ignored, which
+        // would take the provider down for anyone on an older model.
+        ...(supportsThinking(model) ? { thinkingConfig: { thinkingBudget: GEMINI_THINKING_BUDGET } } : {}),
         ...(options.json ? { responseMimeType: 'application/json' } : {}),
       },
     };
     if (system) body.systemInstruction = { parts: [{ text: system }] };
-
-    const model = options.model ?? this.model;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
     const res = await fetch(url, {
@@ -48,6 +57,13 @@ export class GeminiProvider {
     }
     return (candidate?.content?.parts ?? []).map((p) => p.text ?? '').join('').trim();
   }
+}
+
+// Thinking arrived with the 2.5 generation. Matches 2.5 and anything numbered
+// above it, so a future model keeps the setting without this needing an edit,
+// while 1.5 and 2.0 are left alone.
+export function supportsThinking(model) {
+  return /gemini-(?:2\.5|[3-9](?:\.|-|$))/i.test(String(model || ''));
 }
 
 // Gemini needs the turns to alternate, so merge any consecutive same role turns.
