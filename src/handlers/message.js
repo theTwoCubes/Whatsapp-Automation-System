@@ -775,7 +775,8 @@ async function resolveDripSteps(pool, conversationId, settings) {
 // was filed under. It no longer does either. It could only see literal words,
 // so "need logo design for scientific" scored the plain Logo Design pack and
 // the Scientific one equally and the tie went to whichever came first in the
-// table - which is how a ₹50,004 lead was quoted ₹20,000. Deciding the
+// table - which is how a lead was quoted another service's price for a
+// whole conversation. Deciding the
 // service is now the model's job, held to the rules in src/ai/reconcile.js.
 // Files the conversation under a service, or declines to. The model proposes;
 // resolveService decides, and the rules it applies are the ones the client

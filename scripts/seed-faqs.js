@@ -22,7 +22,20 @@ import pg from 'pg';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKS_DIR = path.join(__dirname, '..', 'faq', 'packs');
 
-// slug -> topic metadata. Keys must match the .md filenames without extension.
+// slug -> service metadata. Keys must match the .md filenames without the
+// extension; a file with no entry here is skipped, and an entry with no file
+// is reported and ignored. Replace these with your own services.
+//
+// "description" is shown to the AI so it can tell similarly named services
+// apart - write it to answer "how is this different from the one next to it",
+// because that is the question it is actually used for.
+//
+// "keywords" are a convenience for the console's own filtering. They do not
+// decide which service a conversation is filed under: that is the AI's call,
+// held to the rules in src/ai/reconcile.js. Word matching used to decide it
+// and was the single worst source of mis-filed leads, because two services
+// with overlapping names scored equally and the tie broke arbitrarily.
+//
 // Drip follow ups are not managed here - configure the general sequence and
 // any per-service overrides from the Follow-ups page in the console once
 // templates are approved and synced from Meta.
@@ -30,42 +43,8 @@ const PACKS = {
   base: { name: null, description: null, keywords: null },
   'logo-design': {
     name: 'Logo Design',
-    description: 'Standard logo and brand identity package.',
+    description: 'Logo and brand identity package, fixed fee.',
     keywords: 'logo, branding, identity, brand mark, wordmark',
-  },
-  'brochure-catalogue-design': {
-    name: 'Brochure & Catalogue Design',
-    description: 'Brochure and catalogue design, per page pricing, print handling.',
-    keywords: 'brochure, catalogue, catalog, booklet, bifold, trifold, product catalogue, price list',
-  },
-  'scientific-logo-design': {
-    name: 'Scientific Logo Design',
-    description: 'Consultative logo design with Maulik Dave using birth chart and Vedic Yantra framework.',
-    // "scientific" earns its place as a bare single word: a lead writing
-    // "logo design for scientific" matched the plain Logo Design pack on the
-    // phrase "logo design" and this pack on nothing at all, and was quoted
-    // the wrong service's price for a whole conversation.
-    keywords: 'scientific, scientific logo, scientific logo design, vignanik, vedic, yantra, maulik, maulikbhai, birth chart, astrology logo, muhurat',
-  },
-  'packaging-design': {
-    name: 'Packaging Design',
-    description: 'Product packaging design.',
-    keywords: 'packaging, package design, box design, label, pouch, carton',
-  },
-  'website-design': {
-    name: 'Website Design & Development',
-    description: 'Website design and development.',
-    keywords: 'website, web design, web development, landing page, site',
-  },
-  'digital-marketing': {
-    name: 'Digital Marketing',
-    description: 'PPC, email marketing, and Google My Business.',
-    keywords: 'digital marketing, ppc, ads, google ads, email marketing, google my business, gmb, seo',
-  },
-  'video-creation': {
-    name: 'Short Video Creation',
-    description: 'Short-form video for social media.',
-    keywords: 'video, reels, short video, social media video, promo video',
   },
 };
 

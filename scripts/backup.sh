@@ -28,4 +28,4 @@ ls -1t "$dir"/*.sql.gz | tail -n +15 | xargs -r rm -f
 echo "backup written to $out ($(du -sh "$out" | cut -f1))"
 
 # Optional: sync to off-box storage. Uncomment and configure rclone or similar.
-# rclone copy "$out" r2:advoice-backups/db/ --quiet && echo "synced to remote"
+# rclone copy "$out" r2:your-bucket/db/ --quiet && echo "synced to remote"

@@ -1,5 +1,5 @@
 -- Pin, archive, and mute for conversations. All three are global (not
--- per-agent) since AdVoice runs a shared inbox. If per-agent state is ever
+-- per-agent) since this runs as a shared inbox. If per-agent state is ever
 -- needed, a companion table keyed on (agent_email, conversation_id) can
 -- override these without touching this schema.
 alter table conversations add column if not exists pinned_at timestamptz;

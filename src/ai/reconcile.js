@@ -37,7 +37,7 @@ const PAYMENT_ASSERTIONS = [
 
 // A sentence that only talks about what happens *after* or *once* a payment
 // lands is describing a condition, not confirming one. "Once your payment is
-// received, Maulikbhai will call you" has to stay sayable.
+// received, the team will call you" has to stay sayable.
 const CONDITIONAL_MARKERS = /\b(?:once|after|when|whenever|if|as\s+soon\s+as|jab|jaise\s*hi|agar|ke\s*baad)\b/i;
 
 function splitSentences(text) {

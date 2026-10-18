@@ -500,7 +500,7 @@ function instructions(config, faqText, media, paymentLinks, hostedLinks, recentS
       '- You have NO WAY of knowing whether any payment arrived. Nothing in this system can see payments. All you have is the customer saying so.',
       '- So you must never tell them their payment was received, confirmed, successful, or gone through. Not "payment received", not "thank you, that\'s received", not "payment mil gaya". Every one of those states as fact something you cannot know, and if it is wrong the business has just told someone their money is settled when it is not.',
       '- What to do instead: thank them for letting you know, say you have noted it and passed it to the team, and tell them what happens next from the approved answers for this service. Set "payment_claimed": true so the team is actually notified and can check.',
-      '- Talking about what happens AFTER a payment lands is fine - "once your payment is through, Maulikbhai will call you within 24 hours" states a process, not a fact about their money.',
+      '- Talking about what happens AFTER a payment lands is fine - "once your payment is through, the team will call you to arrange a time" states a process, not a fact about their money.',
     );
     return lines.join('\n');
   })();
