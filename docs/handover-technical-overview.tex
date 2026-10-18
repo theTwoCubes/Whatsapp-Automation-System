@@ -1,0 +1,209 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=16mm]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tabularx}
+\usepackage{microtype}
+
+% No headers, no footers, no page numbers.
+\pagestyle{empty}
+
+% Compact, uncoloured headings.
+\titleformat{\section}{\normalfont\large\bfseries}{}{0pt}{}
+\titlespacing{\section}{0pt}{7pt plus 1pt minus 1pt}{2pt}
+
+\setlist[itemize]{leftmargin=11pt,topsep=1pt,itemsep=0.5pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=15pt,topsep=1pt,itemsep=0.5pt,parsep=0pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2.5pt}
+\renewcommand{\arraystretch}{1.1}
+
+\begin{document}
+
+{\LARGE\bfseries WhatsApp Lead Automation --- Technical Overview}
+
+\vspace{3pt}
+{\small Handover documentation: the technology used, how the system works, and
+what is implemented and running.}
+
+\vspace{4pt}
+\hrule
+
+\section{What it does}
+
+An automated WhatsApp assistant that answers inbound enquiries, qualifies
+leads, and hands them to a human when they are worth a person's time. It
+replies only from answers approved by the business, keeps each conversation on
+the correct service and its prices, sends payment and portfolio links, follows
+up when a lead goes quiet, and escalates with a written summary for the team. A
+web console provides a shared inbox, the knowledge base, and the operational
+controls.
+
+\section{Technology}
+
+{\small
+\begin{tabularx}{\textwidth}{@{}p{30mm}X@{}}
+\textbf{Backend} & Node.js (ES modules) with Fastify. JWT auth, WebSockets for
+live updates, multipart uploads. \\
+\textbf{Database} & PostgreSQL via \texttt{pg}. 27 tables; 57 ordered
+migrations applied automatically at startup. \\
+\textbf{Console} & React with Vite, Tailwind CSS, Recharts, Lucide icons. \\
+\textbf{Messaging} & WhatsApp Cloud API (Meta Graph v21.0): signed webhooks in;
+messages, templates and media out. \\
+\textbf{AI} & OpenAI and Google Gemini --- either as primary with the other as
+automatic failover. Provider and model switchable from the console. \\
+\textbf{Notifications} & Web Push (VAPID) for browsers; Firebase Cloud
+Messaging for the Android app. \\
+\textbf{Mobile} & Capacitor wrapper producing an Android APK of the console,
+with native push, file access and sharing. \\
+\textbf{Deployment} & Docker Compose on a single VPS: application, PostgreSQL,
+and Caddy as reverse proxy with automatic TLS. \\
+\textbf{Monitoring} & Structured JSON logging (Pino), optional Sentry, health
+and operational metrics endpoints. \\
+\end{tabularx}
+}
+
+\vspace{2pt}
+About 9{,}000 lines of backend code across 36 modules, 8{,}600 lines of console
+code across 27, and 326 automated tests in 25 suites covering the message
+pipeline, the AI decision contract, the knowledge base and the operational
+surface.
+
+\section{How a message is handled}
+
+\begin{enumerate}
+\item Webhook arrives, signature verified, request acknowledged immediately;
+processing continues in the background so Meta is never kept waiting.
+\item Message recorded, duplicate deliveries ignored, and an explicit opt-out
+command honoured here before anything else runs.
+\item Messages arriving close together are grouped into one, and anything
+arriving while a reply is being written joins the next group --- so a lead
+sending three messages gets one answer, not three.
+\item The approved answers for every service, the conversation history, what is
+known about the lead, and the available files and links are assembled into a
+single AI request.
+\item The AI returns one structured decision: the reply, the action (answer,
+escalate, warn, block, opt out), anything learned about the lead, the service
+the conversation is about, and any link or file to send.
+\item That decision is checked in code before anything is sent (below), then
+the reply goes out, any link follows, and a follow-up is scheduled in case the
+lead goes quiet.
+\end{enumerate}
+
+\section{Rules enforced in code, not left to the AI}
+
+The rules the business depends on are enforced outside the AI, so they hold
+regardless of what the model produces. Each is logged whenever it acts.
+
+\begin{itemize}
+\item No message may state a payment was received. The system cannot see
+payments --- only the customer's word --- so the team is notified of the claim
+while the customer is told only that it has been noted.
+\item Only links from the approved list are sent; a web address written by the
+AI itself is removed.
+\item The service a conversation belongs to is stored with the reason it was
+recorded. A passing mention of another service does not move it; only the
+customer clearly asking to switch does. This keeps each lead on the right prices.
+\item Repeated replies are withheld, including the same message reworded.
+\item Lead details are validated before storage, so a non-answer is not
+recorded as a completed field.
+\item Escalation to a person requires the lead's business and requirement.
+\item A hard ceiling on replies per conversation per time window, as a backstop
+against any unforeseen fault.
+\end{itemize}
+
+\section{What is implemented}
+
+\begin{itemize}
+\item \textbf{Conversations.} Replies drawn only from approved answers.
+Multilingual including Hinglish, matching whatever language the customer
+writes in, with an optional lock when they ask for a specific one. Emoji
+reactions where a short acknowledgement is more natural. Handles text, images,
+documents, voice notes, locations, contact cards and quick-reply buttons.
+Detects automated senders so it will not converse with another bot.
+Prompt-injection and abuse handling with warn and block actions.
+\item \textbf{Qualification and handover.} Collects the lead's business and
+requirement during the conversation, asking for contact details only once they
+have decided to go ahead. Escalates with a summary for the team. Assignment,
+round-robin suggestion, agent notes and tags. Returns to the bot automatically
+if a conversation is left unattended, with a catch-up reply for anything
+missed. Holds fixed pricing without negotiating.
+\item \textbf{Knowledge base.} Approved question-and-answer sets per service,
+editable in the console or loadable from files, with version history. Answers
+can be marked to be quoted word for word, or to always be included. A simulator
+dry-runs any customer message and shows exactly what the AI would be given and
+what it would reply, before a change goes live. A weekly pass proposes answers
+the team has given that are not yet written down; nothing goes live without
+approval.
+\item \textbf{Sales assets.} Media library of files the assistant can send,
+with a cooldown against repeat sends. Payment links per service, each with an
+optional note that always accompanies the link. Curated external links for
+portfolios and videos. Notification when a customer says they have paid.
+\item \textbf{Follow-ups and outreach.} Scheduled sequences using approved
+WhatsApp templates, configurable per service or globally, cancelled
+automatically when the lead replies or a human takes over. Bulk outreach from
+an uploaded spreadsheet, sent in controlled batches with per-recipient status.
+\item \textbf{Console.} Shared inbox with live updates; lead dashboard with
+full detail, filters and export; knowledge base management; follow-up and
+template configuration; business, AI and branding settings; team and role
+management; an operations page showing message volume, response times, AI and
+delivery health, and conversations needing attention; web and mobile push.
+White-labelled and rebrandable from its own settings.
+\item \textbf{Operations.} Automatic migrations at startup; nightly backups
+with a tested restore procedure; purge scripts for conversations and audit
+history; an audit log of sensitive actions; rate limiting and security headers;
+failed webhooks retained for inspection rather than discarded; dependency
+vulnerability scanning in continuous integration.
+\end{itemize}
+
+\section{Repository layout}
+
+\texttt{src/handlers} inbound message pipeline and grouping \textbullet{}
+\texttt{src/ai} prompt construction, decision parsing, the code-enforced rules,
+provider clients and shared model settings \textbullet{} \texttt{src/knowledge}
+approved answers, services, simulator, weekly review \textbullet{}
+\texttt{src/db} migrations and all database access \textbullet{}
+\texttt{src/meta} WhatsApp Cloud API client \textbullet{} \texttt{src/routes}
+console and webhook endpoints \textbullet{} \texttt{src/leads} spreadsheet
+import \textbullet{} \texttt{web/} React console \textbullet{} \texttt{qa/}
+test suites and runner \textbullet{} \texttt{faq/packs} approved answers as
+editable text files \textbullet{} \texttt{scripts/} backup, restore, purge,
+seeding, Android build \textbullet{} \texttt{docs/} operational notes.
+
+\section{Configuration and running it}
+
+All credentials and tuning live in one environment file, with a documented
+example listing every setting. \texttt{README.md} covers local setup, the
+deployment procedure and day-to-day operation. Most business-facing settings
+--- approved answers, follow-ups, payment links, AI provider and model, canned
+messages, branding --- are editable from the console without touching code or
+redeploying.
+
+Run the tests with \texttt{npm test}. To deploy, pull the repository on the
+server and rebuild the application container; migrations apply themselves on
+startup. Take a backup first using the included script.
+
+\section{Known limitations}
+
+\begin{itemize}
+\item Payments are not verified. The assistant records that a customer says
+they have paid and notifies the team; confirming it is manual. A
+payment-provider webhook would close this.
+\item Files a customer sends are recorded and acknowledged but not read. A
+deliberate choice: the fact a file arrived is certain and immediate, whereas
+interpreting its contents was neither, and reviewing a design is a paid human
+step for this business.
+\item Four of the eight services have no approved answers written yet. Those
+enquiries are acknowledged and passed to the team rather than answered.
+\item No portfolio files have been uploaded to the media library, so the
+assistant currently sends only text and configured links.
+\item There is no automated way to replay past conversations against a change
+before it goes live. Changes to the AI's instructions are verified by the
+simulator and the test suite, which is effective but not exhaustive.
+\end{itemize}
+
+\end{document}
