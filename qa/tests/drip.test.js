@@ -59,7 +59,7 @@ test('handing off to a human cancels the drips', async () => {
   assert.equal(await pending(), 3);
 
   // Server-side gate requires qualified lead before a handoff clears.
-  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Premium logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G2', body: 'can I talk to a human' }), d);
   assert.equal(await pending(), 0, 'no follow ups once a human is involved');
@@ -190,7 +190,7 @@ test('due follow ups are skipped once a human owns the conversation', async () =
   // First message gets an answer, then pre-qualify + hand off so the gate
   // lets the escalation through.
   await processWebhook(inboundText({ id: 'wamid.G0', body: 'hi' }), d);
-  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Premium logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ id: 'wamid.G1', body: 'talk to a human' }), d);
   const conv = await firstConversation();
@@ -216,18 +216,18 @@ test('due follow ups are skipped once a human owns the conversation', async () =
 // follow up configured while nothing was ever scheduled for them.
 test('a service the ai named becomes the conversation\'s pack, and is followed up', async () => {
   const topic = await upsertTopic(pool, {
-    slug: 'scientific-logo-design',
-    name: 'Scientific Logo Design',
-    keywords: 'scientific logo',
+    slug: 'premium-logo-design',
+    name: 'Premium Logo Design',
+    keywords: 'premium logo',
     dripSteps: 'any_update:1',
   });
-  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Yantra.' });
+  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Heritage.' });
 
   // No keyword in the text - the service comes purely from the ai's own read.
   const ai = new FakeAi(JSON.stringify({
     action: 'answer',
     reply: 'Happy to help with that.',
-    lead_service: 'Scientific Logo Design',
+    lead_service: 'Premium Logo Design',
     service_basis: 'stated',
   }));
   const emptyGeneral = { ...testConfig, dripSteps: [] };
@@ -252,11 +252,11 @@ test('a service the ai named becomes the conversation\'s pack, and is followed u
 
 test('with no service follow ups configured the general sequence still applies', async () => {
   const topic = await upsertTopic(pool, {
-    slug: 'scientific-logo-design',
-    name: 'Scientific Logo Design',
-    keywords: 'scientific logo',
+    slug: 'premium-logo-design',
+    name: 'Premium Logo Design',
+    keywords: 'premium logo',
   });
-  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Yantra.' });
-  await processWebhook(inboundText({ id: 'wamid.SVC3', body: 'i want a scientific logo' }), deps());
+  await createFaq(pool, { topicId: topic.id, question: 'What is it?', answer: 'A logo as a visual Heritage.' });
+  await processWebhook(inboundText({ id: 'wamid.SVC3', body: 'i want a premium logo' }), deps());
   assert.equal(await pending(), 3, 'falls back to the three general steps');
 });

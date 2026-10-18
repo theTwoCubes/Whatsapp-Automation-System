@@ -8,12 +8,12 @@ import { registerApi } from '../../src/routes/api.js';
 import { createAgent, getConversationById } from '../../src/db/repo.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
-import { inboundText, inboundImage } from './support/fixtures.js';
+import { inboundText, inboundImage, DEFAULT_WA_ID } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
 const apiConfig = { ...testConfig, jwtSecret: 'test-secret' };
-const noopRealtime = { emit() {}, add() {}, size: () => 0 };
+const noopRealtime = { emit() { }, add() { }, size: () => 0 };
 
 before(async () => {
   pool = await setupPool();
@@ -54,13 +54,13 @@ async function tokenFor(app) {
 }
 
 async function pendingConversation(from) {
-  const waId = from || '918766226219';
+  const waId = from || DEFAULT_WA_ID;
   // First inbound lands the contact; then we pre-qualify (server-side gate
   // requires it) and fire the handoff-triggering message.
   const ai = new FakeAi(JSON.stringify({ action: 'answer', reply: 'hi' }));
   const shared = { meta: new FakeMeta(), ai, pool, config: testConfig, log: silentLog };
   await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'hi' }), shared);
-  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic') where wa_id = $1", [waId]);
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Premium logo for Ayurveda clinic') where wa_id = $1", [waId]);
   ai.reply = JSON.stringify({ action: 'handoff', reply: 'Connecting you.', reason: 'customer asked for a person' });
   await processWebhook(inboundText({ from, id: `wamid.${Math.random()}`, body: 'can I talk to a human' }), shared);
   return (
@@ -89,7 +89,7 @@ test('the ai can still hand off after an attachment, once it judges the lead is 
   // Land the contact and pre-qualify so the server-side handoff gate lets
   // the escalation clear.
   await processWebhook(inboundText({ id: 'wamid.att2a', body: 'hi' }), shared);
-  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Scientific logo for Ayurveda clinic')");
+  await pool.query("update contacts set business = 'ACME Studio', email = 'lead@acme.co', address = 'Mumbai', lead_details = jsonb_build_object('requirement', 'Premium logo for Ayurveda clinic')");
   ai.reply = JSON.stringify({
     action: 'handoff', reply: 'Connecting you now.', reason: 'qualified: paid the analysis fee for a logo review',
   });
@@ -163,7 +163,7 @@ test('POST /handback catches up on an unanswered inbound end-to-end', async () =
   const convId = (await pool.query('select id from conversations limit 1')).rows[0].id;
 
   // Human takes over, lead follows up, human never replies.
-  await app.inject({ method: 'POST', url: `/api/conversations/${convId}/accept`, headers: h }).catch(() => {});
+  await app.inject({ method: 'POST', url: `/api/conversations/${convId}/accept`, headers: h }).catch(() => { });
   await pool.query("update conversations set state='human', assignee='a@b.com' where id=$1", [convId]);
   await processWebhook(inboundText({ id: 'wamid.RH2', body: 'what about pricing?' }), deps);
   const sendsBeforeHandback = deps.meta.sends.length;

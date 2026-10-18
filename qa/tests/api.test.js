@@ -9,7 +9,7 @@ import { createAgent, getConversationById, addActivePackIds, setLastTopicId, add
 import { upsertTopic } from '../../src/knowledge/topics.js';
 import { hashPassword } from '../../src/auth.js';
 import { processWebhook } from '../../src/handlers/message.js';
-import { inboundText } from './support/fixtures.js';
+import { inboundText, DEFAULT_WA_ID } from './support/fixtures.js';
 import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from './support/harness.js';
 
 let pool;
@@ -126,10 +126,10 @@ test('an organic conversation surfaces the service the ai pulled in, for the con
 test('the service filter follows the most recently discussed service, not the first one ever mentioned', async () => {
   const id = await makeConversation();
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  const sciLogo = await upsertTopic(pool, { slug: 'scientific_logo_design', name: 'Scientific Logo Design' });
+  const sciLogo = await upsertTopic(pool, { slug: 'premium_logo_design', name: 'Premium Logo Design' });
 
   // The chat started general, touched Logo Design first, then moved on to
-  // Scientific Logo Design - active_pack_ids now holds both, but the filter
+  // Premium Logo Design - active_pack_ids now holds both, but the filter
   // should reflect the one the lead is actually talking about right now.
   await addActivePackIds(pool, id, [logo.id]);
   await setLastTopicId(pool, id, logo.id);
@@ -140,7 +140,7 @@ test('the service filter follows the most recently discussed service, not the fi
   const token = await tokenFor(app);
   const res = await app.inject({ method: 'GET', url: '/api/conversations', headers: { authorization: `Bearer ${token}` } });
   const conv = res.json().conversations.find((c) => c.id === id);
-  assert.equal(conv.topic_name, 'Scientific Logo Design', 'the most recent service wins, not the first one discussed');
+  assert.equal(conv.topic_name, 'Premium Logo Design', 'the most recent service wins, not the first one discussed');
   await app.close();
 });
 

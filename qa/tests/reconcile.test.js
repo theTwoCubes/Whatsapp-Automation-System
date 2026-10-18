@@ -14,8 +14,8 @@ import {
 // conversations actually run in.
 test('a reply claiming a payment arrived is caught, in English and Hinglish', () => {
   const claims = [
-    'Thank you, payment received! Maulik will call you within 24 hours.',
-    "Thank you, that's received. Maulikbhai will call you on your phone within 24 hours.",
+    'Thank you, payment received! the designer will call you within 24 hours.',
+    "Thank you, that's received. the team will call you on your phone within 24 hours.",
     'Your payment has been confirmed.',
     'We have received your payment, thanks.',
     'Thank you for your payment!',
@@ -30,11 +30,11 @@ test('a reply claiming a payment arrived is caught, in English and Hinglish', ()
 
 test('talking about what happens after a payment is still allowed', () => {
   const fine = [
-    'Once your payment is received, Maulikbhai will call you within 24 hours.',
+    'Once your payment is received, the team will call you within 24 hours.',
     'After payment kindly email your existing logo and business details.',
-    'Please make the payment of Rs 510 using the link I shared.',
-    'Jab payment ho jaye, Maulikbhai aapko call karenge.',
-    'The fee is Rs 50,004 and it is fixed.',
+    'Please make the payment of Rs 500 using the link I shared.',
+    'Jab payment ho jaye, the team aapko call karenge.',
+    'The fee is Rs 45,000 and it is fixed.',
     'Thanks for letting me know - I have passed it to the team to check.',
   ];
   for (const text of fine) {
@@ -44,11 +44,11 @@ test('talking about what happens after a payment is still allowed', () => {
 
 test('a claim that survives the retry is rewritten, keeping the rest of the reply', () => {
   const out = redactPaymentAssertions(
-    'Thank you, payment received! Maulikbhai will call you within 24 hours to fix a meeting.',
+    'Thank you, payment received! the team will call you within 24 hours to fix a meeting.',
     'Hinglish',
   );
   assert.equal(findPaymentAssertions(out.text).length, 0, 'the claim is gone');
-  assert.match(out.text, /Maulikbhai will call you within 24 hours/, 'the useful half survives');
+  assert.match(out.text, /the team will call you within 24 hours/, 'the useful half survives');
   assert.match(out.text, /team ko bata deta hoon/, 'and it is replaced in the right language');
 });
 
@@ -61,7 +61,7 @@ test('a reply that is nothing but the claim still gets a usable answer', () => {
 // "For my business" was stored as lead_business = "business", which read as a
 // complete field to the qualification gate and as nothing to the team.
 test('a lead field that says nothing is rejected rather than stored', () => {
-  const services = ['Logo Design', 'Scientific Logo Design'];
+  const services = ['Logo Design', 'Premium Logo Design'];
   for (const value of ['business', 'my business', 'company', 'work', 'haan', 'na']) {
     const out = validateLeadProfile({ business: value }, { serviceNames: services });
     assert.equal(out.profile, null, `${value} should be rejected`);
@@ -70,15 +70,15 @@ test('a lead field that says nothing is rejected rather than stored', () => {
 });
 
 test('the name of the service they want is not their business, and not a brief', () => {
-  const services = ['Logo Design', 'Scientific Logo Design'];
-  assert.equal(validateLeadProfile({ business: 'Scientific Logo Design' }, { serviceNames: services }).profile, null);
-  assert.equal(validateLeadProfile({ requirement: 'scientific logo design' }, { serviceNames: services }).profile, null);
+  const services = ['Logo Design', 'Premium Logo Design'];
+  assert.equal(validateLeadProfile({ business: 'Premium Logo Design' }, { serviceNames: services }).profile, null);
+  assert.equal(validateLeadProfile({ requirement: 'premium logo design' }, { serviceNames: services }).profile, null);
 });
 
 test('a real answer is kept, however short', () => {
   const out = validateLeadProfile(
-    { business: 'steel bar manufacturing', address: 'Delhi', requirement: 'new scientific logo for the firm' },
-    { serviceNames: ['Scientific Logo Design'] },
+    { business: 'steel bar manufacturing', address: 'Delhi', requirement: 'new premium logo for the firm' },
+    { serviceNames: ['Premium Logo Design'] },
   );
   assert.deepEqual(out.rejected, []);
   assert.equal(out.profile.business, 'steel bar manufacturing');
@@ -88,13 +88,13 @@ test('a real answer is kept, however short', () => {
 // The pair below is msgs 24 and 25 from a real chat, sent seven seconds apart.
 // Byte comparison missed them because the model reworded as it repeated.
 test('a reworded repeat of the previous reply is caught', () => {
-  const previous = 'Aap apna logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs510 ka charge hoga. Maulik aapke logo ko study karke aapko feedback denge.';
-  const reworded = 'Aap apna existing logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs510 ka charge hoga. Maulik aapke logo ko detail mein study karke feedback denge.';
+  const previous = 'Aap apna logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs500 ka charge hoga. the designer aapke logo ko study karke aapko feedback denge.';
+  const reworded = 'Aap apna existing logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs500 ka charge hoga. the designer aapke logo ko detail mein study karke feedback denge.';
   assert.ok(isRepeatOf(reworded, [previous]), 'the same turn twice, reworded');
 });
 
 test('a genuinely different reply is not treated as a repeat', () => {
-  const previous = 'Aap apna logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs510 ka charge hoga.';
+  const previous = 'Aap apna logo bhej sakte hain, aur fir hum uska analysis karne ke liye Rs500 ka charge hoga.';
   assert.equal(isRepeatOf('Bilkul, main aapko payment link bhej raha hoon abhi.', [previous]), null);
 });
 
@@ -110,8 +110,8 @@ test('a repeat is caught even if it skips a turn', () => {
   assert.ok(isRepeatOf(earlier, [between, earlier]));
 });
 
-// The rule the client asked for: a scientific lead saying "logo" in passing is
-// still a scientific lead.
+// The rule the client asked for: a premium lead saying "logo" in passing is
+// still a premium lead.
 test('a passing mention of another service never moves an established one', () => {
   const out = resolveService({
     current: '3', currentBasis: 'stated', proposed: '1', proposedBasis: 'inferred', isChange: false,

@@ -33,7 +33,7 @@ beforeEach(async () => {
 
 test('a faq is created in a pack and listed under it', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  await createFaq(pool, { topicId: topic.id, question: 'What does a logo cost?', answer: '20000 rupees plus GST.' }, 'a@b.com');
+  await createFaq(pool, { topicId: topic.id, question: 'What does a logo cost?', answer: '15000 rupees plus GST.' }, 'a@b.com');
   await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday, 10am to 7pm.' }, 'a@b.com');
 
   const inPack = await listFaqs(pool, { pack: topic.id });
@@ -132,7 +132,7 @@ test('the pack list always leads with base and counts only active entries', asyn
 
 test('search finds a match in either the question or the answer, case insensitively', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.', topicId: logo.id });
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '15000 rupees plus GST.', topicId: logo.id });
   await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday, 10am to 7pm.' });
   await createFaq(pool, { question: 'How many revisions?', answer: 'The logo package includes two rounds.', topicId: logo.id });
 

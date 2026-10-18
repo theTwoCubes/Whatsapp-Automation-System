@@ -1,7 +1,12 @@
+// The number every fixture defaults to. Exported so tests that have to look
+// a contact up by wa_id use the same literal the fixtures send with, rather
+// than repeating it and drifting apart.
+export const DEFAULT_WA_ID = '91XXXXXX62XX';
+
 // Builders for the webhook payloads Meta sends, so tests can exercise paths we
 // cannot trigger by hand, such as a click to WhatsApp ad message.
 
-export function inboundText({ from = '918766226219', name = 'Test Lead', id, body, referral } = {}) {
+export function inboundText({ from = DEFAULT_WA_ID, name = 'Test Lead', id, body, referral } = {}) {
   const message = {
     from,
     id: id ?? `wamid.${Math.random().toString(36).slice(2)}`,
@@ -17,7 +22,7 @@ export function inboundText({ from = '918766226219', name = 'Test Lead', id, bod
   });
 }
 
-export function inboundImage({ from = '918766226219', name = 'Test Lead', id } = {}) {
+export function inboundImage({ from = DEFAULT_WA_ID, name = 'Test Lead', id } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],
     messages: [
@@ -32,7 +37,7 @@ export function inboundImage({ from = '918766226219', name = 'Test Lead', id } =
   });
 }
 
-export function inboundButtonReply({ from = '918766226219', name = 'Test Lead', id, text = 'Yes, interested' } = {}) {
+export function inboundButtonReply({ from = DEFAULT_WA_ID, name = 'Test Lead', id, text = 'Yes, interested' } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],
     messages: [
@@ -47,7 +52,7 @@ export function inboundButtonReply({ from = '918766226219', name = 'Test Lead', 
   });
 }
 
-export function inboundInteractiveReply({ from = '918766226219', name = 'Test Lead', id, title = 'Logo Design' } = {}) {
+export function inboundInteractiveReply({ from = DEFAULT_WA_ID, name = 'Test Lead', id, title = 'Logo Design' } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],
     messages: [
@@ -62,7 +67,7 @@ export function inboundInteractiveReply({ from = '918766226219', name = 'Test Le
   });
 }
 
-export function inboundLocation({ from = '918766226219', name = 'Test Lead', id } = {}) {
+export function inboundLocation({ from = DEFAULT_WA_ID, name = 'Test Lead', id } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],
     messages: [
@@ -77,7 +82,7 @@ export function inboundLocation({ from = '918766226219', name = 'Test Lead', id 
   });
 }
 
-export function inboundReaction({ from = '918766226219', name = 'Test Lead', id, targetWamid, emoji = '👍' } = {}) {
+export function inboundReaction({ from = DEFAULT_WA_ID, name = 'Test Lead', id, targetWamid, emoji = '👍' } = {}) {
   return wrap({
     contacts: [{ wa_id: from, profile: { name } }],
     messages: [
@@ -92,7 +97,7 @@ export function inboundReaction({ from = '918766226219', name = 'Test Lead', id,
   });
 }
 
-export function statusUpdate({ id, status = 'delivered', recipient = '918766226219' } = {}) {
+export function statusUpdate({ id, status = 'delivered', recipient = DEFAULT_WA_ID } = {}) {
   return wrap({
     statuses: [
       {
@@ -125,7 +130,7 @@ function wrap(value) {
             field: 'messages',
             value: {
               messaging_product: 'whatsapp',
-              metadata: { display_phone_number: '918860060837', phone_number_id: '1329787586874939' },
+              metadata: { display_phone_number: '91XXXXXXXXXX', phone_number_id: '1329787586874939' },
               ...value,
             },
           },

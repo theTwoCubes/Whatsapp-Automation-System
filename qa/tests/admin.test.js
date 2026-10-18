@@ -15,7 +15,7 @@ import { setupPool, resetTables, FakeMeta, FakeAi, silentLog, testConfig } from 
 
 let pool;
 const apiConfig = { ...testConfig, jwtSecret: 'test-secret' };
-const noopRealtime = { emit() {}, add() {}, size: () => 0 };
+const noopRealtime = { emit() { }, add() { }, size: () => 0 };
 const auth = (t) => ({ authorization: `Bearer ${t}` });
 
 before(async () => {
@@ -135,7 +135,7 @@ test('a contact with no name saved does not count or show up as a lead', async (
 
   const leads = await app.inject({ method: 'GET', url: '/api/leads', headers: auth(t) });
   assert.equal(leads.json().leads.length, 1);
-  assert.equal(leads.json().leads[0].wa_id, '918766226219');
+  assert.equal(leads.json().leads[0].wa_id, '9187XXXX62XX');
   await app.close();
 });
 
@@ -392,7 +392,7 @@ test('media can be filtered to general (no topic) files only', async () => {
 });
 
 test('payment links can be created, listed by topic, updated, and deleted', async () => {
-  const topic = await upsertTopic(pool, { slug: 'scientific_logo_design_pl', name: 'Scientific Logo Design' });
+  const topic = await upsertTopic(pool, { slug: 'premium_logo_design_pl', name: 'Premium Logo Design' });
   const app = await buildApp(new FakeMeta());
   const t = await token(app);
 

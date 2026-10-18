@@ -23,7 +23,7 @@ async function seed() {
   const poster = await upsertTopic(pool, { slug: 'poster', name: 'Poster' });
 
   await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday, 10am to 7pm.' });
-  await createFaq(pool, { topicId: logo.id, question: 'What does a logo cost?', answer: '20000 rupees plus GST.', verbatim: true });
+  await createFaq(pool, { topicId: logo.id, question: 'What does a logo cost?', answer: '15000 rupees plus GST.', verbatim: true });
   await createFaq(pool, { topicId: logo.id, question: 'How many revisions?', answer: 'Two rounds are included.' });
   await createFaq(pool, { topicId: poster.id, question: 'Poster turnaround?', answer: 'Three working days.' });
 
@@ -53,7 +53,7 @@ test('the whole service pack goes in alongside base, not a selection from it', a
 test('answers marked verbatim are flagged in the text the model sees', async () => {
   const { logo } = await seed();
   const ctx = await buildFaqContext(pool, { packs: ['base', logo.id] });
-  assert.match(ctx.text, /20000 rupees plus GST\. \[quote this answer exactly, word for word\]/);
+  assert.match(ctx.text, /15000 rupees plus GST\. \[quote this answer exactly, word for word\]/);
 });
 
 test('deactivated answers are left out entirely', async () => {

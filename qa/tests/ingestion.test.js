@@ -88,7 +88,7 @@ test('importing a Q colon A colon document splits it into separate answers', asy
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   const raw = [
     'Q: What is your logo design price?',
-    'A: The logo package is 20000 rupees plus GST.',
+    'A: The logo package is 15000 rupees plus GST.',
     '',
     'Q: How many revisions do I get?',
     'A: The package includes two rounds of revisions.',
@@ -100,7 +100,7 @@ test('importing a Q colon A colon document splits it into separate answers', asy
 
 test('re-importing the same document adds nothing the second time', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  const raw = 'Q: Price?\nA: The logo package is 20000 rupees plus GST.';
+  const raw = 'Q: Price?\nA: The logo package is 15000 rupees plus GST.';
   const first = await ingestText(pool, new FakeAi('not-json'), raw, { topicId: topic.id });
   assert.equal(first.added, 1);
   const second = await ingestText(pool, new FakeAi('not-json'), raw, { topicId: topic.id });
@@ -110,7 +110,7 @@ test('re-importing the same document adds nothing the second time', async () => 
 
 test('re-pasting a pack with one answer edited updates it in place instead of duplicating', async () => {
   const topic = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  const first = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: The logo package is 20000 rupees plus GST.', { topicId: topic.id });
+  const first = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: The logo package is 15000 rupees plus GST.', { topicId: topic.id });
   assert.equal(first.added, 1);
 
   const second = await ingestText(pool, new FakeAi('not-json'), 'Q: Price?\nA: The logo package is now 25000 rupees plus GST.', { topicId: topic.id });

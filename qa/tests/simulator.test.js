@@ -27,7 +27,7 @@ class SpyAi extends FakeAi {
 
 test('the trace reports the packs and answers the model would have seen', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
-  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.', topicId: logo.id });
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '15000 rupees plus GST.', topicId: logo.id });
   await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday.' });
 
   const trace = await simulateReply(pool, null, testConfig, testConfig, {
@@ -38,7 +38,7 @@ test('the trace reports the packs and answers the model would have seen', async 
 
   assert.deepEqual(trace.packsIncluded, ['base', Number(logo.id)]);
   assert.equal(trace.faqCount, 2, 'both packs are counted');
-  assert.match(trace.context, /20000 rupees plus GST/);
+  assert.match(trace.context, /15000 rupees plus GST/);
   assert.match(trace.context, /Monday to Saturday/);
   assert.equal(trace.decision, null, 'no ai call was made');
 });

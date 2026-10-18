@@ -33,12 +33,12 @@ test('an invented link in the reply is removed, along with the dangling lead-in'
 });
 
 test("the business's own website and instagram survive", () => {
-  const allowed = ['https://advoice.co.in/', 'https://instagram.com/advoice'];
+  const allowed = ['https://example-studio.com/', 'https://instagram.com/examplestudio'];
   const { text, stripped } = stripUnapprovedLinks(
-    'Our work is at https://advoice.co.in/ if you want a look.',
+    'Our work is at https://example-studio.com/ if you want a look.',
     allowed,
   );
-  assert.equal(text, 'Our work is at https://advoice.co.in/ if you want a look.');
+  assert.equal(text, 'Our work is at https://example-studio.com/ if you want a look.');
   assert.equal(stripped.length, 0);
 });
 
@@ -49,13 +49,13 @@ test('a scheme-less link is caught too, and the sentence punctuation survives it
 });
 
 test('a reply with no links is returned untouched', () => {
-  const input = 'The analysis is 510 rupees and Maulikbhai calls you within 24 hours.';
-  const { text, stripped } = stripUnapprovedLinks(input, ['https://advoice.co.in/']);
+  const input = 'The analysis is 500 rupees and the team calls you within 24 hours.';
+  const { text, stripped } = stripUnapprovedLinks(input, ['https://example-studio.com/']);
   assert.equal(text, input);
   assert.equal(stripped.length, 0);
 });
 
 test('an allowed host still matches when the model writes it without the scheme', () => {
-  const { stripped } = stripUnapprovedLinks('See advoice.co.in for more', ['https://advoice.co.in/']);
+  const { stripped } = stripUnapprovedLinks('See example-studio.com for more', ['https://example-studio.com/']);
   assert.equal(stripped.length, 0, 'www./scheme differences must not make the real site look invented');
 });

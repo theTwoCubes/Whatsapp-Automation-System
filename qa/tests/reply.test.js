@@ -43,19 +43,19 @@ async function conversation(body = 'what does a logo cost?') {
 }
 
 test('an answer action produces a reply and no handoff', async () => {
-  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.' });
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '15000 rupees plus GST.' });
   const id = await conversation();
-  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 20000 rupees plus GST.' }));
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 15000 rupees plus GST.' }));
 
   const decision = await buildReply(pool, ai, testConfig, id, {});
   assert.equal(decision.handoff, false);
-  assert.equal(decision.reply, 'A logo is 20000 rupees plus GST.');
+  assert.equal(decision.reply, 'A logo is 15000 rupees plus GST.');
 });
 
 test('the decision reports which ai provider actually answered', async () => {
-  await createFaq(pool, { question: 'What does a logo cost?', answer: '20000 rupees plus GST.' });
+  await createFaq(pool, { question: 'What does a logo cost?', answer: '15000 rupees plus GST.' });
   const id = await conversation();
-  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 20000 rupees plus GST.' }));
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'A logo is 15000 rupees plus GST.' }));
 
   const decision = await buildReply(pool, ai, testConfig, id, {});
   assert.equal(decision.aiProvider, 'fake', 'so a silent failover to the backup provider is visible, not hidden');
@@ -100,14 +100,14 @@ test('an answer action with an empty reply hands off instead of sending nothing'
 test('the prompt carries the pack answers and the rule against inventing figures', async () => {
   const logo = await upsertTopic(pool, { slug: 'logo_design', name: 'Logo Design' });
   await createFaq(pool, { question: 'What are your hours?', answer: 'Monday to Saturday.' });
-  await createFaq(pool, { topicId: logo.id, question: 'What does a logo cost?', answer: '20000 rupees plus GST.', verbatim: true });
+  await createFaq(pool, { topicId: logo.id, question: 'What does a logo cost?', answer: '15000 rupees plus GST.', verbatim: true });
 
   const id = await conversation();
   const ai = new SpyAi();
   await buildReply(pool, ai, testConfig, id, { packs: ['base', logo.id] });
 
   const system = ai.lastMessages[0].content;
-  assert.match(system, /20000 rupees plus GST/, 'the answer itself is in the prompt');
+  assert.match(system, /15000 rupees plus GST/, 'the answer itself is in the prompt');
   assert.match(system, /Monday to Saturday/, 'the base pack is there too');
   assert.match(system, /quote this answer exactly/, 'the verbatim marker survives into the prompt');
   assert.match(
@@ -318,13 +318,13 @@ test('the model is told it can react, using the approved emoji list', async () =
 test('contact details set on the console are offered to the model, and skipped when blank', async () => {
   const id = await conversation();
 
-  const withContact = { ...testConfig, websiteUrl: 'https://advoice.online', contactPhone: '+91 98765 43210', instagramUrl: 'https://instagram.com/advoice' };
+  const withContact = { ...testConfig, websiteUrl: 'https://console.example.com', contactPhone: '+91 98765 43210', instagramUrl: 'https://instagram.com/examplestudio' };
   const ai1 = new SpyAi();
   await buildReply(pool, ai1, withContact, id, {});
   const withSystem = ai1.lastMessages[0].content;
-  assert.match(withSystem, /https:\/\/advoice\.online/);
+  assert.match(withSystem, /https:\/\/example-studio\.com/);
   assert.match(withSystem, /\+91 98765 43210/);
-  assert.match(withSystem, /instagram\.com\/advoice/);
+  assert.match(withSystem, /instagram\.com\/examplestudio/);
 
   const id2 = await conversation('hi again');
   const blank = { ...testConfig, supportEmail: '', websiteUrl: '', contactPhone: '', instagramUrl: '' };
@@ -438,16 +438,16 @@ test('once the lead\'s business and email are known, the model is shown them and
 });
 
 test('the prompt names the service the conversation is recorded under', async () => {
-  const sci = await upsertTopic(pool, { slug: 'scientific-logo-design', name: 'Scientific Logo Design', keywords: 'yantra' });
-  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+  const sci = await upsertTopic(pool, { slug: 'premium-logo-design', name: 'Premium Logo Design', keywords: 'heritage' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '45000 all in.' });
   const id = await conversation('kya charge hai');
   await pool.query("update conversations set last_topic_id = $2, service_basis = 'stated' where id = $1", [id, sci.id]);
 
-  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'It is 50004 all in.' }));
+  const ai = new SpyAi(JSON.stringify({ action: 'answer', reply: 'It is 45000 all in.' }));
   await buildReply(pool, ai, testConfig, id, { packs: ['base', Number(sci.id)] });
 
   const leadBlock = ai.lastMessages[1].content;
-  assert.match(leadBlock, /SERVICE: Scientific Logo Design/);
+  assert.match(leadBlock, /SERVICE: Premium Logo Design/);
   assert.match(leadBlock, /the customer told you themselves/);
 });
 
@@ -456,8 +456,8 @@ test('the prompt names the service the conversation is recorded under', async ()
 // value, which is how one lead stayed filed under the wrong service for a
 // whole conversation.
 test('a guessed service is labelled as a guess, not stated as fact', async () => {
-  const sci = await upsertTopic(pool, { slug: 'scientific-logo-design', name: 'Scientific Logo Design', keywords: 'yantra' });
-  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '50004 all in.' });
+  const sci = await upsertTopic(pool, { slug: 'premium-logo-design', name: 'Premium Logo Design', keywords: 'heritage' });
+  await createFaq(pool, { topicId: sci.id, question: 'Cost?', answer: '45000 all in.' });
   const id = await conversation('kya charge hai');
   await pool.query("update conversations set last_topic_id = $2, service_basis = 'inferred' where id = $1", [id, sci.id]);
 
