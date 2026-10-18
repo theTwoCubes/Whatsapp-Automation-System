@@ -2,7 +2,7 @@
 
 The Capacitor wrapper turns the console into a sideloadable Android APK. The
 APK is a thin WebView pointing at the hosted URL in `capacitor.config.json`
-(currently `https://advoice.online`), so shipping a new UI does not require
+(set per deployment), so shipping a new UI does not require
 rebuilding or re-installing the app - the client just closes and reopens it.
 
 Rebuild the APK only when the app id, the hosted URL, the native shell, or the

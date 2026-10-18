@@ -4,7 +4,7 @@
   "webDir": "web/dist",
   "server": {
     "androidScheme": "https",
-    "url": "https://advoice.online",
+    "url": "https://console.example.com",
     "cleartext": false
   },
   "android": {
